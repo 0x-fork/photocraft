@@ -1534,6 +1534,14 @@ fn effect_cases() -> Vec<(&'static str, Vec<Effect>)> {
     let mut bevel_contour = bevel(BevelStyle::InnerBevel, true, 8.0, 3.0);
     bevel_contour.gloss_contour = contour();
     bevel_contour.use_global_light = false;
+    // #7360: a gloss contour that starts at 100 % (Rolling Slope - Descending), as on the type in
+    // the report; its flat face and slopes take the contour-mapped shading on both renderers.
+    let mut bevel_gloss_high = bevel(BevelStyle::InnerBevel, true, 8.0, 2.0);
+    bevel_gloss_high.gloss_contour = Contour::Custom {
+        name: "descending".into(),
+        points: vec![Cp { input: 0.0, output: 1.0 }, Cp { input: 0.4, output: 0.4 }, Cp { input: 1.0, output: 0.0 }],
+        corners: vec![],
+    };
     vec![
         ("drop shadow", vec![Effect::DropShadow(shadow(BlendMode::Multiply, 0.75, 120.0, 6.0, 8.0, 0.0))]),
         ("drop shadow spread contour", vec![Effect::DropShadow(ds_contour)]),
@@ -1600,6 +1608,7 @@ fn effect_cases() -> Vec<(&'static str, Vec<Effect>)> {
             })],
         ),
         ("bevel contour own light", vec![Effect::BevelEmboss(bevel_contour)]),
+        ("bevel gloss starting high", vec![Effect::BevelEmboss(bevel_gloss_high)]),
         ("satin", vec![Effect::Satin(satin)]),
         ("satin inverted contour", vec![Effect::Satin(satin_inv)]),
         ("stroke outside colour", vec![Effect::Stroke(stroke(4.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.95, 0.85, 0.1))))]),
