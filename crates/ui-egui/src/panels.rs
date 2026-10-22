@@ -1850,8 +1850,18 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::dock::persist(app, ui.ctx());
 }
 
-/// The dock's width range (points). It is the right dock, on the left in a right-to-left UI.
-pub(crate) const DOCK_WIDTH: std::ops::RangeInclusive<f32> = 250.0..=520.0;
+/// The dock's narrowest width (points). It is the right dock, on the left in a right-to-left UI.
+pub(crate) const DOCK_MIN_WIDTH: f32 = 250.0;
+/// What the dock leaves the toolbar and the canvas when it is widest (points).
+const DOCK_LEAVES: f32 = 400.0;
+
+/// The dock's width range (points) in a window `window_width` wide: from [`DOCK_MIN_WIDTH`] to
+/// everything but [`DOCK_LEAVES`], and never capped below the old 520, so two-column layouts can
+/// be as wide as the window allows (#7896).
+pub(crate) fn dock_width_range(window_width: f32) -> std::ops::RangeInclusive<f32> {
+    let max = if window_width.is_finite() { (window_width - DOCK_LEAVES).max(520.0) } else { 520.0 };
+    DOCK_MIN_WIDTH..=max
+}
 
 pub(crate) fn dock_width_id() -> egui::Id {
     egui::Id::new("dock-width-request")
@@ -1859,7 +1869,8 @@ pub(crate) fn dock_width_id() -> egui::Id {
 
 /// Set the right dock's width on the next frame (`ui.set {dockWidth}`); clamped to its range.
 pub fn request_dock_width(ctx: &egui::Context, w: f32) {
-    let w = if w.is_finite() { w.clamp(*DOCK_WIDTH.start(), *DOCK_WIDTH.end()) } else { *DOCK_WIDTH.start() };
+    let range = dock_width_range(ctx.content_rect().width());
+    let w = if w.is_finite() { w.clamp(*range.start(), *range.end()) } else { *range.start() };
     ctx.data_mut(|d| d.insert_temp(dock_width_id(), w));
 }
 
@@ -1882,7 +1893,10 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
         return;
     }
     let margin = if t.pro { 2 } else { 8 };
-    let mut panel = crate::direction::end_panel("dock").resizable(true).default_size(if t.pro { 290.0 } else { 300.0 }).size_range(DOCK_WIDTH);
+    let mut panel = crate::direction::end_panel("dock")
+        .resizable(true)
+        .default_size(if t.pro { 290.0 } else { 300.0 })
+        .size_range(dock_width_range(ui.ctx().content_rect().width()));
     if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
         panel = panel.exact_size(w);
     }
