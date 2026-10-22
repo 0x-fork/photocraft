@@ -3212,26 +3212,10 @@ fn layer_row(
     // The whole eye column takes drags too (so a drag starting on it never reorders the row): dragging down
     // the eyes gives every row swept over the visibility the first eye toggled to (#8467).
     let eye_resp = ui.interact(eye_cell, ui.id().with(("eye", l.id.0)), Sense::click_and_drag());
-    // A hidden layer's eye box shows a sunken well indicating its eye socket (#8467).
+    // A hidden layer's eye box is left empty (still clickable; the whole column takes the click, #8467).
     if l.visible {
         // Centre the drawing in the column while preserving the visibility hit area.
         icons::paint(ui, eye_cell, "eye", 15.0, t.layer_label_icon(l.label));
-    } else {
-        let well = Rect::from_center_size(eye_cell.center(), vec2(12.0, 12.0));
-        if t.bevel {
-            crate::widgets::surface(ui, well, t.field, false);
-        } else {
-            painter.rect_filled(well, t.radius_sm, t.field);
-            let (hi, lo) = if t.dark() {
-                (Color32::from_black_alpha(65), Color32::from_white_alpha(35))
-            } else {
-                (Color32::from_black_alpha(55), Color32::from_white_alpha(70))
-            };
-            painter.line_segment([well.left_bottom(), well.left_top()], Stroke::new(1.0, hi));
-            painter.line_segment([well.left_top(), well.right_top()], Stroke::new(1.0, hi));
-            painter.line_segment([well.right_top(), well.right_bottom()], Stroke::new(1.0, lo));
-            painter.line_segment([well.right_bottom(), well.left_bottom()], Stroke::new(1.0, lo));
-        }
     }
     eye_sweep(ctx, l, rect, &eye_resp, actions);
     if eye_resp.clicked() {
