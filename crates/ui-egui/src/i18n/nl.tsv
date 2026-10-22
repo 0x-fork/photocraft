@@ -3829,6 +3829,15 @@ cameraData	Lens	Lens
 	Add “copy” to Copied Layers and Groups	„kopie” toevoegen aan gekopieerde lagen en groepen
 	Preview on canvas when reordering layers	Voorvertoning op canvas bij herschikken van lagen
 	Show layer mask badges	Badges voor laagmaskers tonen
+
+# Smart Filter editors
+	Blending Options ({filter})	Overvloeiopties ({filter})
+	Hide the layer's effects and Smart Filters  ({key}-click: all layers)	Laageffecten en slimme filters verbergen  ({key}-klik: alle lagen)
+	Show the layer's effects and Smart Filters  ({key}-click: all layers)	Laageffecten en slimme filters tonen  ({key}-klik: alle lagen)
+	Wait for the current job to finish.	Wacht tot de huidige taak is voltooid.
+	The document or Smart Filter changed. Reopen its dialog.	Het document of het slimme filter is gewijzigd. Open het dialoogvenster opnieuw.
+	Opacity must be between 0% and 100%.	De dekking moet tussen 0% en 100% liggen.
+	Dissolve is approximated: it blends without Photoshop's dither.	Verspreiden is benaderd: het mengt zonder de dither van Photoshop.
 	Loading fonts…	Lettertypen laden…
 	Response curve	Responscurve
 	Simulate Pressure	Druk simuleren

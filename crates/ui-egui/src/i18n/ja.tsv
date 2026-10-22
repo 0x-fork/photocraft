@@ -3685,6 +3685,15 @@ cameraData	Lens	レンズ
 	Add “copy” to Copied Layers and Groups	コピーしたレイヤーとグループの名前に「コピー」を追加
 	Preview on canvas when reordering layers	レイヤーの並べ替え時にカンバスでプレビュー
 	Show layer mask badges	レイヤーマスクのバッジを表示
+
+# Smart Filter editors
+	Blending Options ({filter})	描画オプション ({filter})
+	Hide the layer's effects and Smart Filters  ({key}-click: all layers)	レイヤー効果とスマートフィルターを非表示  ({key}+クリック: すべてのレイヤー)
+	Show the layer's effects and Smart Filters  ({key}-click: all layers)	レイヤー効果とスマートフィルターを表示  ({key}+クリック: すべてのレイヤー)
+	Wait for the current job to finish.	現在の処理が完了するまでお待ちください。
+	The document or Smart Filter changed. Reopen its dialog.	ドキュメントまたはスマートフィルターが変更されました。ダイアログを開き直してください。
+	Opacity must be between 0% and 100%.	不透明度は0%から100%の範囲で指定してください。
+	Dissolve is approximated: it blends without Photoshop's dither.	ディザ合成は近似です。Photoshop のディザなしでブレンドします。
 	Loading fonts…	フォントを読み込み中…
 	Response curve	応答カーブ
 	Simulate Pressure	筆圧をシミュレート

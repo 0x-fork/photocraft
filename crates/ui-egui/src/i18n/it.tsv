@@ -2744,6 +2744,15 @@ cameraData	Lens	Obiettivo
 	Add “copy” to Copied Layers and Groups	Aggiungi «copia» ai livelli e ai gruppi duplicati
 	Preview on canvas when reordering layers	Anteprima sulla tela durante il riordino dei livelli
 	Show layer mask badges	Mostra distintivi delle maschere di livello
+
+# Smart Filter editors
+	Blending Options ({filter})	Opzioni di fusione ({filter})
+	Hide the layer's effects and Smart Filters  ({key}-click: all layers)	Nascondi effetti del livello e filtri avanzati  ({key}-clic: tutti i livelli)
+	Show the layer's effects and Smart Filters  ({key}-click: all layers)	Mostra effetti del livello e filtri avanzati  ({key}-clic: tutti i livelli)
+	Wait for the current job to finish.	Attendi il completamento dell'attività corrente.
+	The document or Smart Filter changed. Reopen its dialog.	Il documento o il filtro avanzato è cambiato. Riapri la sua finestra di dialogo.
+	Opacity must be between 0% and 100%.	L'opacità deve essere compresa tra 0% e 100%.
+	Dissolve is approximated: it blends without Photoshop's dither.	Dissolvi è approssimato: la fusione avviene senza il dither di Photoshop.
 	Loading fonts…	Caricamento font…
 	Response curve	Curva di risposta
 	Tool	Strumento
