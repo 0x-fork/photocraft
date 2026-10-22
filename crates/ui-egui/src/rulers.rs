@@ -213,6 +213,30 @@ pub fn draw_guides(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
     }
 }
 
+/// The position readout of a guide being dragged: `X:` for a vertical guide, `Y:` for a horizontal
+/// one, measured from the ruler zero point in the ruler unit. Pixels keep one decimal, as
+/// Photoshop's "X: 103.2 px".
+pub fn guide_drag_readout(app: &PhotocraftApp, d: GuideDrag) -> Option<(&'static str, String)> {
+    let doc = &app.session.active()?.doc;
+    let ur = &app.session.prefs().units_and_rulers;
+    let axis = usize::from(!d.vertical);
+    let px = d.pos - doc.ruler_origin.get(axis).copied().unwrap_or(0.0);
+    let extent = if d.vertical { doc.size.width } else { doc.size.height } as f64;
+    let value = match ur.rulers {
+        Unit::Pixels => photocraft_engine::prefs::fmt_decimals(px, 1),
+        _ => ur.format(px, f64::from(doc.resolution_dpi), extent),
+    };
+    Some((if d.vertical { "X:" } else { "Y:" }, format!("{value} {}", ur.rulers.suffix())))
+}
+
+/// Draw [`guide_drag_readout`] beside the pointer while a guide is dragged.
+pub fn draw_guide_drag_readout(app: &PhotocraftApp, ctx: &egui::Context) {
+    let (Some(d), Some(at)) = (app.guide_drag, ctx.pointer_latest_pos()) else { return };
+    if let Some((label, value)) = guide_drag_readout(app, d) {
+        crate::canvas::draw_value_readout(app, ctx, "guide-drag-readout", at, [label], [value]);
+    }
+}
+
 /// Existing guide under a document point (within 4 screen px).
 pub fn guide_at(app: &PhotocraftApp, x: f64, y: f64) -> Option<(bool, usize)> {
     // Hidden canvas guides are not interactive: the Move tool must reach the layer below.
@@ -735,6 +759,123 @@ mod tests {
         h.state_mut().guide_drag = Some(GuideDrag { vertical: false, index: None, pos: 17.0, press: 17.0 });
         h.run_steps(2);
         assert!(h.query_by_label("17").is_some(), "horizontal guide: Y readout");
+    }
+
+    /// A dragged guide shows its position beside the pointer: X for a vertical guide, Y for a
+    /// horizontal one, from the zero point, in the ruler unit (pixels to one decimal).
+    #[test]
+    fn guide_drag_shows_its_position_beside_the_pointer() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
+        let v = GuideDrag { vertical: true, index: Some(0), pos: 103.24, press: 50.0 };
+        assert_eq!(guide_drag_readout(&app, v), Some(("X:", "103.2 px".to_owned())));
+        let h = GuideDrag { vertical: false, index: None, pos: 40.0, press: 40.0 };
+        assert_eq!(guide_drag_readout(&app, h), Some(("Y:", "40 px".to_owned())));
+        app.run("view.setRulerOrigin", json!({"x": 3.0, "y": 10.0})).unwrap();
+        assert_eq!(guide_drag_readout(&app, h), Some(("Y:", "30 px".to_owned())), "from the zero point");
+        app.run("view.resetRulerOrigin", json!({})).unwrap();
+        app.run("prefs.set", json!({"path": "unitsAndRulers.rulers", "value": "percent"})).unwrap();
+        assert_eq!(guide_drag_readout(&app, GuideDrag { vertical: true, index: None, pos: 103.0, press: 0.0 }).map(|r| r.0), Some("X:"));
+        app.run("prefs.set", json!({"path": "unitsAndRulers.rulers", "value": "pixels"})).unwrap();
+
+        app.guide_drag = Some(v);
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(300.0, 200.0)).build_ui_state(|ui, app| draw_guide_drag_readout(app, ui.ctx()), app);
+        h.event(egui::Event::PointerMoved(pos2(50.0, 50.0)));
+        h.run_steps(2);
+        assert!(h.query_by_label("X:").is_some() && h.query_by_label("103.2 px").is_some());
+        h.state_mut().guide_drag = None;
+        h.run_steps(2);
+        assert!(h.query_by_label("X:").is_none(), "no readout once the drag ends");
+    }
+
+    type AppHarness = egui_kittest::Harness<'static, PhotocraftApp>;
+
+    /// The real canvas on a 400 × 300 document with a horizontal guide at y = 100, at 100 %,
+    /// with the Move tool and snapping off.
+    fn canvas_harness(rulers: bool) -> AppHarness {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
+        app.run("view.newGuide", json!({"orientation": "horizontal", "position": 100})).unwrap();
+        app.sync_views();
+        app.ui.extras.rulers = rulers;
+        app.ui.extras.snap = false;
+        app.ui.tool = crate::state::Tool::Move;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 600.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    return;
+                }
+                egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(4);
+        let v = &mut h.state_mut().ui.views[0];
+        (v.zoom, v.center, v.fit_pending) = (1.0, [200.0, 150.0], false);
+        h.run_steps(2);
+        h
+    }
+
+    /// Screen point of document point `(x, y)` in [`canvas_harness`].
+    fn canvas_at(h: &AppHarness, x: f32, y: f32) -> Pos2 {
+        let app = h.state();
+        let v = &app.ui.views[0];
+        let rect = content_rect(app, app.last_canvas_rect);
+        ViewXform { rect, zoom: v.zoom, center: v.center, flip: false, rotation: 0.0, aspect: 1.0 }.to_screen(x, y)
+    }
+
+    /// Moving a horizontal guide with the Move tool on the real canvas: `Y:` follows the pointer.
+    #[test]
+    fn moving_a_guide_on_the_canvas_shows_its_y() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = canvas_harness(false);
+        let at = canvas_at;
+        let press = at(&h, 200.0, 100.0);
+        h.event(egui::Event::PointerMoved(press));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: press, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+        for y in [110.0, 125.0, 140.0] {
+            h.event(egui::Event::PointerMoved(at(&h, 210.0, y)));
+            h.run_steps(2);
+        }
+        assert!(h.state().guide_drag.is_some_and(|d| !d.vertical), "a horizontal guide is being dragged");
+        assert!(h.query_by_label("Y:").is_some() && h.query_by_label("140 px").is_some(), "Y readout at the guide");
+        assert!(h.query_by_label("X:").is_none());
+        let up = at(&h, 210.0, 140.0);
+        h.event(egui::Event::PointerButton { pos: up, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+        h.run_steps(2);
+        assert_eq!(h.state().session.active().unwrap().doc.guides.horizontal, vec![140.0]);
+        assert!(h.query_by_label("Y:").is_none(), "gone after the drop");
+    }
+
+    /// A guide dragged out of the top ruler: in each frame the readout shows where the guide is
+    /// after that frame's pointer move (the ruler handles the drag after the canvas is drawn), and
+    /// the frame that drops it shows none.
+    #[test]
+    fn ruler_drag_readout_is_current_every_frame() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = canvas_harness(true);
+        let from = pos2(canvas_at(&h, 200.0, 0.0).x, h.state().last_canvas_rect.top() + RULER / 2.0);
+        h.event(egui::Event::PointerMoved(from));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+        for y in [40.0, 60.0, 75.0] {
+            h.event(egui::Event::PointerMoved(canvas_at(&h, 200.0, y)));
+            h.run_steps(1);
+            let pos = h.state().guide_drag.map(|d| d.pos);
+            assert_eq!(pos, Some(f64::from(y)), "the drag follows the pointer");
+            assert!(h.query_by_label(&format!("{y} px")).is_some(), "readout at {y} in the same frame");
+        }
+        let up = canvas_at(&h, 200.0, 75.0);
+        h.event(egui::Event::PointerButton { pos: up, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+        assert!(h.state().guide_drag.is_none());
+        assert!(h.query_by_label("Y:").is_none(), "no readout in the frame that drops the guide");
+        assert!(h.state().session.active().unwrap().doc.guides.horizontal.contains(&75.0), "the guide lands at y = 75");
     }
 
     #[test]

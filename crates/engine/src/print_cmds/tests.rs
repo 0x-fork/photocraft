@@ -869,3 +869,121 @@ fn windows_pdf_component_is_detected_by_loading_its_dll() {
 fn the_windows_pdf_check_is_a_no_op_elsewhere() {
     assert!(require_windows_pdf().is_ok());
 }
+
+/// A 500 × 1000 pt document (72 ppi) on A3 (841.89 × 1190.55 pt): its height sets the fit.
+fn a3_layout(extra: Value) -> Result<PrintLayout> {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 500, "height": 1000, "resolution": 72})).unwrap();
+    let mut p = json!({"paper": "a3", "scaleToFit": true});
+    if let (Some(p), Some(extra)) = (p.as_object_mut(), extra.as_object()) {
+        p.extend(extra.clone());
+    }
+    layout(&s.active().unwrap().doc, &p, "file.print")
+}
+
+#[test]
+fn scale_to_fit_fills_a_borderless_printable_area() {
+    let (pw, ph) = (841.89, 1190.55);
+    // Without a printable area, the fixed 18 pt margin stays (CUPS, PDF).
+    let l = a3_layout(json!({})).unwrap();
+    assert!((l.scale - (ph - 36.0) / 1000.0).abs() < 1e-9, "{l:?}");
+    // Borderless: the driver reports the whole sheet (#7782: a Canon PRO-1000 reports its A3 as
+    // 842.29 × 1191.14 pt), and the image reaches the paper's edges.
+    let l = a3_layout(json!({"printable": [0.0, 0.0, 842.29, 1191.14]})).unwrap();
+    assert!((l.scale - ph / 1000.0).abs() < 1e-9, "{l:?}");
+    let (x, y, w, h) = l.rect;
+    assert!(y.abs() < 1e-9 && (h - ph).abs() < 1e-9 && (x - (pw - w) / 2.0).abs() < 1e-9, "{l:?}");
+}
+
+#[test]
+fn scale_to_fit_stays_inside_an_uneven_printable_area() {
+    let (pw, ph) = (841.89, 1190.55);
+    // 17 pt left and right, 14 pt at the top, 48 pt at the bottom (from the top-left, as
+    // `file.print.page` reports it). The layout's rect has its origin at the bottom-left.
+    let l = a3_layout(json!({"printable": [17.0, 14.0, pw - 34.0, ph - 62.0]})).unwrap();
+    assert!((l.scale - (ph - 62.0) / 1000.0).abs() < 1e-9, "{l:?}");
+    let (x, y, w, h) = l.rect;
+    assert!((y - 48.0).abs() < 1e-9 && (y + h - (ph - 14.0)).abs() < 1e-9, "fills the printable height: {l:?}");
+    assert!((x - (pw - w) / 2.0).abs() < 1e-9, "centred between equal side margins: {l:?}");
+    // Crop and registration marks keep their 36 pt inset, inside the printable area.
+    let l = a3_layout(json!({"printable": [17.0, 14.0, pw - 34.0, ph - 62.0], "cornerCropMarks": true})).unwrap();
+    assert!((l.scale - (ph - 62.0 - 72.0) / 1000.0).abs() < 1e-9, "{l:?}");
+    assert!((l.rect.1 - 84.0).abs() < 1e-9, "{l:?}");
+    // Scale to fit off: the printable area changes nothing.
+    let l = a3_layout(json!({"printable": [17.0, 14.0, pw - 34.0, ph - 62.0], "scaleToFit": false})).unwrap();
+    assert_eq!(l, a3_layout(json!({"scaleToFit": false})).unwrap());
+}
+
+#[test]
+fn a_bad_printable_area_is_refused() {
+    let portrait = json!([0.0, 0.0, 842.29, 1191.14]);
+    for bad in [
+        json!([0, 0, 100]),
+        json!([0, 0, 0, 100]),
+        json!([0, 0, 100, -5]),
+        json!("whole"),
+        json!([2000, 0, 100, 100]),
+        json!([0, "oops", 0, 842.29, 1191.14]),
+        json!([0, 0, 842.29, null]),
+    ] {
+        assert!(a3_layout(json!({ "printable": bad })).is_err(), "{bad}");
+    }
+    // A portrait sheet's area on a landscape layout is another paper, not a rounding error.
+    assert!(a3_layout(json!({"printable": portrait, "orientation": "landscape"})).is_err());
+}
+
+#[test]
+fn emulsion_down_fits_the_mirrored_printable_area() {
+    let (pw, ph) = (841.89, 1190.55);
+    // 10 pt on the left, 40 pt on the right of the sheet as the driver sees it. The page is
+    // mirrored as it prints, so the image box (before mirroring) must fit the mirror image.
+    // A wide image, so the printable width sets the fit.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 1000, "height": 500, "resolution": 72})).unwrap();
+    let p = json!({"paper": "a3", "scaleToFit": true, "printable": [10.0, 0.0, pw - 50.0, ph], "emulsionDown": true});
+    let l = layout(&s.active().unwrap().doc, &p, "file.print").unwrap();
+    let (x, _, w, _) = l.rect;
+    let printed = (pw - x - w, pw - x);
+    assert!(printed.0 >= 10.0 - 1e-9 && printed.1 <= pw - 40.0 + 1e-9, "printed at {printed:?}: {l:?}");
+}
+
+/// A native print fits only the driver's area: one the caller passed is dropped when the
+/// driver can't give one for this paper (no such paper here, or no driver at all).
+#[test]
+fn a_native_print_drops_a_printable_area_the_driver_did_not_give() {
+    let p = with_driver_printable(&json!({"paper": [500.0, 500.0], "printable": [0.0, 0.0, 100.0, 100.0], "scaleToFit": true}));
+    assert!(p.get("printable").is_none(), "{p}");
+    assert_eq!(p["paper"], json!([500.0, 500.0]));
+}
+
+#[test]
+fn a_print_uses_the_printable_area_but_does_not_remember_it() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 500, "height": 1000, "resolution": 72})).unwrap();
+    let r = s.execute("file.print", json!({"paper": "a3", "scaleToFit": true, "printable": [0.0, 0.0, 842.29, 1191.14], "dryRun": true})).unwrap();
+    assert!((r["scale"].as_f64().unwrap() - 119.055).abs() < 1e-6, "{r}");
+    // The next print (Print One Copy, or the dialog on another printer or to PDF) reads its own.
+    let last = last_print(&s).unwrap();
+    assert!(last.get("printable").is_none() && last["scaleToFit"] == true, "{last}");
+}
+
+#[test]
+fn a_rejected_printable_area_fails_the_print_and_changes_nothing() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 500, "height": 1000, "resolution": 72})).unwrap();
+    s.execute("file.print", json!({"paper": "a3", "scale": 50, "dryRun": true})).unwrap();
+    let before = (last_print(&s), s.prefs.get().dialogs.get(REMEMBERED).cloned(), s.active().unwrap().doc.clone());
+    for printable in [json!([2000, 0, 100, 100]), json!([0, "oops", 0, 842.29, 1191.14])] {
+        let r = s.execute("file.print", json!({"paper": "a3", "scaleToFit": true, "printable": printable, "dryRun": true}));
+        assert!(r.is_err(), "{printable}: {r:?}");
+    }
+    assert!(before == (last_print(&s), s.prefs.get().dialogs.get(REMEMBERED).cloned(), s.active().unwrap().doc.clone()));
+    // A print at a manual scale doesn't read the area, so a stale one doesn't fail it.
+    let r = s.execute("file.print", json!({"paper": "a3", "scale": 50, "printable": [0.0, 0.0, 842.29, 1191.14], "orientation": "landscape", "dryRun": true}));
+    assert!(r.is_ok(), "{r:?}");
+    // Marks need room only to fit: a small manual scale in a 60 pt-wide area prints.
+    let r = s.execute("file.print", json!({"paper": "a3", "scale": 5, "printable": [0, 0, 60, 1191.14], "cornerCropMarks": true, "dryRun": true}));
+    assert!(r.is_ok(), "{r:?}");
+    let r = s.execute("file.print", json!({"paper": "a3", "scaleToFit": true, "printable": [0, 0, 60, 1191.14], "cornerCropMarks": true, "dryRun": true}));
+    assert!(r.is_err(), "{r:?}");
+}

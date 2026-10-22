@@ -817,10 +817,12 @@ fn driver_page(f: &mut Map<String, Value>) {
     match craft_print::rgb::page(&printer, settings.as_ref()) {
         Ok(pg) => {
             f.insert("paper".into(), json!([pg.paper.0, pg.paper.1]));
+            f.insert("printable".into(), json!([pg.printable.0, pg.printable.1, pg.printable.2, pg.printable.3]));
             f.insert("orientation".into(), json!("portrait"));
             f.remove("__pageError");
         }
         Err(e) => {
+            f.remove("printable");
             f.insert("__pageError".into(), json!(e.to_string()));
         }
     }
@@ -936,7 +938,9 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
             f.insert("__driverPageInitialized".into(), json!(true));
         }
     } else {
+        // PDF output and previews have no driver page: Scale to Fit Media uses the paper.
         f.remove("__driverPageInitialized");
+        f.remove("printable");
     }
     let p = params(f);
     let mut browse = false;
@@ -1216,8 +1220,20 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
     }
 }
 
+/// `file.print`'s params. The driver's printable area only goes with a print to the printer:
+/// an output path or a preview set in the same frame as the confirm still drops it.
+fn print_params(f: &Map<String, Value>) -> Value {
+    let mut p = params(f);
+    if (b(f, "dryRun", false) || !s(f, "output", "").is_empty())
+        && let Some(o) = p.as_object_mut()
+    {
+        o.remove("printable");
+    }
+    p
+}
+
 fn print_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
-    let r = app.run("file.print", params(f))?;
+    let r = app.run("file.print", print_params(f))?;
     if r["pending"] != json!(true) {
         print_status(app, &r);
     }
@@ -1525,6 +1541,20 @@ mod tests {
         assert!(f.get("__systemPrinters").is_some_and(Value::is_array));
         assert!(params(f).get("__systemPrinters").is_none());
         assert!(params(f).get("__printers").is_none());
+    }
+
+    /// An output path or a preview typed and confirmed in one frame doesn't take the driver's area.
+    #[test]
+    fn the_printable_area_goes_only_with_a_print_to_the_printer() {
+        let area = json!([0.0, 0.0, 842.29, 1191.14]);
+        let mut f = Map::new();
+        f.insert("printable".into(), area.clone());
+        assert_eq!(print_params(&f)["printable"], area);
+        f.insert("output".into(), json!("/tmp/out.pdf"));
+        assert!(print_params(&f).get("printable").is_none());
+        f.insert("output".into(), json!(""));
+        f.insert("dryRun".into(), json!(true));
+        assert!(print_params(&f).get("printable").is_none());
     }
 
     /// #7410: File › Print opens with the settings of the last print, also those remembered from

@@ -3245,6 +3245,7 @@ curves	Smooth	Сгладить
 	GPU Memory Full	Память GPU заполнена
 	The layers need {needed} of GPU memory and may hold {budget}, so edits that redraw the whole document do it on the CPU. Click to set GPU Memory.	Слоям нужно {needed} памяти GPU, а занимать они могут {budget}, поэтому правки, перерисовывающие весь документ, выполняются на CPU. Нажмите, чтобы задать «Память GPU».
 	GPU memory budget: {budget}	Бюджет памяти GPU: {budget}
+	Graphics memory: {size}	Видеопамять: {size}
 	This document's layers: {needed} of {budget} for layers	Слои этого документа: {needed} из {budget} для слоёв
 	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	Слоям этого документа нужно {needed}, но занимать они могут {budget}: весь документ перерисовывается на CPU
 	GPU Memory (MB, 0 = Automatic)	Память GPU (МБ, 0 = автоматически)
@@ -3277,3 +3278,5 @@ curves	Smooth	Сгладить
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Сначала подтвердите или отмените открытый диалог шага операции

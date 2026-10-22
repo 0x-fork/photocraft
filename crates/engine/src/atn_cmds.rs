@@ -1203,8 +1203,18 @@ fn make_from(d: &Descriptor) -> Mapped {
             if let Some(n) = using.and_then(|u| get_text(u, "Nm  ")) {
                 p.insert("name".into(), n.into());
             }
-            let id = if get_ref(d, "From").is_some() { "layer.groupLayers" } else { "layer.new.group" };
-            step(id, Value::Object(p))
+            match get_ref(d, "From") {
+                // A named source layer stays the source (#7236); a target reference and an
+                // index/id source (our exporter never writes those) keep the old implicit
+                // import: the group lands on the current selection at playback.
+                Some(r) => {
+                    if let Some(t) = layer_target(r) {
+                        p.extend(t);
+                    }
+                    step("layer.groupLayers", Value::Object(p))
+                }
+                None => step("layer.new.group", Value::Object(p)),
+            }
         }
         _ => Mapped::Unsupported { harmless: false },
     }
@@ -1231,7 +1241,9 @@ fn make_to(id: &str, p: &Value) -> Option<Descriptor> {
         }
         "layer.new.group" => desc("null").with("null", class_ref("layerSection")).with("Usng", D::Descriptor(with_name("layerSection"))),
         "layer.groupLayers" => {
-            desc("null").with("null", class_ref("layerSection")).with("From", target_ref("Lyr ")).with("Usng", D::Descriptor(with_name("layerSection")))
+            // An explicit source layer goes in by name like every other layer reference; a
+            // step without one keeps the target-layer form (#7236).
+            desc("null").with("null", class_ref("layerSection")).with("From", layer_ref(p)).with("Usng", D::Descriptor(with_name("layerSection")))
         }
         "layer.new.layerViaCopy" | "layer.new.layerViaCut" => {
             let mut d = desc("null").with("Nw  ", D::Descriptor(desc("Lyr "))).with("Usng", enm("ArSl", "Slct"));
@@ -1497,6 +1509,10 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
                 .with("T   ", D::Descriptor(color_desc(hex)?))
         }
         "select.rect" => {
+            match jstr(p, "mode") {
+                None | Some("replace") => {}
+                Some(_) => return None,
+            }
             let (x, y, w, h) = (jnum(p, "x")?, jnum(p, "y")?, jnum(p, "width")?, jnum(p, "height")?);
             let cls = if jbool(p, "ellipse") == Some(true) { "Elps" } else { "Rctn" };
             sel(D::Descriptor(desc(cls).with("Top ", px(y)).with("Left", px(x)).with("Btom", px(y + h)).with("Rght", px(x + w))))
@@ -1605,7 +1621,11 @@ fn select_to(id: &str, p: &Value) -> Option<Descriptor> {
     let enumerated = |cls: &str, ty: &str, v: &str| D::Reference(vec![ReferenceItem::Enumerated { class: class(cls), type_id: code(ty), value: code(v) }]);
     Some(match id {
         "layer.select" => {
-            let mut d = desc("null").with("null", name_ref("Lyr ", jstr(p, "layer")?));
+            if p.get("occurrence").is_some() {
+                return None;
+            }
+            let name = jstr(p, "name").or_else(|| jstr(p, "layer"))?;
+            let mut d = desc("null").with("null", name_ref("Lyr ", name));
             match jstr(p, "mode") {
                 None | Some("replace") => {}
                 Some("add") => d = d.with("selectionModifier", enm("selectionModifierType", "addToSelection")),
@@ -1783,8 +1803,15 @@ fn transform_from(d: &Descriptor) -> Mapped {
     // to keep its sub-pixel placement and interpolation.
     let whole_pixels = ["dx", "dy"].iter().all(|k| p.get(*k).and_then(Value::as_f64).is_none_or(|v| v.fract() == 0.0));
     let geometry_only = p.keys().all(|k| k == "dx" || k == "dy") && whole_pixels;
+    // The resampling applies to a selection as much as to a layer (#7515).
+    let interpolation = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).filter(|i| matches!(*i, "bicubic" | "bilinear" | "nearest"));
     match (ref_class(r).as_deref(), target(r)) {
-        (Some("Chnl"), Target::Property(prop)) if prop == "fsel" => step("select.transformSelection", Value::Object(p)),
+        (Some("Chnl"), Target::Property(prop)) if prop == "fsel" => {
+            if let Some(i) = interpolation {
+                p.insert("interpolation".into(), i.into());
+            }
+            step("select.transformSelection", Value::Object(p))
+        }
         (Some("Lyr"), _) => {
             let Some(mut lp) = layer_target(r) else { return unsupported };
             if geometry_only {
@@ -1793,7 +1820,7 @@ fn transform_from(d: &Descriptor) -> Mapped {
                 return step("layer.translate", Value::Object(lp));
             }
             lp.extend(p);
-            if let Some(i) = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).filter(|i| matches!(*i, "bicubic" | "bilinear" | "nearest")) {
+            if let Some(i) = interpolation {
                 lp.insert("interpolation".into(), i.into());
             }
             step("edit.transform", Value::Object(lp))
@@ -1803,10 +1830,22 @@ fn transform_from(d: &Descriptor) -> Mapped {
 }
 
 fn transform_to(id: &str, p: &Value) -> Option<Descriptor> {
-    if p.get("quad").is_some() || p.get("matrix").is_some() || p.get("rect").is_some() {
+    let given = |k: &str| p.get(k).is_some_and(|v| !v.is_null());
+    if ["quad", "corners", "matrix", "rect"].iter().any(|k| given(k)) {
+        return None;
+    }
+    // The descriptor scales and rotates about the centre (`FTcs` average) without skew or warp:
+    // another reference point, a skew or a warp would replay as a different transform (#7516,
+    // #7517, #7518, #7519).
+    let nonzero = |k: &str| p.get(k).is_some_and(|v| !v.is_null() && v.as_f64() != Some(0.0));
+    let off_centre = p.get("reference").is_some_and(|v| !v.is_null() && *v != json!("center"));
+    if nonzero("skewX") || nonzero("skewY") || off_centre || ["warp", "style", "mesh", "grid"].iter().any(|k| given(k)) {
         return None;
     }
     let target = match id {
+        // The `Trnf` descriptor has no field for a mask, Quick Mask or alpha channel target; a
+        // layer reference would transform the layer's pixels instead.
+        "edit.transform" if !pixel_target(p) => return None,
         "edit.transform" => layer_ref(p),
         "select.transformSelection" => D::Reference(vec![ReferenceItem::Property { class: class("Chnl"), key: code("fsel") }]),
         _ => return None,
@@ -1892,6 +1931,15 @@ fn apply_image_from(d: &Descriptor) -> Mapped {
 }
 
 fn apply_image_to(_: &str, p: &Value) -> Option<Descriptor> {
+    // The optional blending mask has no descriptor mapping: refuse it rather than drop it,
+    // which would widen the edit to the whole layer.
+    let mask_channel = match p.get("mask") {
+        Some(m) => m.get("channel"),
+        None => p.get("maskChannel"),
+    };
+    if mask_channel.is_some_and(|c| !(c.is_null() || c == "none" || c == "")) {
+        return None;
+    }
     let source = p.get("source").cloned().unwrap_or(json!({}));
     let channel = jstr(&source, "channel").unwrap_or("composite");
     let chan = lookup_back(SOURCE_CHANNELS, channel).or_else(|| lookup_back(CHANNELS, channel))?;
@@ -2141,6 +2189,20 @@ fn duplicate_to(id: &str, p: &Value) -> Option<Descriptor> {
         d = d.with("Mrgd", D::Boolean(m));
     }
     Some(d)
+}
+
+/// Only a comp name in the active document is portable across action playback.
+fn apply_comp_from(d: &Descriptor) -> Mapped {
+    match get_ref(d, "null") {
+        Some([ReferenceItem::Name { class, name }]) if trimmed(&class.class_id) == "compsClass" => {
+            step("layerComp.apply", json!({"comp": name.to_string_lossy()}))
+        }
+        _ => Mapped::Unsupported { harmless: false },
+    }
+}
+
+fn apply_comp_to(_: &str, p: &Value) -> Option<Descriptor> {
+    Some(desc("null").with("null", name_ref("compsClass", jstr(p, "comp")?)))
 }
 
 fn play_from(d: &Descriptor) -> Mapped {
@@ -2628,6 +2690,16 @@ fn shadows_highlights_to(_: &str, p: &Value) -> Option<Descriptor> {
 }
 
 fn image_size_to(_: &str, p: &Value) -> Option<Descriptor> {
+    // Resolution only with Resample on imports as keep-print-size; a command without it cannot be told apart.
+    if jnum(p, "resolution").is_some()
+        && jnum(p, "width").is_none()
+        && jnum(p, "height").is_none()
+        && jnum(p, "percent").is_none()
+        && jstr(p, "resample").is_some_and(|r| r != "none")
+        && jbool(p, "keepPrintSize") != Some(true)
+    {
+        return None;
+    }
     let mut d = desc("null");
     if let Some(pc) = jnum(p, "percent") {
         d = d.with("Wdth", pct(pc)).with("Hght", pct(pc)).with("CnsP", D::Boolean(true));
@@ -3419,6 +3491,7 @@ const EVENTS: &[Event] = &[
     ev!("save", "save", "Save", "file.save", &[]),
     ev!("Rvrt", "revert", "Revert", "file.revert", &[]),
     Event { code: "Ply ", name: "play", label: "Play", ids: &["actions.play"], from: play_from, to: play_to },
+    Event { code: "", name: "applyComp", label: "Apply Layer Comp", ids: &["layerComp.apply"], from: apply_comp_from, to: apply_comp_to },
     Event { code: "Stop", name: "stop", label: "Stop", ids: &[STOP_MESSAGE], from: stop_from, to: stop_to },
 ];
 

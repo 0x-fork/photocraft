@@ -654,6 +654,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         DialogKind::Command => {
             let Some(cmd) = d.fields.get("__command").and_then(Value::as_str).map(str::to_string) else {
                 app.filter_preview = None;
+                crate::actions::abandoned(app, &d.fields);
                 return Err("dialog has no command".into());
             };
             if crate::filter_dialog::needs_displace_map(&cmd, &crate::filter_dialog::params_of(&d.fields)) {
@@ -679,6 +680,8 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
                 crate::filter_dialog::remember(app, &cmd, &d.fields);
                 // A step dialog of a playing action: the action continues after it.
                 crate::actions::resume(app, &d.fields)?;
+            } else {
+                crate::actions::abandoned(app, &d.fields);
             }
             result
         }
