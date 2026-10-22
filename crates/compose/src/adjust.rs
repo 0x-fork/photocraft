@@ -940,7 +940,9 @@ fn map_rgb(buf: &mut Buffer, f: impl Fn([f32; 3]) -> [f32; 3]) {
 #[inline]
 fn lut(table: &[f32], v: f32) -> f32 {
     let x = v.clamp(0.0, 1.0) * (table.len() - 1) as f32;
-    let i = x.floor() as usize;
+    // Never negative (NaN casts to 0, as its floor did), so truncating is `floor`, without the
+    // libm call baseline x86-64 (no SSE4.1) makes for it.
+    let i = x as usize;
     let j = (i + 1).min(table.len() - 1);
     let f = x - i as f32;
     table[i] * (1.0 - f) + table[j] * f
