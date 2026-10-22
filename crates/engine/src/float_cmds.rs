@@ -307,7 +307,7 @@ pub(crate) fn before_command(s: &mut Session, id: &str) -> Result<Option<Value>>
     }
     match id {
         // Edit › Undo and the History panel's Step Backward step back over the move itself.
-        "edit.undo" | "edit.stepBackward" | "history.stepBackward" => {
+        "edit.undo" | "history.stepBackward" => {
             st.floating = None;
             Ok(Some(json!({"floating": "returned"})))
         }

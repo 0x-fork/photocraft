@@ -4716,7 +4716,6 @@ dependencies = [
  "photocraft-doc",
  "photocraft-engine",
  "photocraft-format",
- "photocraft-geom",
  "photocraft-io",
  "rmcp",
  "rustix 1.1.5",
@@ -5018,9 +5017,6 @@ name = "photocraft-testkit"
 version = "0.12.0"
 dependencies = [
  "memory-stats",
- "photocraft-color",
- "photocraft-geom",
- "photocraft-raster",
  "serde_json",
 ]
 
