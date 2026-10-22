@@ -67,6 +67,7 @@ const OPEN_FILTERS: &[(&str, &[&str])] = &[
     ("FITS", &["fits", "fit", "fts"]),
     ("DPX and Cineon", &["dpx", "cin"]),
     ("Amiga IFF", &["iff", "lbm", "ilbm"]),
+    ("DICOM", &["dcm", "dicom", "dc3"]),
     ("Camera Raw", &["dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf"]),
     ("Brushes", &["abr"]),
     ("Gradients", &["grd"]),
