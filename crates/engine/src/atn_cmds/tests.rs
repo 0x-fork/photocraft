@@ -1580,6 +1580,36 @@ fn minimum_and_maximum_with_roundness_are_not_exported_as_squareness() {
     }
 }
 
+/// #7515: a Transform Selection's interpolation survives the round trip as a layer transform's
+/// does. #7516-#7519: a reference point other than the centre, a skew or a warp can't be written,
+/// so the step is refused instead of replaying as a plain scale.
+#[test]
+fn transform_selection_keeps_its_interpolation_and_refuses_what_it_cannot_carry() {
+    let one = |id: &str, p: Value| Action { name: "Probe".into(), steps: vec![(id.into(), p)], ..Default::default() };
+    let p = json!({"dx": 0.7, "dy": 0, "scaleX": 140, "scaleY": 80, "interpolation": "nearest"});
+    let (bytes, skipped) = export("Audit7", &[&one("select.transformSelection", p.clone())], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let imported = import(&bytes).unwrap();
+    assert_eq!(imported.actions[0].steps, vec![("select.transformSelection".to_string(), p)]);
+    for id in ["select.transformSelection", "edit.transform"] {
+        for p in [
+            json!({"scaleX": 140, "reference": "topLeft"}),
+            json!({"scaleX": 140, "reference": [3, 4]}),
+            json!({"scaleX": 140, "skewX": 12}),
+            json!({"scaleX": 140, "skewY": -5}),
+            json!({"warp": "arc"}),
+            json!({"corners": [[0, 0], [10, 0], [10, 10], [0, 10]]}),
+        ] {
+            let err = export("Audit7", &[&one(id, p.clone())], &[], false).unwrap_err();
+            assert!(err.contains("no Photoshop equivalent") && err.contains(&format!("`{id}`")), "{id} {p}: {err}");
+            let (_, skipped) = export("Audit7", &[&one(id, p.clone())], &[], true).unwrap();
+            assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: id.into() }], "{id} {p}");
+        }
+        let carried = json!({"scaleX": 140, "reference": "center", "skewX": 0, "skewY": 0});
+        assert!(export("Audit7", &[&one(id, carried.clone())], &[], false).is_ok(), "{id} {carried}");
+    }
+}
+
 /// Photoshop's Close has no document target: a Close of a specific document must not be
 /// exported as a plain Close, which would close the active document on playback.
 #[test]

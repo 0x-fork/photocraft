@@ -1783,8 +1783,15 @@ fn transform_from(d: &Descriptor) -> Mapped {
     // to keep its sub-pixel placement and interpolation.
     let whole_pixels = ["dx", "dy"].iter().all(|k| p.get(*k).and_then(Value::as_f64).is_none_or(|v| v.fract() == 0.0));
     let geometry_only = p.keys().all(|k| k == "dx" || k == "dy") && whole_pixels;
+    // The resampling applies to a selection as much as to a layer (#7515).
+    let interpolation = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).filter(|i| matches!(*i, "bicubic" | "bilinear" | "nearest"));
     match (ref_class(r).as_deref(), target(r)) {
-        (Some("Chnl"), Target::Property(prop)) if prop == "fsel" => step("select.transformSelection", Value::Object(p)),
+        (Some("Chnl"), Target::Property(prop)) if prop == "fsel" => {
+            if let Some(i) = interpolation {
+                p.insert("interpolation".into(), i.into());
+            }
+            step("select.transformSelection", Value::Object(p))
+        }
         (Some("Lyr"), _) => {
             let Some(mut lp) = layer_target(r) else { return unsupported };
             if geometry_only {
@@ -1793,7 +1800,7 @@ fn transform_from(d: &Descriptor) -> Mapped {
                 return step("layer.translate", Value::Object(lp));
             }
             lp.extend(p);
-            if let Some(i) = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).filter(|i| matches!(*i, "bicubic" | "bilinear" | "nearest")) {
+            if let Some(i) = interpolation {
                 lp.insert("interpolation".into(), i.into());
             }
             step("edit.transform", Value::Object(lp))
@@ -1803,7 +1810,16 @@ fn transform_from(d: &Descriptor) -> Mapped {
 }
 
 fn transform_to(id: &str, p: &Value) -> Option<Descriptor> {
-    if p.get("quad").is_some() || p.get("matrix").is_some() || p.get("rect").is_some() {
+    let given = |k: &str| p.get(k).is_some_and(|v| !v.is_null());
+    if ["quad", "corners", "matrix", "rect"].iter().any(|k| given(k)) {
+        return None;
+    }
+    // The descriptor scales and rotates about the centre (`FTcs` average) without skew or warp:
+    // another reference point, a skew or a warp would replay as a different transform (#7516,
+    // #7517, #7518, #7519).
+    let nonzero = |k: &str| p.get(k).is_some_and(|v| !v.is_null() && v.as_f64() != Some(0.0));
+    let off_centre = p.get("reference").is_some_and(|v| !v.is_null() && *v != json!("center"));
+    if nonzero("skewX") || nonzero("skewY") || off_centre || ["warp", "style", "mesh", "grid"].iter().any(|k| given(k)) {
         return None;
     }
     let target = match id {
