@@ -2292,7 +2292,8 @@ impl eframe::App for PhotocraftApp {
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);
         prefs_ui::tick(self, ctx);
-        // Before anything reads this frame's scroll (see `wheel_nav::unsmooth`).
+        // Animation Effects off: no wheel glide in the main window's panels and lists. Before
+        // anything reads this frame's scroll (see `wheel_nav::unsmooth`).
         if self.prefs_rt.animations_off {
             wheel_nav::unsmooth(ctx);
         }

@@ -52,7 +52,8 @@ pub struct Runtime {
     show_rulers: Option<bool>,
     /// Tool options as last remembered in the preferences (see `tool_memory`).
     pub(crate) tool_options: Option<crate::state::ToolOptions>,
-    /// Interface › Animation Effects resolved to off this frame (see `sync_animations`).
+    /// Interface › Animation Effects resolved to off this frame (see `sync_animations`). The
+    /// wheel readers take it as their `smooth` flag (`wheel_nav::read_with`).
     pub(crate) animations_off: bool,
     pub(crate) selected_tool: Option<crate::state::Tool>,
     /// The tool owning the session brush and the other tools' brushes, as last remembered.
@@ -460,8 +461,9 @@ fn animations_on(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
 }
 
 /// Interface › Animation Effects: off, egui's fades and slides take no time and `scroll_to` jumps
-/// straight to its target (#3273); `PhotocraftApp::logic` takes out the wheel's glide
-/// (`wheel_nav::unsmooth`). Checked every frame: a theme change rebuilds the style and the
+/// straight to its target (#3273). The wheel's glide is taken out where the wheel is read: by
+/// `wheel_nav::read_with` on the canvas, in every window, and by `wheel_nav::unsmooth` in the
+/// main window's panels and lists. Checked every frame: a theme change rebuilds the style and the
 /// system's setting can change. Both the dark and light styles are set, so an appearance switch
 /// keeps it.
 fn sync_animations(app: &mut PhotocraftApp, ctx: &egui::Context) {
