@@ -31,11 +31,14 @@ fn stroke_len(stylization: f32) -> f32 {
 }
 
 /// `f32::round` (half away from zero) as an integer, without the `roundf` call `f32::round`
-/// makes on the baseline x86-64 target. Exact for `|v| < 2^22`, which covers every window
-/// coordinate; larger magnitudes saturate like the cast the caller used to perform.
+/// makes on the baseline x86-64 target. The sum is taken in `f64`, where `v ± 0.5` is exact for
+/// every `f32` the cast does not saturate (an `f32` sum is not: `0.49999997 + 0.5` rounds up to
+/// `1.0`), so the result equals `v.round() as i32` for every `f32`, NaN (0) and the saturating
+/// ends included.
 #[inline]
 fn round_i32(v: f32) -> i32 {
-    (v + 0.5f32.copysign(v)) as i32
+    let v = f64::from(v);
+    (v + 0.5f64.copysign(v)) as i32
 }
 
 /// [`round_i32`] clamped into `0..n`.
@@ -231,10 +234,40 @@ mod tests {
             }
             v += 0.25;
         }
+        // The binade crossings where an `f32` sum `v + 0.5` rounds up (0.5 - 2^-25), the ties, and
+        // the largest non-integer `f32`.
+        let below_half = f32::from_bits(0x3eff_ffff);
+        for v in [below_half, -below_half, 0.5, -0.5, 1.5, -1.5, 2.5, -2.5, 8_388_607.5, -8_388_607.5, 8_388_608.0, 3.0e9, -3.0e9] {
+            assert_eq!(round_i32(v), v.round() as i32, "round_i32({v:e})");
+            for n in [1usize, 2, 33] {
+                let want = (v.round().clamp(0.0, (n - 1) as f32)) as usize;
+                assert_eq!(round_index(v, n), want, "round_index({v:e}, {n})");
+            }
+        }
         assert_eq!(round_i32(f32::NAN), f32::NAN.round() as i32);
         for n in [1usize, 8] {
             assert_eq!(round_index(f32::NEG_INFINITY, n), (f32::NEG_INFINITY.clamp(0.0, (n - 1) as f32)) as usize);
             assert_eq!(round_index(f32::INFINITY, n), ((n - 1) as f32) as usize);
         }
+    }
+
+    /// Every `f32` bit pattern in [-4096, 4096] (both signs, about 2.3e9 values, split across
+    /// threads) rounds exactly like `f32::round`.
+    #[test]
+    fn rounding_matches_the_standard_library_for_every_f32_up_to_4096() {
+        use rayon::prelude::*;
+        let last = 4096.0f32.to_bits();
+        let bad = (0..=last >> 20)
+            .into_par_iter()
+            .filter_map(|hi| {
+                let lo = hi << 20;
+                let hi_end = (lo | 0xf_ffff).min(last);
+                (lo..=hi_end).find_map(|bits| {
+                    let v = f32::from_bits(bits);
+                    [v, -v].into_iter().find(|v| round_i32(*v) != v.round() as i32)
+                })
+            })
+            .min_by(|a, b| a.abs().total_cmp(&b.abs()));
+        assert_eq!(bad, None, "round_i32 differs from f32::round");
     }
 }

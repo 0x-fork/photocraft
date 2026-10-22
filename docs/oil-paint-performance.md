@@ -12,10 +12,12 @@ filter's time went.
 - **`sample()`:** `x.floor() as usize` became `x as usize`. The two arguments are clamped to
   `0 ..= w-1` on the lines above, so truncation is floor for every input the function can see
   (NaN truncates to 0 either way, which is the same sample the old code read).
-- **Tangent and bristle lookups:** `round` became `round_i32(v) = (v + 0.5 * sign(v)) as i32`.
-  `f32::round` is round-half-away-from-zero, which is truncation of `v ± 0.5`; that sum is exact
-  in `f32` for `|v| < 2^22` (the spacing there is at most 0.5), and every coordinate is inside a
-  tile window, so the integer is identical. `round_index` adds the `clamp(0, n-1)` the tangent
+- **Tangent and bristle lookups:** `round` became `round_i32(v) = (v as f64 + 0.5 * sign(v)) as i32`.
+  `f32::round` is round-half-away-from-zero, which is truncation of `v ± 0.5` when that sum is
+  exact. In `f32` it is not always: `0.49999997 + 0.5` (`0.5 - 2^-25`) rounds up to `1.0`, so an
+  `f32` sum gives 1 where `f32::round` gives 0. In `f64` the sum is exact for every `f32` the
+  `i32` cast does not saturate, so the integer is identical for every input; a unit test checks
+  every `f32` bit pattern in [-4096, 4096] against `f32::round`. `round_index` adds the `clamp(0, n-1)` the tangent
   lookup already applied; NaN casts to 0 and ±∞ casts to an end of the clamp range in both
   versions, so the clamped results match for every input, including non-finite ones.
 
