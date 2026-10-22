@@ -108,6 +108,8 @@ mod panel_defaults {
     use photocraft_doc::text::{Caps, Kerning, Orientation, TextAlign, TextShape};
 
     fn panels(app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
+        // Wait for the font scan: while it runs the panels repaint every 100 ms and `Harness::run` gives up.
+        let _ = photocraft_text::shared();
         let mut h = Harness::builder().with_size(vec2(760.0, 800.0)).build_ui_state(
             |ui, app: &mut PhotocraftApp| {
                 if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
