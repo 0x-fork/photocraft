@@ -2677,6 +2677,11 @@ fn crop_from(d: &Descriptor) -> Mapped {
 }
 
 fn crop_to(_: &str, p: &Value) -> Option<Descriptor> {
+    // The W x H x Resolution output options have no field here: refuse rather than export a plain
+    // rectangle crop that keeps the old size and resolution on replay.
+    if ["targetWidth", "targetHeight", "resolution"].iter().any(|k| p.get(k).is_some_and(|v| !v.is_null())) {
+        return None;
+    }
     let mut d = desc("null");
     if let (Some(x), Some(y), Some(w), Some(h)) = (jnum(p, "x"), jnum(p, "y"), jnum(p, "width"), jnum(p, "height")) {
         d = d.with("To  ", D::Descriptor(desc("Rctn").with("Top ", px(y)).with("Left", px(x)).with("Btom", px(y + h)).with("Rght", px(x + w))));

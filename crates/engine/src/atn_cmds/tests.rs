@@ -1771,3 +1771,24 @@ fn adjustment_layer_reset_still_resets() {
     assert_eq!(steps[0], ("layer.setAdjustment".to_string(), json!({})));
     assert_eq!(steps[1].1, json!({"midtones": [10, 0, 0], "kind": "colorBalance"}));
 }
+
+/// A crop with W x H x Resolution output options must not export as a plain rectangle crop
+/// that keeps the old size and resolution on replay: the mapper has no field for them.
+#[test]
+fn crop_with_output_size_or_resolution_is_not_exported_as_plain_crop() {
+    for params in [
+        json!({"x": 1, "y": 1, "width": 4, "height": 3, "targetWidth": 8, "targetHeight": 6, "resolution": 144, "resample": "nearest"}),
+        json!({"x": 1, "y": 1, "width": 4, "height": 3, "resolution": 144}),
+        json!({"x": 1, "y": 1, "width": 4, "height": 3, "targetWidth": 8, "targetHeight": 6}),
+    ] {
+        let sized = Action { name: "Probe".into(), steps: vec![("image.crop".into(), params)], ..Default::default() };
+        assert!(export("Audit", &[&sized], &[], false).is_err());
+        let (_, skipped) = export("Audit", &[&sized], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "image.crop".into() }]);
+    }
+    let plain = Action { name: "Plain".into(), steps: vec![("image.crop".into(), json!({"x": 1, "y": 1, "width": 4, "height": 3}))], ..Default::default() };
+    let (bytes, skipped) = export("Audit", &[&plain], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let imported = import(&bytes).unwrap();
+    assert_eq!(imported.actions[0].steps, vec![("image.crop".to_string(), json!({"x": 1, "y": 1, "width": 4, "height": 3, "deleteCroppedPixels": true}))]);
+}
