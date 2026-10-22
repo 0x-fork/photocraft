@@ -36,6 +36,8 @@ pub enum Format {
     Dpx,
     /// Kodak Cineon (`.cin`, the 10-bit film-scan format DPX grew from): read-only.
     Cineon,
+    /// DICOM single-frame images (uncompressed): read-only.
+    Dicom,
 }
 
 /// What a format can hold **and** what this crate reads/writes for it.
@@ -69,6 +71,10 @@ pub struct FormatCaps {
 pub const ASYMMETRIC_EXCEPTIONS: &[(Format, &str)] = &[
     (Format::Xpm, "XPM is a legacy Unix icon interchange format. Reading existing XPM icons is supported; writing modern image assets should use PNG instead."),
     (
+        Format::Dicom,
+        "DICOM single-frame images are imported for medical review; this crate has no DICOM writer, so save an imported frame as TIFF or PNG instead.",
+    ),
+    (
         Format::Pcx,
         "PCX is supported for opening legacy paint and clipart assets. New files should use PNG; writing obsolete indexed and planar variants is intentionally not provided.",
     ),
@@ -101,7 +107,7 @@ const TIFF_LAYOUTS: &[ChannelLayout] = &[L::Gray, L::GrayA, L::Rgb, L::Rgba, L::
 
 impl Format {
     /// Every format known to the crate (enabled or not).
-    pub const ALL: [Format; 20] = [
+    pub const ALL: [Format; 21] = [
         Format::Png,
         Format::Jpeg,
         Format::Tiff,
@@ -122,6 +128,7 @@ impl Format {
         Format::Fits,
         Format::Dpx,
         Format::Cineon,
+        Format::Dicom,
     ];
 
     pub fn caps(self) -> FormatCaps {
@@ -156,6 +163,7 @@ impl Format {
             Format::Fits => "FITS",
             Format::Dpx => "DPX",
             Format::Cineon => "Cineon",
+            Format::Dicom => "DICOM",
         }
     }
 
@@ -183,6 +191,7 @@ impl Format {
             Format::Fits => &["fits", "fit", "fts"],
             Format::Dpx => &["dpx"],
             Format::Cineon => &["cin"],
+            Format::Dicom => &["dcm", "dicom", "dc3"],
         }
     }
 
@@ -208,6 +217,7 @@ impl Format {
             Format::Fits => "image/fits",
             Format::Dpx => "image/x-dpx",
             Format::Cineon => "image/x-cin",
+            Format::Dicom => "application/dicom",
         }
     }
 
@@ -265,6 +275,7 @@ pub fn caps(format: Format) -> FormatCaps {
         // `text`: the DPX header fields only (see `fidelity_warnings_with`).
         Format::Dpx => FormatCaps { depths: &[S::U8, S::U16], layouts: &[L::Gray, L::Rgb, L::Rgba], text: true, ..base },
         Format::Cineon => FormatCaps { read: true, write: false, depths: &[S::U16], layouts: &[L::Gray, L::Rgb], alpha: false, ..base },
+        Format::Dicom => FormatCaps { read: true, write: false, depths: &[S::U8, S::U16], layouts: &[L::Gray, L::Rgb], alpha: false, ..base },
     }
 }
 
@@ -321,6 +332,9 @@ pub fn detect(bytes: &[u8]) -> Option<Format> {
     }
     if crate::codecs::dpx::is_cineon(b) {
         return Some(Format::Cineon);
+    }
+    if crate::codecs::dicom::is_dicom(b) {
+        return Some(Format::Dicom);
     }
     if b.starts_with(b"SIMPLE  =") {
         return Some(Format::Fits);
