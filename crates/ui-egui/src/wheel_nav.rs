@@ -175,6 +175,7 @@ pub fn fold_legacy_pinch(ctx: &Context, raw: &mut RawInput) {
     }
 }
 
+/// Where [`unsmooth`] keeps, from frame to frame, whether a trackpad gesture is in progress.
 fn gesture_id() -> Id {
     Id::new("pc-wheel-gesture")
 }
@@ -232,15 +233,20 @@ fn unsmoothed_scroll(events: &[Event], options: &egui::InputOptions, page: f32, 
 /// Call it once a frame, before anything reads the scroll. `PhotocraftApp::logic` does, for the
 /// main window; the canvas, also in other windows, uses [`read_with`]'s `smooth` flag instead.
 pub fn unsmooth(ctx: &Context) {
+    let (scroll, in_gesture) = this_frames_scroll(ctx);
+    if let Some(scroll) = scroll {
+        ctx.input_mut(|i| i.smooth_scroll_delta = scroll);
+    }
+    ctx.data_mut(|d| d.insert_temp(gesture_id(), in_gesture));
+}
+
+/// [`unsmoothed_scroll`] for this frame's input in `ctx`, and whether a trackpad gesture is in
+/// progress after it.
+fn this_frames_scroll(ctx: &Context) -> (Option<Vec2>, bool) {
     let options = ctx.options(|o| o.input_options);
     let mut in_gesture = ctx.data(|d| d.get_temp::<bool>(gesture_id())).unwrap_or(false);
-    ctx.input_mut(|i| {
-        let page = i.viewport_rect().height();
-        if let Some(scroll) = unsmoothed_scroll(&i.events, &options, page, &mut in_gesture) {
-            i.smooth_scroll_delta = scroll;
-        }
-    });
-    ctx.data_mut(|d| d.insert_temp(gesture_id(), in_gesture));
+    let scroll = ctx.input(|i| unsmoothed_scroll(&i.events, &options, i.viewport_rect().height(), &mut in_gesture));
+    (scroll, in_gesture)
 }
 
 fn alt_id() -> Id {
@@ -277,9 +283,9 @@ pub fn read(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner: Id, 
     read_with(ctx, zoom_with_wheel, pinch_zooms, owner, hovered, true, true)
 }
 
-/// [`read`], choosing how a plain wheel scroll pans: `smooth` glides it over a few frames (egui's
+/// [`read`], choosing how a wheel scroll pans: `smooth` glides it over a few frames (egui's
 /// smoothed delta); off, as with Interface › Animation Effects off, the view moves the whole notch
-/// in the frame the wheel turns and stops there (#5721).
+/// in the frame the wheel turns and stops there (#5721), sideways too for ⇧ or ⌘/Ctrl + wheel.
 /// `touch_gestures` is Preferences › Enhanced Controls › Enable Gestures: off, a touch screen's
 /// two-finger pinch doesn't zoom ([`pinch_factor`]).
 pub fn read_with(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner: Id, hovered: bool, smooth: bool, touch_gestures: bool) -> Option<Wheel> {
@@ -388,8 +394,9 @@ pub fn read_with(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner:
                 d.remove::<f64>(snap_time_id(owner));
             });
         }
-        // Unsmoothed, a plain scroll pans by this frame's own wheel events (none: no tail).
-        let scroll = if smooth || alt || shift { scroll } else { raw };
+        // Unsmoothed, a scroll pans by this frame's own wheel events, folded sideways or upright by
+        // their modifiers as egui folds them (none: no tail).
+        let scroll = if smooth { scroll } else { this_frames_scroll(ctx).0.unwrap_or(scroll) };
         classify(Input { scroll, raw, zoom_delta, alt, shift, zoom_with_wheel, pinch_zooms, notch })
     }
 }
@@ -525,6 +532,47 @@ mod tests {
         let smooth = pans(true);
         assert!(smooth[0].y.abs() < notch - 0.5, "smoothed, the first frame moves only part of it: {:?}", smooth[0]);
         assert!(smooth[1..].iter().any(|p| p.y != 0.0), "and the rest follows");
+    }
+
+    /// Smoothing off, ⇧ and ⌘/Ctrl + wheel still pan sideways, and Alt + wheel with Zoom with
+    /// Scroll Wheel on still pans upright, each the whole notch at once and the same distance as
+    /// smoothed: the unsmoothed pan is folded by the modifiers as egui folds the smoothed one.
+    #[test]
+    fn unsmoothed_wheel_pans_keep_their_modifiers() {
+        let pans = |modifiers: Modifiers, zoom_with_wheel: bool, smooth: bool| -> Vec<Vec2> {
+            let owner = Id::new("test-unsmoothed-modifiers");
+            let ctx = Context::default();
+            configure(&ctx);
+            (0..30)
+                .map(|n| {
+                    let events = if n == 0 { vec![wheel(Vec2::new(0.0, -1.0), modifiers)] } else { Vec::new() };
+                    let raw = RawInput { time: Some(f64::from(n) / 60.0), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
+                    let mut pan = Vec2::ZERO;
+                    let mut out = ctx.run_ui(raw, |ui| {
+                        if let Some(Wheel::Pan(d)) = read_with(ui.ctx(), zoom_with_wheel, true, owner, true, smooth, true) {
+                            pan = d;
+                        }
+                    });
+                    out.textures_delta.clear();
+                    pan
+                })
+                .collect()
+        };
+        let total = |pans: &[Vec2]| pans.iter().fold(Vec2::ZERO, |sum, d| sum + *d);
+        for (modifiers, zoom_with_wheel, want) in [
+            (Modifiers::NONE, false, Vec2::new(0.0, -40.0)),
+            (Modifiers::SHIFT, false, Vec2::new(-40.0, 0.0)),
+            (CTRL, false, Vec2::new(-40.0, 0.0)),
+            (CMD, false, Vec2::new(-40.0, 0.0)),
+            (CTRL, true, Vec2::new(-40.0, 0.0)),
+            (Modifiers::ALT, true, Vec2::new(0.0, -40.0)),
+        ] {
+            let direct = pans(modifiers, zoom_with_wheel, false);
+            assert!(near(direct[0], want), "{modifiers:?}: the whole notch at once: {:?}", direct[0]);
+            assert!(direct[1..].iter().all(|p| *p == Vec2::ZERO), "{modifiers:?}: no glide after it");
+            let smooth = total(&pans(modifiers, zoom_with_wheel, true));
+            assert!((smooth - want).length() < 1.0, "{modifiers:?}: smoothed, the same distance: {smooth:?}");
+        }
     }
 
     #[test]
@@ -787,6 +835,7 @@ mod tests {
             .collect()
     }
 
+    /// How far the frames scroll in all.
     fn total(frames: &[Vec2]) -> Vec2 {
         frames.iter().fold(Vec2::ZERO, |sum, d| sum + *d)
     }

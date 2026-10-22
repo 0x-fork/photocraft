@@ -74,6 +74,7 @@ fn ini_value<'a>(text: &'a str, section: &str, key: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
 
+    /// Each reader turns its own kind of value into on or off, and anything else into `None`.
     #[test]
     fn each_kind_of_value_reads_as_on_or_off() {
         for (value, animations) in
@@ -99,6 +100,7 @@ mod tests {
         }
     }
 
+    /// A key is read from its own section only, the last entry wins, and junk reads as nothing.
     #[test]
     fn ini_values_come_from_their_own_section() {
         let kde = "[General]\nAnimationDurationFactor=3\n\n[KDE]\nSingleClick=false\n AnimationDurationFactor = 0 \n[KDE][Sub]\nAnimationDurationFactor=7\n";
@@ -113,6 +115,7 @@ mod tests {
         }
     }
 
+    /// Without the portal: KDE's file only on KDE, GNOME's or MATE's key, then GTK's file.
     #[test]
     fn without_the_portal_each_desktop_is_read_where_it_keeps_the_setting() {
         let files = |kdeglobals: Option<&'static str>, gtk3: Option<&'static str>| {

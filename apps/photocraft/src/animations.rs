@@ -36,6 +36,7 @@ fn polled(read: fn() -> Option<bool>) -> photocraft_ui_egui::SystemAnimationsFn 
 
 #[cfg(target_os = "windows")]
 mod platform {
+    /// Settings › Accessibility › Visual effects › Animation effects.
     pub fn service() -> Option<photocraft_ui_egui::SystemAnimationsFn> {
         Some(super::polled(read))
     }
@@ -49,10 +50,12 @@ mod platform {
 
 #[cfg(target_os = "macos")]
 mod platform {
+    /// System Settings › Accessibility › Display › Reduce motion.
     pub fn service() -> Option<photocraft_ui_egui::SystemAnimationsFn> {
         Some(super::polled(read))
     }
 
+    /// Animations are on unless Reduce motion is.
     fn read() -> Option<bool> {
         Some(!objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion())
     }
@@ -66,10 +69,14 @@ mod platform {
 
     use super::freedesktop;
 
+    /// Starts the worker; the returned reader gives its latest answer and asks it to read again
+    /// when the window gets the focus back.
     pub fn service() -> Option<photocraft_ui_egui::SystemAnimationsFn> {
         let latest = Arc::new(Mutex::new(None));
         let wake: Arc<OnceLock<egui::Context>> = Arc::new(OnceLock::new());
-        let (refresh, refreshes) = mpsc::channel::<()>();
+        // One pending request is enough: focus changes while the worker is busy, or while it
+        // follows the portal and takes none, add nothing.
+        let (refresh, refreshes) = mpsc::sync_channel::<()>(1);
         let publisher = Publisher { latest: Arc::clone(&latest), wake: Arc::clone(&wake) };
         std::thread::Builder::new().name("animations-setting".into()).spawn(move || worker(&publisher, &refreshes)).ok()?;
         let last_focus = std::cell::Cell::new(true);
@@ -77,10 +84,9 @@ mod platform {
             let _ = wake.set(ctx.clone());
             let focused = ctx.input(|i| i.focused);
             let was_focused = last_focus.replace(focused);
-            // Back from the desktop's settings, perhaps: read again. With the portal's change
-            // signal nobody listens for this, and the send fails quietly.
+            // Back from the desktop's settings, perhaps: read again.
             if focused && !was_focused {
-                let _ = refresh.send(());
+                let _ = refresh.try_send(());
             }
             *lock(&latest)
         }))
@@ -106,6 +112,7 @@ mod platform {
     }
 
     impl Publisher {
+        /// Stores the worker's answer, and wakes the UI when it changed.
         fn publish(&self, animations: Option<bool>) {
             let previous = std::mem::replace(&mut *lock(&self.latest), animations);
             if previous != animations
@@ -158,6 +165,7 @@ mod platform {
             true
         }
 
+        /// The answer of the first setting in [`SETTINGS`] the portal knows.
         fn read(proxy: &zbus::blocking::Proxy<'_>) -> Option<bool> {
             SETTINGS.iter().find_map(|(namespace, key, parse)| {
                 let value: OwnedValue = proxy.call("Read", &(*namespace, *key)).ok()?;
@@ -187,10 +195,13 @@ mod platform {
         mod tests {
             use super::*;
 
+            /// `value` as the portal hands it over.
             fn owned(value: Value<'_>) -> OwnedValue {
                 OwnedValue::try_from(value).unwrap()
             }
 
+            /// Each value type a portal sends, nested or not, reads as the text a settings file
+            /// would hold; other types aren't settings.
             #[test]
             fn portal_values_read_as_text() {
                 let nested = Value::Value(Box::new(Value::Value(Box::new(Value::U32(1)))));
@@ -213,6 +224,7 @@ mod platform {
         /// A settings file is a few kilobytes; a larger one isn't read.
         const MAX_CONFIG_BYTES: u64 = 1 << 20;
 
+        /// The setting of the desktop this session runs (`XDG_CURRENT_DESKTOP`).
         pub fn read() -> Option<bool> {
             let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
             freedesktop::without_portal(&desktop, &config_file, &gsettings)
@@ -224,6 +236,7 @@ mod platform {
             var("XDG_CONFIG_HOME").filter(|path| path.is_absolute()).or_else(|| Some(var("HOME")?.join(".config")))
         }
 
+        /// The text of `name` in the user's config directory, if it is there and not too large.
         fn config_file(name: &str) -> Option<String> {
             use std::io::Read as _;
             let mut text = String::new();
@@ -248,6 +261,7 @@ mod platform {
 
 #[cfg(not(any(unix, target_os = "windows")))]
 mod platform {
+    /// No reader here: animations stay on.
     pub fn service() -> Option<photocraft_ui_egui::SystemAnimationsFn> {
         None
     }

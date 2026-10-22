@@ -3963,6 +3963,8 @@ mod tests {
         [egui::Theme::Dark, egui::Theme::Light].map(|t| ctx.style_of(t).animation_time)
     }
 
+    /// Off zeroes egui's animation time in both styles, survives a theme change and a restart,
+    /// and On brings the default back.
     #[test]
     fn animation_effects_off_stops_egui_animations_and_is_remembered() {
         let on = egui::Style::default().animation_time;
@@ -3984,6 +3986,8 @@ mod tests {
         assert!(ctx.global_style().scroll_animation.duration.max > 0.0 && !app.prefs_rt.animations_off);
     }
 
+    /// Use System Setting, the default, follows the system's answer as it changes; On and Off
+    /// ignore it; no answer keeps animations on.
     #[test]
     fn use_system_setting_follows_the_platform() {
         use std::{cell::Cell, rc::Rc};
@@ -4014,6 +4018,8 @@ mod tests {
         assert_eq!(animation_times(&ctx), [on, on]);
     }
 
+    /// The old checkbox's saved "off" still turns animations off, and a value that is no choice
+    /// loads as the default instead of failing.
     #[test]
     fn old_and_hand_edited_animation_settings_load_safely() {
         let on = egui::Style::default().animation_time;

@@ -489,9 +489,9 @@ fn the_wheel_reaches_12800_percent_and_stops_dead_there() {
     assert!((d2[0] - d0[0]).abs() < 0.02 && (d2[1] - d0[1]).abs() < 0.02, "{d0:?} -> {d2:?}");
 }
 
-/// One wheel notch over the canvas at 800 %: the view's centre before it, on the frame the notch
-/// arrives, and once any glide has settled.
-fn notch_pan(h: &mut Harness<'static, PhotocraftApp>) -> ([f32; 2], [f32; 2], [f32; 2]) {
+/// One wheel notch (with `modifiers` held) over the canvas at 800 %: the view's centre before it,
+/// on the frame the notch arrives, and once any glide has settled.
+fn notch_pan(h: &mut Harness<'static, PhotocraftApp>, modifiers: Modifiers) -> ([f32; 2], [f32; 2], [f32; 2]) {
     {
         let v = &mut h.state_mut().ui.views[0];
         (v.zoom, v.center, v.fit_pending) = (8.0, [200.0, 150.0], false);
@@ -500,7 +500,7 @@ fn notch_pan(h: &mut Harness<'static, PhotocraftApp>) -> ([f32; 2], [f32; 2], [f
     h.hover_at(h.state().last_canvas_rect.center());
     h.run_steps(2);
     let before = h.state().ui.views[0].center;
-    wheel(h, -1.0, Modifiers::NONE);
+    wheel(h, -1.0, modifiers);
     h.run_steps(1);
     let on_arrival = h.state().ui.views[0].center;
     h.run_steps(40);
@@ -514,7 +514,7 @@ fn animation_effects_off_pans_a_wheel_notch_at_once() {
     for (choice, at_once) in [("on", false), ("off", true)] {
         let mut h = app_window();
         h.state_mut().run("prefs.set", json!({"path": "interface.animationEffects", "value": choice})).unwrap();
-        let (c0, c1, c2) = notch_pan(&mut h);
+        let (c0, c1, c2) = notch_pan(&mut h, Modifiers::NONE);
         assert!((c2[1] - c0[1] - 5.0).abs() < 0.01 && c2[0] == c0[0], "{choice}: one notch is 40 points, 5 px at 800%: {c0:?} -> {c2:?}");
         assert_eq!(c1 == c2, at_once, "{choice}: {c0:?} -> {c1:?} -> {c2:?}");
     }
@@ -522,7 +522,8 @@ fn animation_effects_off_pans_a_wheel_notch_at_once() {
 
 /// A canvas in another OS window (Window › Arrange › New Window) reads that window's own input,
 /// which `wheel_nav::unsmooth` never sees: it runs on the main window's input only. So the
-/// canvas's own wheel read must not glide with Animation Effects off either (#5721).
+/// canvas's own wheel read must not glide with Animation Effects off either (#5721), and ⇧ or
+/// ⌘/Ctrl + wheel must still pan sideways.
 #[test]
 fn animation_effects_off_stops_the_canvas_glide_without_unsmooth() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
@@ -546,9 +547,13 @@ fn animation_effects_off_stops_the_canvas_glide_without_unsmooth() {
     h.state_mut().run("prefs.set", json!({"path": "interface.animationEffects", "value": "off"})).unwrap();
     h.run_steps(1);
     assert!(h.state().prefs_rt.animations_off);
-    let (c0, c1, c2) = notch_pan(&mut h);
-    assert!((c2[1] - c0[1] - 5.0).abs() < 0.01, "one notch is 40 points, 5 px at 800%: {c0:?} -> {c2:?}");
-    assert_eq!(c1, c2, "there on the frame the notch arrives: {c0:?} -> {c1:?} -> {c2:?}");
+    let ctrl = Modifiers { ctrl: true, command: true, ..Modifiers::NONE };
+    for (modifiers, axis) in [(Modifiers::NONE, 1), (Modifiers::SHIFT, 0), (ctrl, 0)] {
+        let (c0, c1, c2) = notch_pan(&mut h, modifiers);
+        let moved = [c2[0] - c0[0], c2[1] - c0[1]];
+        assert!((moved[axis] - 5.0).abs() < 0.01 && moved[1 - axis] == 0.0, "{modifiers:?}: one notch is 40 points, 5 px at 800%: {moved:?}");
+        assert_eq!(c1, c2, "{modifiers:?}: there on the frame the notch arrives: {c0:?} -> {c1:?} -> {c2:?}");
+    }
 }
 
 #[test]
