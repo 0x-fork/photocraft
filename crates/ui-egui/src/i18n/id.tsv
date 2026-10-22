@@ -2649,6 +2649,7 @@
 	32 bit (float)	32 bit (titik mengambang)
 	Floating point	Titik mengambang
 	Use Global Light	Gunakan Cahaya Global
+	Overprint	Cetak Tindih
 	Native file drag-and-drop is unavailable	Seret dan lepas berkas native tidak tersedia
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Seret dan lepas berkas native belum didukung di Wayland. Gunakan Berkas › Buka, atau salin gambar di pengelola berkas lalu tempel dengan {paste}.
 	To drop files, start PhotoCraft under XWayland: `{command}`	Untuk menjatuhkan berkas, jalankan PhotoCraft di XWayland: `{command}`
@@ -3065,6 +3066,24 @@ cameraData	Lens	Lensa
 	Output To	Keluaran Ke
 	Duplicate Layer	Duplikat Layer
 	Contract	Ciutkan
+
+	Animation Options	Opsi Animasi
+	Entire Document	Seluruh Dokumen
+	Filter Options	Opsi Filter
+	Layer Bounds	Batas Lapisan
+	Layers Panel Options	Opsi Panel Lapisan
+	Lock Layers	Kunci Lapisan
+	New Artboard…	Artboard Baru…
+	New Group…	Grup Baru…
+	Prevent Auto-Nesting	Cegah Pengelompokan Otomatis
+	Show Layers	Tampilkan Lapisan
+	Thumbnail Contents	Isi Gambar Mini
+	Thumbnail Size	Ukuran Gambar Mini
+	Use Default Masks on Fill Layers	Gunakan Masker Default pada Lapisan Isian
+	Expand New Effects	Perluas Efek Baru
+	Add “copy” to Copied Layers and Groups	Tambahkan “salinan” ke Lapisan dan Grup yang Disalin
+	Preview on canvas when reordering layers	Pratinjau pada kanvas saat mengurutkan ulang lapisan
+	Show layer mask badges	Tampilkan Lencana Masker Lapisan
 	Loading fonts…	Memuat font…
 	Response curve	Kurva respons
 	Tool	Alat
@@ -3275,6 +3294,10 @@ curves	Smooth	Haluskan
 	DDS Options	Opsi DDS
 	Compression	Kompresi
 	Generate Mipmaps	Buat mipmap
+
+# Color Table (.act) dialog
+	There is no color table to save.	Tidak ada tabel warna untuk disimpan.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} warna disimpan ke {file}
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptor GPU

@@ -326,6 +326,7 @@
 	Blending Options…	Opcje mieszania…
 	Bevel & Emboss…	Ukos i płaskorzeźba…
 	Use Global Light	Użyj światła globalnego
+	Overprint	Nadrukowywanie
 	Inner Shadow…	Cień wewnętrzny…
 	Inner Glow…	Poświata wewnętrzna…
 	Satin…	Satyna…
@@ -3673,6 +3674,23 @@ cameraData	Lens	Obiektyw
 	Mirror	Odbicie lustrzane
 	Output Settings	Ustawienia wyjścia
 	Output To	Wyjście do
+
+	Animation Options	Opcje animacji
+	Entire Document	Cały dokument
+	Filter Options	Opcje filtrowania
+	Layer Bounds	Granice warstwy
+	Layers Panel Options	Opcje panelu Warstwy
+	New Artboard…	Nowy obszar roboczy…
+	New Group…	Nowa grupa…
+	Prevent Auto-Nesting	Zapobiegaj automatycznemu zagnieżdżaniu
+	Show Layers	Pokaż warstwy
+	Thumbnail Contents	Zawartość miniaturek
+	Thumbnail Size	Rozmiar miniaturek
+	Use Default Masks on Fill Layers	Użyj domyślnych masek na warstwach wypełnienia
+	Expand New Effects	Rozwijaj nowe efekty
+	Add “copy” to Copied Layers and Groups	Dodawaj „kopia” do skopiowanych warstw i grup
+	Preview on canvas when reordering layers	Podgląd na obszarze roboczym podczas zmiany kolejności warstw
+	Show layer mask badges	Pokaż odznaki masek warstw
 	Loading fonts…	Wczytywanie czcionek…
 	Response curve	Krzywa odpowiedzi
 	Simulate Pressure	Symuluj nacisk
@@ -3878,6 +3896,10 @@ curves	Smooth	Wygładź
 	DDS Options	Opcje DDS
 	Compression	Kompresja
 	Generate Mipmaps	Generuj mipmapy
+
+# Color Table (.act) dialog
+	There is no color table to save.	Brak tabeli kolorów do zapisania.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	Zapisano {n} kolor do {file}|Zapisano {n} kolory do {file}|Zapisano {n} kolorów do {file}
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Karta GPU
