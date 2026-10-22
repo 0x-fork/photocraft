@@ -3912,6 +3912,19 @@ curves	Smooth	スムーズ
 	Reset All Locked Settings	ロックされた設定をすべて初期化
 	Copy Texture to Other Tools	テクスチャを他のツールにコピー
 	ICO is limited to 256 × 256 pixels	ICO は 256 × 256 ピクセルまでです
+# PhotoCraft release checks.
+	Check for Updates…	アップデートを確認…
+	PhotoCraft Updates	PhotoCraft のアップデート
+	Checking for updates…	アップデートを確認中…
+	Open the release page to choose an installer for your system.	リリースページでお使いのシステム用のインストーラーを選択してください。
+	Open Download Page	ダウンロードページを開く
+	PhotoCraft is up to date.	PhotoCraft は最新です。
+	Could not check for updates.	アップデートを確認できませんでした。
+	Updates have not been checked yet.	まだアップデートを確認していません。
+	Check Again	再確認
+	Automatically Check for Updates	アップデートを自動的に確認
+	Installed version: {version}	インストール済みのバージョン: {version}
+	PhotoCraft {version} is available.	PhotoCraft {version} が利用可能です。
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	ヒストリーパネルのソース状態からペイントします
 	Sets the source for the history brush	ヒストリーブラシのソースを設定します

@@ -130,6 +130,7 @@ pub mod type_extra_cmds;
 pub mod type_mask_cmds;
 pub mod type_spell_cmds;
 pub mod type_styles_cmds;
+pub mod updates_cmds;
 mod variables_cmds;
 pub use variables_cmds::{export_data_sets_with, import_data_sets_text};
 pub mod vector_cmds;
@@ -493,6 +494,8 @@ pub struct Session {
     color_restrict: Option<usize>,
     /// Edit › Preferences, keyboard shortcuts, menu and toolbar customisation (see `prefs`).
     pub prefs: prefs::PrefsStore,
+    /// Release checks use an injected platform transport; no network I/O in the engine.
+    pub updates: updates_cmds::Updates,
     /// Edit menu state: Fade source, custom shape library (see `edit_menu_cmds`).
     pub edit_state: edit_menu_cmds::EditState,
     /// The pattern library (Window › Patterns; see `pattern.*`).

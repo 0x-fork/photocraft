@@ -283,6 +283,19 @@ toolbox colour as `backgroundColor: [r,g,b]` (0..1), so reusing it does not foll
 changes. Up to 256 presets are kept. Invalid saved entries are skipped independently; other
 presets and preferences still load. Automatic Recent configurations are separate follow-up work.
 
+## Update checks
+
+On desktop, `engine.execute` with `help.checkForUpdates` and `{}` starts a background
+check; `updates.status` returns `{supported, currentVersion, result}`. The result's `status`
+is `idle`, `checking`, `upToDate`, `available` (with `release: {version, url}`), or `failed`
+(with `message`). No document is required and neither command adds history or journal entries.
+Headless and web sessions without a release transport report `supported: false`.
+
+Set `general.automaticallyCheckUpdates` with `prefs.set` to enable or disable the next
+desktop startup's single check (enabled by default). Manual checks still work when automatic checks are off.
+`ui.inspect` includes `updates` and `updatesOpen`; `ui.set {"updatesOpen": false}` closes
+the non-modal update window.
+
 ## Snapping
 
 With View › Snap on, tool gestures snap to the View › Snap To targets (guides and grid while they
