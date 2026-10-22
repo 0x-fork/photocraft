@@ -481,16 +481,37 @@ pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) {
         vm.path = vm.path.transform(&a);
     }
     match &mut l.content {
-        LayerContent::Shape(sh) => {
-            transform_shape(sh, &a);
-            refresh_shape(doc, sh);
-        }
+        LayerContent::Shape(sh) => shift_shape(doc, sh, dx, dy),
         LayerContent::Group(g) => {
             for c in &mut g.children {
                 translate_vectors(doc, c, dx, dy);
             }
         }
         _ => {}
+    }
+}
+
+/// Moves a shape by `(dx, dy)`. A whole-pixel move shifts the rendered pixels as they are, so a
+/// shape from a PSD keeps Photoshop's anti-aliasing (as moved type does). The render is cut at
+/// the canvas, so a shape reaching past it renders again, as does a fractional move.
+pub(crate) fn shift_shape(doc: &Document, sh: &mut ShapeLayer, dx: f64, dy: f64) {
+    transform_shape(sh, &Affine::translate(dx, dy));
+    let whole = |v: f64| (v.fract() == 0.0 && v.abs() <= f64::from(i32::MAX)).then_some(v as i32);
+    let canvas = doc.bounds();
+    let inside = sh.cache.as_ref().is_some_and(|c| {
+        let b = photocraft_compose::bounds::content_bounds(c);
+        b.is_empty() || (b.x0 > canvas.x0 && b.y0 > canvas.y0 && b.x1 < canvas.x1 && b.y1 < canvas.y1)
+    });
+    let stroke_pad = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| f64::from(s.width.ceil()));
+    let stays_inside = sh.path.control_bounds().is_some_and(|(x0, y0, x1, y1)| {
+        (x0 - stroke_pad) > canvas.x0 as f64
+            && (y0 - stroke_pad) > canvas.y0 as f64
+            && (x1 + stroke_pad) < canvas.x1 as f64
+            && (y1 + stroke_pad) < canvas.y1 as f64
+    });
+    match (&mut sh.cache, whole(dx), whole(dy)) {
+        (Some(c), Some(dx), Some(dy)) if inside && stays_inside => *c = crate::layer_multi_cmds::shift_surface(c, dx, dy),
+        _ => refresh_shape(doc, sh),
     }
 }
 

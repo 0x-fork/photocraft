@@ -463,26 +463,7 @@ fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
                 *c = translate_surface(c, dx, dy);
             }
         }
-        LayerContent::Shape(sh) => {
-            // The rendered shape is cut at the canvas: one that reaches past it renders again.
-            let canvas = doc.bounds();
-            let was_inside = sh.cache.as_ref().is_some_and(|c| {
-                let b = photocraft_compose::bounds::content_bounds(c);
-                b.is_empty() || (b.x0 > canvas.x0 && b.y0 > canvas.y0 && b.x1 < canvas.x1 && b.y1 < canvas.y1)
-            });
-            crate::vector_cmds::transform_shape(sh, &a);
-            let stroke_pad = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| f64::from(s.width.ceil()));
-            let stays_inside = sh.path.control_bounds().is_some_and(|(x0, y0, x1, y1)| {
-                (x0 - stroke_pad) > canvas.x0 as f64
-                    && (y0 - stroke_pad) > canvas.y0 as f64
-                    && (x1 + stroke_pad) < canvas.x1 as f64
-                    && (y1 + stroke_pad) < canvas.y1 as f64
-            });
-            match &mut sh.cache {
-                Some(c) if was_inside && stays_inside => *c = translate_surface(c, dx, dy),
-                _ => crate::vector_cmds::refresh_shape(doc, sh),
-            }
-        }
+        LayerContent::Shape(sh) => crate::vector_cmds::shift_shape(doc, sh, f64::from(dx), f64::from(dy)),
         LayerContent::Smart(sm) => crate::smart_cmds::shift_smart(sm, dx, dy),
         LayerContent::Group(g) => {
             if let Some(ab) = &mut g.artboard {

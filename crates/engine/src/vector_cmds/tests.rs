@@ -941,6 +941,74 @@ fn shape_info_bounds_of_curved_shapes_are_exact() {
     }
 }
 
+/// A shape layer as a PSD import leaves it: Photoshop's rendering as the cache (deliberately not
+/// what PhotoCraft would draw, a block of another colour, so a re-render shows).
+fn add_imported_shape(s: &mut Session, r: Rect) -> LayerId {
+    s.edit("shape", |doc, active| {
+        let fmt = doc.pixel_format();
+        let path = photocraft_vector::shapes::rect(f64::from(r.x0), f64::from(r.y0), f64::from(r.width()), f64::from(r.height()));
+        let mut cache = photocraft_raster::Surface::new(fmt);
+        cache.fill_rect(r, &photocraft_raster::from_rgba(&fmt, [0.9, 0.5, 0.1, 1.0]));
+        let sh = ShapeLayer { path, fill: Some(photocraft_doc::Fill::Solid(photocraft_color::Color::BLACK)), cache: Some(cache), ..Default::default() };
+        let id = doc.insert_above(None, Layer::new("Rectangle 1", LayerContent::Shape(sh)));
+        *active = Some(id);
+        Ok(id)
+    })
+    .unwrap()
+}
+
+fn shape_layer(doc: &Document, id: LayerId) -> ShapeLayer {
+    match &doc.layer(id).unwrap().content {
+        LayerContent::Shape(sh) => sh.clone(),
+        other => panic!("not a shape layer: {}", other.kind_name()),
+    }
+}
+
+fn orange_at(sh: &ShapeLayer, x: i32, y: i32) -> bool {
+    let c = sh.cache.as_ref().unwrap();
+    let px = photocraft_raster::to_rgba(&c.format(), &c.pixel(x, y));
+    (px[0] - 0.9).abs() < 0.01 && (px[1] - 0.5).abs() < 0.01
+}
+
+#[test]
+fn moving_and_exporting_imported_shapes_keeps_their_rendering() {
+    for depth in [8, 16, 32] {
+        let mut s = session(100, 80, depth);
+        let id = add_imported_shape(&mut s, Rect::new(30, 20, 60, 40));
+        // The Move tool: the same pixels, moved; the path moves with them.
+        s.execute("layer.translate", json!({"layer": id.0, "dx": 5, "dy": -3})).unwrap();
+        let sh = shape_layer(doc(&s), id);
+        assert_eq!(sh.cache.as_ref().unwrap().content_bounds(), Rect::new(35, 17, 65, 37), "depth {depth}");
+        assert!(orange_at(&sh, 40, 20), "depth {depth}: not re-rendered");
+        assert_eq!(sh.path.control_bounds().map(|b| (b.0.round(), b.1.round())), Some((35.0, 17.0)), "the path moves too");
+        // Artboards to Files moves the board to the origin the same way.
+        s.execute("layer.new.artboard", json!({"rect": [20, 10, 60, 40]})).unwrap();
+        let board = doc(&s).artboards()[0].0;
+        s.edit("into board", |doc, _| {
+            let l = doc.remove(id).unwrap();
+            let Some(LayerContent::Group(g)) = doc.layer_mut(board).map(|b| &mut b.content) else { panic!("artboard group") };
+            g.children.push(l);
+            Ok(())
+        })
+        .unwrap();
+        let one = crate::artboard_cmds::artboard_document(doc(&s), board).unwrap().unwrap();
+        let sh = shape_layer(&one, id);
+        assert_eq!(sh.cache.as_ref().unwrap().content_bounds(), Rect::new(15, 7, 45, 27), "depth {depth}");
+        assert!(orange_at(&sh, 20, 10), "depth {depth}: exported as rendered");
+    }
+}
+
+#[test]
+fn a_shape_reaching_past_the_canvas_renders_again_when_moved() {
+    let mut s = session(100, 80, 8);
+    // Cut at the canvas's right edge (100 px), so its pixels can't simply be shifted back in.
+    let id = add_imported_shape(&mut s, Rect::new(80, 20, 120, 40));
+    s.execute("layer.translate", json!({"layer": id.0, "dx": -30, "dy": 0})).unwrap();
+    let sh = shape_layer(doc(&s), id);
+    assert!(!orange_at(&sh, 60, 30), "re-rendered from the path (black fill)");
+    assert_eq!(sh.cache.as_ref().unwrap().content_bounds(), Rect::new(50, 20, 90, 40), "the whole shape shows");
+}
+
 #[test]
 fn shape_create_negative_size_rect_covers_the_ellipse_box() {
     // Issue #4203: a rectangle with a negative width spanned x 50..70 while the ellipse and
