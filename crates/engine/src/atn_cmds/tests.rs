@@ -2336,6 +2336,55 @@ fn apply_image_flat_source_fields_survive_a_strict_export() {
     assert!(export_item("image.applyImage", &json!({"sourceDocument": "Other"}), "S").is_none());
 }
 
+/// What the Apply Image dialog records survives a strict `.atn` export and comes back: its source
+/// channel is a Channels-panel name ("RGB", "Red", "Alpha 1"), not a lowercase key.
+#[test]
+fn apply_image_dialog_channel_names_survive_a_strict_export() {
+    let dialog = |channel: &str| json!({"sourceLayer": "merged", "sourceChannel": channel, "sourceInvert": false, "blending": "multiply", "opacity": 100.0, "scale": 1.0, "offset": 0, "preserveTransparency": false, "maskChannel": "none"});
+    for (channel, back) in [
+        ("RGB", "composite"),
+        ("CMYK", "composite"),
+        ("Lab", "composite"),
+        ("Red", "red"),
+        ("Gray", "gray"),
+        ("Alpha 1", "Alpha 1"),
+        ("transparency", "transparency"),
+    ] {
+        let a = Action::new("A", vec![("image.applyImage".into(), dialog(channel))]);
+        let (bytes, skipped) = export("S", &[&a], &[], false).unwrap_or_else(|e| panic!("{channel}: {e}"));
+        assert!(skipped.is_empty(), "{channel}");
+        let file = atn::parse(&bytes).unwrap();
+        assert_eq!(file.actions[0].items[0].event.id(), "AppI");
+        let back_file = import(&bytes).unwrap();
+        assert!(back_file.unsupported.is_empty(), "{channel}");
+        let p = &back_file.actions[0].steps[0].1;
+        assert_eq!(p["source"], json!({"layer": "merged", "channel": back, "invert": false}), "{channel}");
+    }
+    // A named channel is written as Photoshop records it: a `Chnl` name reference.
+    let item = export_item("image.applyImage", &dialog("Alpha 1"), "S").unwrap();
+    let with = get_obj(item.descriptor.as_ref().unwrap(), "With").unwrap();
+    let r = get_ref(with, "T   ").unwrap();
+    assert!(matches!(&r[0], ReferenceItem::Name { class, name } if class.class_id.is("Chnl") && name.to_string_lossy() == "Alpha 1"));
+}
+
+/// A numeric layer or channel selector has no name to record: the step is refused, not exported as
+/// the merged composite.
+#[test]
+fn apply_image_numeric_source_selectors_are_refused() {
+    for p in [
+        json!({"sourceLayer": 3}),
+        json!({"sourceChannel": 2}),
+        json!({"source": {"channel": 2}}),
+        json!({"source": {"layer": 7, "channel": "red"}}),
+        json!({"source": "red"}),
+        json!({"sourceChannel": "quickMask"}),
+    ] {
+        assert!(export_item("image.applyImage", &p, "S").is_none(), "{p}");
+    }
+    let a = Action::new("A", vec![("image.applyImage".into(), json!({"sourceLayer": 3}))]);
+    assert!(export("S", &[&a], &[], false).is_err());
+}
+
 /// A param a PhotoCraft step leaves out exports as PhotoCraft's default wherever Photoshop plays
 /// the missing key differently (checked against Photoshop): Canvas Size anchors top left,
 /// Apply Image blends Normal, Color Balance turns preserve luminosity off, and a Paint Bucket
