@@ -2707,6 +2707,8 @@ mod tests {
             assert!(r.get("error").is_none(), "{r}");
         }
         let injected = call(&mut app, &ctx, "ui.dialog.set", json!({"dialog": dialog, "field": "__diskChanged", "value": true}));
+        let replace = call(&mut app, &ctx, "ui.dialog.set", json!({"dialog": dialog, "field": "__replaceSaved", "value": true}));
+        assert!(replace["error"].as_str().is_some_and(|e| e.contains("set only by the dialog")), "{replace}");
         call(&mut app, &ctx, "ui.dialog.confirm", json!({"dialog": dialog}));
         assert!(written.borrow().is_empty(), "nothing is written: {:?}", written.borrow());
         assert!(injected["error"].as_str().is_some_and(|e| e.contains("set only by the dialog")), "{injected}");
