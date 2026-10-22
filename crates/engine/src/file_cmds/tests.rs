@@ -1509,7 +1509,7 @@ fn batch_naming_rejects_outputs_that_replace_inputs_before_processing() {
 
 #[test]
 fn exposure_text_near_one_second_is_not_one_over_one() {
-    assert_eq!(exposure_text(0.996).as_deref(), Some("1 s"));
+    assert_eq!(exposure_text(0.996).as_deref(), Some("0.996 s"), "not \"1/1 s\"; three significant digits");
     assert_eq!(exposure_text(0.99).as_deref(), Some("0.99 s"));
     assert_eq!(exposure_text(1.0 / 250.0).as_deref(), Some("1/250 s"));
 }
