@@ -3981,6 +3981,14 @@ cameraData	Lens	Lens
 	Thumbnail Contents	Küçük Resim İçeriği
 	Thumbnail Size	Küçük Resim Boyutu
 	Use Default Masks on Fill Layers	Dolgu Katmanlarında Varsayılan Maskeleri Kullan
+
+	Blending Options ({filter})	Karışım Seçenekleri ({filter})
+	Hide the layer's effects and Smart Filters  ({key}-click: all layers)	Katmanın efektlerini ve Akıllı Filtrelerini gizle  ({key}-tık: tüm katmanlar)
+	Opacity must be between 0% and 100%.	Opaklık %0 ile %100 arasında olmalıdır.
+	Dissolve is approximated: it blends without Photoshop's dither.	Eritme yaklaşık olarak uygulanır: Photoshop'un dither'ı olmadan karıştırır.
+	Show the layer's effects and Smart Filters  ({key}-click: all layers)	Katmanın efektlerini ve Akıllı Filtrelerini göster  ({key}-tık: tüm katmanlar)
+	The document or Smart Filter changed. Reopen its dialog.	Belge veya Akıllı Filtre değişti. İletişim kutusunu yeniden açın.
+	Wait for the current job to finish.	Geçerli işin bitmesini bekleyin.
 	Accept and Go to Conflict	Kabul Et ve Çakışmaya Git
 	Changes undone.	Değişiklikler geri alındı.
 	Choose a new shortcut for this command, or leave it without one.	Bu komut için yeni bir kısayol seçin veya kısayolsuz bırakın.

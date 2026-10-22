@@ -4170,6 +4170,14 @@ cameraRaw	Yellow	Sárga
 	Thumbnail Contents	Bélyegkép tartalma
 	Thumbnail Size	Bélyegképméret
 	Use Default Masks on Fill Layers	Alapértelmezett maszkok kitöltőrétegeken
+
+	Blending Options ({filter})	Keverési beállítások ({filter})
+	Hide the layer's effects and Smart Filters  ({key}-click: all layers)	A réteg effektusainak és intelligens szűrőinek elrejtése  ({key}+kattintás: minden réteg)
+	Opacity must be between 0% and 100%.	Az átlátszatlanságnak 0% és 100% között kell lennie.
+	Dissolve is approximated: it blends without Photoshop's dither.	A Szétszórás csak közelítés: a Photoshop raszterezése nélkül keveredik.
+	Show the layer's effects and Smart Filters  ({key}-click: all layers)	A réteg effektusainak és intelligens szűrőinek megjelenítése  ({key}+kattintás: minden réteg)
+	The document or Smart Filter changed. Reopen its dialog.	A dokumentum vagy az intelligens szűrő megváltozott. Nyisd meg újra a párbeszédablakát.
+	Wait for the current job to finish.	Várd meg, amíg az aktuális feladat befejeződik.
 	Accept and Go to Conflict	Elfogadás és ugrás az ütközéshez
 	Changes undone.	Változások visszavonva.
 	Choose a new shortcut for this command, or leave it without one.	Válasszon új billentyűparancsot ehhez a parancshoz, vagy hagyja nélküle.

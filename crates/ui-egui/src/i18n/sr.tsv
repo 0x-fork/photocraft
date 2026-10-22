@@ -4324,6 +4324,15 @@ shape	Appearance	Izgled
 	Thumbnail Contents	Sadržaj sličice
 	Thumbnail Size	Veličina sličice
 	Use Default Masks on Fill Layers	Koristi podrazumevane maske na slojevima popune
+
+# Smart Filter editors
+	Blending Options ({filter})	Opcije stapanja ({filter})
+	Hide the layer's effects and Smart Filters  ({key}-click: all layers)	Sakrij efekte i pametne filtere sloja  ({key}-klik: svi slojevi)
+	Opacity must be between 0% and 100%.	Neprozirnost mora biti između 0% i 100%.
+	Dissolve is approximated: it blends without Photoshop's dither.	Rastapanje je približno: mešanje se vrši bez diteringa programa Photoshop.
+	Show the layer's effects and Smart Filters  ({key}-click: all layers)	Prikaži efekte i pametne filtere sloja  ({key}-klik: svi slojevi)
+	The document or Smart Filter changed. Reopen its dialog.	Dokument ili pametni filter se promenio. Ponovo otvorite njegov dijalog.
+	Wait for the current job to finish.	Sačekajte da se trenutni posao završi.
 	Accept and Go to Conflict	Prihvati i idi na sukob
 	Changes undone.	Izmene su poništene.
 	Choose a new shortcut for this command, or leave it without one.	Izaberite novu prečicu za ovu komandu ili je ostavite bez prečice.
