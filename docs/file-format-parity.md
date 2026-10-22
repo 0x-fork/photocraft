@@ -142,6 +142,7 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Lab documents round each adjustment layer's result on the stored L, a, b to whole samples, as Photoshop stores them (the native Lab path): photoshop lab8 curves.psd passes |
 | 2026-10-15 | minor | PSD smart filters: Clouds, Difference Clouds, Fibers and Lens Flare open as editable filters with their seeds, colours and lens, and save like Photoshop (checked against a Photoshop 27 file); render filters on a smart object work within the object, so a flare sits where Photoshop puts it |
 | 2026-10-15 | minor | DDS textures save (#1327): uncompressed or BC1/BC2/BC3 (DXT1/3/5) from a clean-room block encoder, optional box-filtered mip chain, legacy header; DDS Options in Save As and Save a Copy, `ddsCompression`/`ddsMipmaps` for scripts, the CLI and MCP |
 | 2026-10-16 | minor | PSD smart filters: Perspective Warp (`perspectiveWarpTransform`: `vertices`, `warpedVertices`, `quads` of vertex indices, document pixels) opens as `layer.smartObjects.perspectiveWarp`, one plane per quad, and re-renders warped; save writes the original item with only the geometry rewritten, or a new one in Photoshop's layout; inconsistent descriptors stay verbatim (FILE-215-2, #6268) |
