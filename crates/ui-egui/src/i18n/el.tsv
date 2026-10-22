@@ -3,6 +3,10 @@
 # Original translations based on general Greek graphics/computing terminology.
 # Covers every source label the i18n coverage check lists.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Επιλογές μάσκας…
+	Layer Mask Display Options…	Επιλογές εμφάνισης μάσκας επιπέδου…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Χρώμα καναλιού
 	Color Indicates:	Το χρώμα υποδεικνύει:
@@ -3866,6 +3870,12 @@ curves	Smooth	Εξομάλυνση
 	Remove after each stroke	Αφαίρεση μετά από κάθε πινελιά
 	Apply the removal ({key})	Εφαρμογή της αφαίρεσης ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Πινελιές προς αφαίρεση: {n} (Enter εφαρμόζει, Esc ακυρώνει)
+	Load Contours…	Φόρτωση περιγραμμάτων…
+	Replace Contours…	Αντικατάσταση περιγραμμάτων…
+	Save Contours…	Αποθήκευση περιγραμμάτων…
+	Delete Contour	Διαγραφή περιγράμματος
+	Loaded contours from {file}	Φορτώθηκαν περιγράμματα από {file}
+	Saved contours to {file}	Τα περιγράμματα αποθηκεύτηκαν στο {file}
 	Show home recent files	Εμφάνιση πρόσφατων αρχείων στην αρχική οθόνη
 	Clear Brush Controls	Απαλοιφή στοιχείων ελέγχου πινέλου
 	Reset All Locked Settings	Επαναφορά όλων των κλειδωμένων ρυθμίσεων
@@ -4011,6 +4021,8 @@ curves	Smooth	Εξομάλυνση
 	The fastest and the softest, with colour fringing on fine detail.	Η πιο γρήγορη και η πιο μαλακή, με χρωματικά περιθώρια στις λεπτές λεπτομέρειες.
 	“{name}” already exists. Replace it?	Το «{name}» υπάρχει ήδη. Να αντικατασταθεί;
 	The name in the save dialog was “{name}”.	Το όνομα στο παράθυρο αποθήκευσης ήταν «{name}».
+	Move Up	Μετακίνηση επάνω
+	Move Down	Μετακίνηση κάτω
 	Memory Usage	Χρήση μνήμης
 	Per-document RAM limit (MB)	Όριο RAM ανά έγγραφο (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Εγκατεστημένη RAM: {ram} MB· αυτό το όριο: {percent}%
@@ -4046,3 +4058,4 @@ curves	Smooth	Εξομάλυνση
 	Automatic paragraph direction	Αυτόματη κατεύθυνση παραγράφου
 	Left-to-right paragraph direction	Κατεύθυνση παραγράφου από αριστερά προς τα δεξιά
 	Right-to-left paragraph direction	Κατεύθυνση παραγράφου από δεξιά προς τα αριστερά
+	Not rendered: this adjustment ({key}) is kept as imported.	Δεν αποδίδεται: αυτή η προσαρμογή ({key}) διατηρείται όπως εισήχθη.

@@ -4036,6 +4036,12 @@ cameraRaw	Yellow	Sárga
 	The layer or its mask changed. Drag the mask onto the Trash again.	A réteg vagy a maszkja megváltozott. Húzd újra a maszkot a Kukába.
 	Transform On Drop	Átalakítás elengedéskor
 	Vanishing Point is not active	Az Enyészpont nem aktív
+	Load Contours…	Kontúrok betöltése…
+	Replace Contours…	Kontúrok cseréje…
+	Save Contours…	Kontúrok mentése…
+	Delete Contour	Kontúr törlése
+	Loaded contours from {file}	Kontúrok betöltve: {file}
+	Saved contours to {file}	Kontúrok mentve: {file}
 # Edit › Content-Aware Fill workspace
 	Excluded Area	Kizárt terület
 	Fill Settings	Kitöltési beállítások
@@ -4105,6 +4111,10 @@ cameraRaw	Yellow	Sárga
 	Sent to {printer}	Elküldve ide: {printer}
 	set in Print Settings…	a nyomtatási beállításokban adható meg…
 	ICO is limited to 256 × 256 pixels	Az ICO legfeljebb 256 × 256 képpont lehet
+
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Maszkbeállítások…
+	Layer Mask Display Options…	Rétegmaszk megjelenítési beállításai…
 
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Csatorna színe
@@ -4228,6 +4238,8 @@ cameraRaw	Yellow	Sárga
 	The fastest and the softest, with colour fringing on fine detail.	A leggyorsabb és a leglágyabb, apró részleteken színes szegéllyel.
 	“{name}” already exists. Replace it?	„{name}” már létezik. Lecseréli?
 	The name in the save dialog was “{name}”.	A mentési párbeszédpanelen megadott név: „{name}”.
+	Move Up	Mozgatás felfelé
+	Move Down	Mozgatás lefelé
 	Memory Usage	Memóriahasználat
 	Per-document RAM limit (MB)	Dokumentumonkénti RAM-korlát (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Telepített RAM: {ram} MB; ez a korlát: {percent}%
@@ -4263,3 +4275,4 @@ cameraRaw	Yellow	Sárga
 	Automatic paragraph direction	Automatikus bekezdésirány
 	Left-to-right paragraph direction	Balról jobbra irányuló bekezdés
 	Right-to-left paragraph direction	Jobbról balra irányuló bekezdés
+	Not rendered: this adjustment ({key}) is kept as imported.	Nem jelenik meg: ez a korrekció ({key}) importált állapotában marad.

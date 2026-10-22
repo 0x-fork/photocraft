@@ -3141,6 +3141,22 @@ struct RowSel {
     multi: bool,
 }
 
+/// The badge beside the pointer over a thumbnail ⌘-click loads with these modifiers: none for a
+/// new selection, + for ⇧ (add), − for ⌥ (subtract), × for ⇧⌥ (intersect).
+pub(crate) fn thumb_load_badge(m: egui::Modifiers) -> Option<crate::tool_feedback::Badge> {
+    crate::tool_feedback::Badge::from_mode(crate::channels_panel::load_operation(m))
+}
+
+/// The cursor over a thumbnail ⌘-click loads as a selection: a pointing hand, with the selection
+/// mode's badge (#7824).
+fn thumb_load_cursor(ctx: &egui::Context, p: Pos2, m: egui::Modifiers) {
+    ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+    if let Some(badge) = thumb_load_badge(m) {
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("thumb-load-badge")));
+        crate::tool_feedback::draw_badge(&painter, p, badge, false);
+    }
+}
+
 /// `layer.select` mode for a click with these modifiers (Photoshop: ⌘-click toggles, ⇧-click
 /// selects a range, a plain click selects one layer).
 fn select_mode(m: egui::Modifiers) -> &'static str {
@@ -3201,6 +3217,8 @@ fn paint_clipping_indicator(painter: &egui::Painter, at: Pos2, color: Color32) {
     painter.add(egui::Shape::line(vec![at + vec2(2.0, 0.0), tip, at + vec2(8.0, 0.0)], stroke));
 }
 
+/// One row of the Layers panel for `l`, `depth` levels inside groups or artboards: it paints the
+/// row, queues what a click or drag on it asks for in `actions`, and returns the row's rect.
 #[allow(clippy::too_many_arguments)]
 fn layer_row(
     app: &mut PhotocraftApp,
@@ -3301,7 +3319,11 @@ fn layer_row(
         + crate::layer_row_ui::reserved_width(l);
     let ts = if base == 0.0 { 0.0 } else { crate::mask_thumbs_ui::thumb_size(l, base, rect.width() - others) };
     let fixed = others + if ts == 0.0 { 0.0 } else { ts + 6.0 + crate::mask_thumbs_ui::width(l, ts) };
-    x += 28.0 + crate::layer_row_ui::indent(depth, rect.width(), fixed);
+    // A layer inside a group (or an artboard) indents one step more than its depth, past the
+    // triangle's column, so it sits right of its parent: with only its depth its thumbnail lined
+    // up under the group's, hiding the hierarchy. Top-level rows don't move.
+    let steps = if !l.is_group() && depth > 0 { depth + 1 } else { depth };
+    x += 28.0 + crate::layer_row_ui::indent(steps, rect.width(), fixed);
     let toggled = crate::layer_tree_ui::disclosure(ui, rect, &mut x, l, actions);
     if l.clipped {
         paint_clipping_indicator(&painter, pos2(x, rect.center().y), t.text_faint);
@@ -3373,15 +3395,25 @@ fn layer_row(
     );
     // ⌘-click a layer, mask or vector-mask thumbnail loads its transparency / mask / path as a
     // selection (⇧ add, ⌥ subtract, ⇧⌥ intersect) instead of changing the layer selection.
-    let thumb_load = resp.clicked().then(|| (ui.input(|i| i.modifiers), resp.interact_pointer_pos())).and_then(|(m, pos)| {
-        let p = pos.filter(|_| m.command)?;
+    let load_at = |m: egui::Modifiers, p: Pos2| {
+        if !m.command {
+            return None;
+        }
         if let Some(kind) = masks.hit(p) {
             return Some(crate::mask_thumbs_ui::load_params(l, kind, m));
         }
         // The Background has no transparency to load: Photoshop treats the click as a plain one.
         (ts > 0.0 && !doc.is_background(l.id) && thumb.expand(2.0).contains(p))
             .then(|| json!({"channel": "transparency", "layer": l.id.0, "operation": crate::channels_panel::load_operation(m)}))
-    });
+    };
+    let thumb_load = resp.clicked().then(|| (ui.input(|i| i.modifiers), resp.interact_pointer_pos())).and_then(|(m, pos)| load_at(m, pos?));
+    // Over a thumbnail that ⌘ would load, the cursor says what the click does, as in Photoshop (#7824).
+    if let Some(p) = resp.hover_pos() {
+        let m = ui.input(|i| i.modifiers);
+        if load_at(m, p).is_some() {
+            thumb_load_cursor(ctx, p, m);
+        }
+    }
     // ⇧-click a mask thumbnail: disable / enable that mask; ⌥-click a layer mask: view it.
     let mask_toggle = resp.clicked().then(|| (ui.input(|i| i.modifiers), resp.interact_pointer_pos())).and_then(|(m, pos)| {
         let kind = masks.hit(pos?)?;
@@ -3563,6 +3595,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         return;
     };
     let doc = st.doc.clone();
+    let revision = st.revision;
     let entries = st.history.entries();
     let current = entries.len() - 1;
     let redo: Vec<String> = st.history.redo_labels().map(str::to_string).collect();
@@ -3595,10 +3628,13 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // The dock gives History a fixed height: the rows scroll above the footer.
     let footer = if t.pro { widgets::footer_height(ui) + ui.spacing().item_spacing.y } else { 0.0 };
     let max_h = (ui.available_height() - footer).max(40.0);
+    let follow_id = ui.id().with(("history-follow-rev", doc.id));
+    let follow = ui.ctx().data(|d| d.get_temp::<u64>(follow_id)) != Some(revision);
     egui::ScrollArea::vertical().id_salt("history-rows").max_height(max_h).auto_shrink([false, false]).show(ui, |ui| {
         // Snapshots head the list and scroll with the states, so many of them never push the
         // footer out of a short dock.
         snap_cmd = snapshot_rows(app, ui, selected_snap);
+        let mut current_rect = None;
         for (i, (e, is_redo)) in all.enumerate() {
             // The current state shows selected unless a snapshot is (Photoshop highlights one row).
             let selected = i == current && selected_snap.is_none();
@@ -3608,6 +3644,9 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &e));
             if resp.drag_started() {
                 ui.ctx().data_mut(|d| d.insert_temp(history_drag_key(), HistoryDrag::State(i)));
+            }
+            if i == current {
+                current_rect = Some(rect);
             }
             if selected {
                 ui.painter().rect_filled(rect, if t.pro { 0.0 } else { t.radius_sm }, if t.pro { t.row_selected } else { t.accent_soft });
@@ -3643,6 +3682,10 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ctx.data_mut(|d| d.remove::<SelectedSnapshot>(selected_snapshot_key(doc.id)));
             }
         }
+        if follow && let Some(rect) = current_rect {
+            ui.scroll_to_rect(rect, Some(egui::Align::BOTTOM));
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(follow_id, revision));
     });
     if let Some(i) = set_source
         && let Err(e) = app.run("history.setSource", json!({"state": i}))
@@ -5690,6 +5733,10 @@ mod layer_pct_slider_tests;
 #[cfg(test)]
 #[path = "fx_drag_tests.rs"]
 mod fx_drag_tests;
+
+#[cfg(test)]
+#[path = "unsupported_marker_tests.rs"]
+mod unsupported_marker_tests;
 
 #[cfg(test)]
 mod lock_tests {

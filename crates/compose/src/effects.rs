@@ -87,13 +87,18 @@ pub const MAX_REACH: f32 = 512.0;
 /// shape's extent), Precise glows and chiselled bevels (exact Euclidean distances, whose f32
 /// arithmetic depends on where the region starts) and noise (it speckles any coverage above
 /// zero, so it would pick up the blur's float noise, which depends on where the region starts).
+/// Dissolve is not local for the same reason: it turns any coverage above zero into a chance of
+/// a full pixel.
 pub(crate) fn maps_are_local(layer: &Layer) -> bool {
-    layer.effects.items.iter().filter(|e| e.enabled()).all(|e| match e {
-        Effect::Stroke(s) => !matches!(s.paint, FxPaint::Gradient(_)),
-        Effect::DropShadow(s) | Effect::InnerShadow(s) => s.noise <= 0.0,
-        Effect::OuterGlow(g) | Effect::InnerGlow(g) => g.technique != GlowTechnique::Precise && g.noise <= 0.0,
-        Effect::BevelEmboss(b) => b.technique == BevelTechnique::Smooth,
-        _ => true,
+    layer.effects.items.iter().filter(|e| e.enabled()).all(|e| {
+        !dissolves(e)
+            && match e {
+                Effect::Stroke(s) => !matches!(s.paint, FxPaint::Gradient(_)),
+                Effect::DropShadow(s) | Effect::InnerShadow(s) => s.noise <= 0.0,
+                Effect::OuterGlow(g) | Effect::InnerGlow(g) => g.technique != GlowTechnique::Precise && g.noise <= 0.0,
+                Effect::BevelEmboss(b) => b.technique == BevelTechnique::Smooth,
+                _ => true,
+            }
     })
 }
 
@@ -1124,14 +1129,41 @@ fn sample_stops(stops: &[(f32, [f32; 3])], t: f32) -> [f32; 3] {
 
 /// Composite `color × coverage` into `dst` (both over the same rectangle).
 fn paint(dst: &mut Buffer, m: &Map, color: impl Fn(usize) -> [f32; 4], blend: BlendMode, opacity: f32) {
+    let (x0, y0, w) = (i64::from(dst.rect.x0), i64::from(dst.rect.y0), (dst.rect.width().max(1)) as usize);
     for (i, p) in dst.px.iter_mut().enumerate() {
         let a = m.v[i] * opacity;
         if a <= 0.0 {
             continue;
         }
         let c = color(i);
+        if blend == BlendMode::Dissolve {
+            if dissolves_in(x0 + (i % w) as i64, y0 + (i / w) as i64, c[3] * a) {
+                *p = psblend::composite(BlendMode::Normal, *p, [c[0], c[1], c[2], 1.0], 1.0);
+            }
+            continue;
+        }
         *p = psblend::composite(blend, *p, [c[0], c[1], c[2], c[3] * a], 1.0);
     }
+}
+
+/// Whether `e` paints anything in Dissolve mode.
+fn dissolves(e: &Effect) -> bool {
+    let d = |m: BlendMode| m == BlendMode::Dissolve;
+    match e {
+        Effect::DropShadow(s) | Effect::InnerShadow(s) => d(s.common.blend),
+        Effect::OuterGlow(g) | Effect::InnerGlow(g) => d(g.common.blend),
+        Effect::Stroke(s) => d(s.common.blend),
+        Effect::ColorOverlay { common, .. } | Effect::GradientOverlay { common, .. } | Effect::PatternOverlay { common, .. } => d(common.blend),
+        Effect::Satin(s) => d(s.common.blend),
+        Effect::BevelEmboss(b) => d(b.highlight.blend) || d(b.shadow.blend),
+    }
+}
+
+/// Dissolve on an effect (#6995): a pixel takes the effect fully or not at all, with probability
+/// `coverage`, picked by the same document-coordinate noise as a Dissolve layer. A soft glow or
+/// shadow turns into scattered speckle instead of a smooth falloff.
+fn dissolves_in(x: i64, y: i64, coverage: f32) -> bool {
+    hash_noise(x, y) < coverage
 }
 
 fn paint_color(dst: &mut Buffer, m: &Map, c: [f32; 3], blend: BlendMode, opacity: f32) {
@@ -1345,11 +1377,23 @@ fn box_line(src: &[f64], x0: i64, dst: &mut [f64], bw: f32) {
         }
         return;
     }
-    let mut inner: f64 = (x0 - (r - 1)..=x0 + (r - 1)).map(at).sum();
+    let window = x0 - (r - 1)..=x0 + (r - 1);
+    let mut inner: f64 = window.clone().map(at).sum();
+    let mut last_covered = window.rev().find(|&x| at(x) != 0.0).unwrap_or(i64::MIN);
     for (k, d) in dst.iter_mut().enumerate() {
         let x = x0 + k as i64;
         *d = (inner + f * (at(x - r) + at(x + r))) * norm;
-        inner += at(x + r) - at(x - r + 1);
+        let entering = at(x + r);
+        inner += entering - at(x - r + 1);
+        if entering != 0.0 {
+            last_covered = x + r;
+        }
+        // Cancellation can leave positive residue after the last covered pixel leaves.
+        // Noise amplifies even that residue into visible speckles (#5638). Reset only
+        // truly empty windows, preserving arbitrarily faint real coverage.
+        if last_covered < x - r + 2 {
+            inner = 0.0;
+        }
     }
 }
 
@@ -1914,9 +1958,33 @@ pub fn shadow_see_through(layer: &Layer) -> f32 {
 /// Blend Interior Effects as Group off (Photoshop's default): the layer's mode applies to its
 /// own pixels only, and the interior effects paint over the blended result. The layer is merged
 /// into the backdrop before they paint, so an Overlay colour overlay on a black Color-mode layer
-/// tints the grey beneath it (#3996). Normal-like modes give the same result either way.
+/// tints the grey beneath it (#3996). A Normal layer merges only when an interior effect blends
+/// in another mode: below 100 % fill that effect sees the backdrop through the layer, so a Soft
+/// Light overlay on a Fill 0 % layer soft-lights the backdrop instead of showing its own colour
+/// (#6232). Normal effects give the same result either way, and the merge would count a
+/// half-transparent backdrop twice, so those layers keep the plain composite.
 pub fn premerges_layer(layer: &Layer) -> bool {
-    !layer.advanced.blend_interior && !matches!(layer.blend, BlendMode::Normal | BlendMode::PassThrough | BlendMode::Dissolve)
+    !layer.advanced.blend_interior
+        && match layer.blend {
+            BlendMode::PassThrough | BlendMode::Dissolve => false,
+            BlendMode::Normal => blends_inside(layer),
+            _ => true,
+        }
+}
+
+/// `true` if an enabled effect painted inside the layer (with its content) blends in a mode
+/// other than Normal.
+fn blends_inside(layer: &Layer) -> bool {
+    let blends = |m: BlendMode| m != BlendMode::Normal;
+    layer.effects.items.iter().filter(|e| e.enabled()).any(|e| match e {
+        Effect::ColorOverlay { common, .. } | Effect::GradientOverlay { common, .. } | Effect::PatternOverlay { common, .. } => blends(common.blend),
+        Effect::Satin(s) => blends(s.common.blend),
+        Effect::InnerGlow(g) => blends(g.common.blend),
+        Effect::InnerShadow(s) => blends(s.common.blend),
+        Effect::Stroke(s) => stroke_widths(s).0 > 0.0 && blends(s.common.blend),
+        Effect::BevelEmboss(b) => bevel_geom(b).paint == BevelPaint::Inner && (blends(b.highlight.blend) || blends(b.shadow.blend)),
+        Effect::DropShadow(_) | Effect::OuterGlow(_) => false,
+    })
 }
 
 /// Composites `content` (the layer's own pixels over `big`, alpha already
@@ -2160,13 +2228,20 @@ pub(crate) fn composite_with_effects_prepared(
                 } else {
                     band
                 };
-                *sh = k * st.common.opacity * (1.0 - cover[i]);
+                let mut k = k * st.common.opacity;
+                if st.common.blend == BlendMode::Dissolve {
+                    let (x, y) = (i64::from(big.x0) + (i % w) as i64, i64::from(big.y0) + (i / w) as i64);
+                    k = if k > 0.0 && dissolves_in(x, y, k) { 1.0 } else { 0.0 };
+                }
+                *sh = k * (1.0 - cover[i]);
                 cover[i] += *sh;
             }
             // The stroke blended over the backdrop at full coverage.
             let mut blended = base.clone();
             let ones = Map { w, h, v: share.iter().map(|&s| if s > 0.0 { 1.0 } else { 0.0 }).collect() };
-            paint_fx(&mut blended, &ones, &st.paint, frame(st), anchor, big, st.common.blend, 1.0, patterns);
+            // The share already carries the Dissolve choice, so the paint itself composites as Normal.
+            let paint_blend = if st.common.blend == BlendMode::Dissolve { BlendMode::Normal } else { st.common.blend };
+            paint_fx(&mut blended, &ones, &st.paint, frame(st), anchor, big, paint_blend, 1.0, patterns);
             for ((a, b), s) in acc.iter_mut().zip(&blended.px).zip(&share) {
                 if *s > 0.0 {
                     for c in 0..3 {
@@ -3309,6 +3384,37 @@ mod tests {
         // Full noise can punch holes even in the solid part.
         let heavy = shadow(1.0, (0, 0));
         assert!(heavy.v.iter().any(|v| *v < 0.5) && heavy.v.iter().any(|v| *v > 0.5), "heavy noise spans the range",);
+    }
+
+    #[test]
+    fn box_blur_preserves_faint_coverage_and_empty_gaps() {
+        let src = [0.0, 0.3, 0.7, 0.0, 0.0, 0.0, 0.0, 1e-20, 0.0, 0.0, 0.0];
+        let mut actual = [0.0; 11];
+        box_line(&src, 0, &mut actual, 3.0);
+        assert_eq!(actual[5], 0.0, "an empty window must be exactly empty");
+        assert_eq!(actual[10], 0.0, "the second tail must also be empty");
+        assert!((actual[7] - 1e-20 / 3.0).abs() < 1e-30, "real faint coverage is not rounded away");
+    }
+
+    #[test]
+    fn effect_noise_does_not_light_up_empty_blur_tails() {
+        // A sloping antialiased shape leaves rounding residue in a running-sum blur.
+        // The direct finite-support convolution is the oracle for untouched pixels.
+        for size in [5.0, 5.5, 13.0] {
+            let mut shape = Map::new(96, 64, 0.0);
+            for y in 8..48 {
+                for x in 8..48 {
+                    shape.v[y * shape.w + x] = ((x as f32 - y as f32 * 0.7) * 0.3).clamp(0.0, 1.0);
+                }
+            }
+            let mut direct = shape.clone();
+            tent_direct(&mut direct, size);
+            let mut actual = shape;
+            blur(&mut actual, size);
+            noise(&mut actual, 0.26, 0, 0);
+            let stray = direct.v.iter().zip(&actual.v).filter(|(reference, noisy)| **reference == 0.0 && **noisy > 1e-5).count();
+            assert_eq!(stray, 0, "noise created {stray} visible pixels outside a size-{size} blur");
+        }
     }
 
     #[test]

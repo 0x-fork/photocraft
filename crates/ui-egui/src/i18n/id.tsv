@@ -12,6 +12,10 @@
 # Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Opsi Mask…
+	Layer Mask Display Options…	Opsi Tampilan Mask Layer…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Warna Saluran
 	Color Indicates:	Warna Menunjukkan:
@@ -3177,6 +3181,12 @@ curves	Smooth	Haluskan
 	Remove after each stroke	Hapus setelah setiap goresan
 	Apply the removal ({key})	Terapkan penghapusan ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Goresan untuk dihapus: {n} (Enter menerapkan, Esc membatalkan)
+	Load Contours…	Muat kontur…
+	Replace Contours…	Ganti kontur…
+	Save Contours…	Simpan kontur…
+	Delete Contour	Hapus kontur
+	Loaded contours from {file}	Kontur dimuat dari {file}
+	Saved contours to {file}	Kontur disimpan ke {file}
 	Show home recent files	Tampilkan file terbaru di layar beranda
 	Clear Brush Controls	Hapus Kontrol Kuas
 	Reset All Locked Settings	Atur Ulang Semua Pengaturan Terkunci
@@ -3324,6 +3334,8 @@ curves	Smooth	Haluskan
 	The fastest and the softest, with colour fringing on fine detail.	Paling cepat dan paling lembut, dengan pinggiran warna pada detail halus.
 	“{name}” already exists. Replace it?	“{name}” sudah ada. Ganti?
 	The name in the save dialog was “{name}”.	Nama di dialog simpan adalah “{name}”.
+	Move Up	Pindah ke atas
+	Move Down	Pindah ke bawah
 	Memory Usage	Penggunaan memori
 	Per-document RAM limit (MB)	Batas RAM per dokumen (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM terpasang: {ram} MB; batas ini: {percent}%
@@ -3360,3 +3372,4 @@ curves	Smooth	Haluskan
 	Automatic paragraph direction	Arah paragraf otomatis
 	Left-to-right paragraph direction	Arah paragraf kiri ke kanan
 	Right-to-left paragraph direction	Arah paragraf kanan ke kiri
+	Not rendered: this adjustment ({key}) is kept as imported.	Tidak dirender: penyesuaian ini ({key}) disimpan seperti saat diimpor.

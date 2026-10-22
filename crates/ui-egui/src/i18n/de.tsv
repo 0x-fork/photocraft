@@ -15,6 +15,10 @@
 # way. Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept. Plural rule: one|other (n != 1 -> other).
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Maskenoptionen…
+	Layer Mask Display Options…	Anzeigeoptionen für Ebenenmasken…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Kanalfarbe
 	Color Indicates:	Farbe kennzeichnet:
@@ -3175,6 +3179,12 @@ curves	Smooth	Glätten
 	Remove after each stroke	Nach jedem Strich entfernen
 	Apply the removal ({key})	Entfernen anwenden ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Striche zum Entfernen: {n} (Eingabe wendet an, Esc bricht ab)
+	Load Contours…	Konturen laden…
+	Replace Contours…	Konturen ersetzen…
+	Save Contours…	Konturen speichern…
+	Delete Contour	Kontur löschen
+	Loaded contours from {file}	Konturen aus {file} geladen
+	Saved contours to {file}	Konturen in {file} gespeichert
 	Show home recent files	Zuletzt geöffnete Dateien auf dem Startbildschirm anzeigen
 	Clear Brush Controls	Pinselsteuerungen löschen
 	Reset All Locked Settings	Alle gesperrten Einstellungen zurücksetzen
@@ -3319,6 +3329,8 @@ curves	Smooth	Glätten
 	The fastest and the softest, with colour fringing on fine detail.	Am schnellsten und weichsten, mit Farbsäumen an feinen Details.
 	“{name}” already exists. Replace it?	„{name}“ ist bereits vorhanden. Ersetzen?
 	The name in the save dialog was “{name}”.	Der Name im Speichern-Dialog war „{name}“.
+	Move Up	Nach oben
+	Move Down	Nach unten
 	Memory Usage	Speichernutzung
 	Per-document RAM limit (MB)	RAM-Limit pro Dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Installierter RAM: {ram} MB; dieses Limit: {percent}%
@@ -3356,3 +3368,4 @@ curves	Smooth	Glätten
 	Automatic paragraph direction	Automatische Absatzrichtung
 	Left-to-right paragraph direction	Absatzrichtung von links nach rechts
 	Right-to-left paragraph direction	Absatzrichtung von rechts nach links
+	Not rendered: this adjustment ({key}) is kept as imported.	Nicht dargestellt: Diese Einstellung ({key}) wird wie importiert beibehalten.

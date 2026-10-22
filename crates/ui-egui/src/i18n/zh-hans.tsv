@@ -11,6 +11,10 @@
 # Licensed MIT OR Apache-2.0, as the code.
 # Product and technology names retain their spelling. See docs/localization-zh-hans.md.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	蒙版选项…
+	Layer Mask Display Options…	图层蒙版显示选项…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	通道颜色
 	Color Indicates:	色彩指示：
@@ -2814,6 +2818,12 @@ curves	Smooth	平滑
 	Remove after each stroke	每次描边后移除
 	Apply the removal ({key})	应用移除 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	待移除的描边：{n}（Enter 应用，Esc 取消）
+	Load Contours…	载入等高线…
+	Replace Contours…	替换等高线…
+	Save Contours…	存储等高线…
+	Delete Contour	删除等高线
+	Loaded contours from {file}	已从 {file} 载入等高线
+	Saved contours to {file}	已将等高线存储到 {file}
 	Show home recent files	在主屏幕上显示最近的文件
 	Clear Brush Controls	清除画笔控件
 	Reset All Locked Settings	复位所有锁定的设置
@@ -2967,6 +2977,8 @@ curves	Smooth	平滑
 	The fastest and the softest, with colour fringing on fine detail.	最快也最柔和，细节处有色边。
 	“{name}” already exists. Replace it?	“{name}”已存在。要替换它吗？
 	The name in the save dialog was “{name}”.	存储对话框中的名称是“{name}”。
+	Move Up	上移
+	Move Down	下移
 	Memory Usage	内存使用
 	Per-document RAM limit (MB)	每个文档的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安装 RAM：{ram} MB；此上限：{percent}%
@@ -3004,3 +3016,4 @@ curves	Smooth	平滑
 	Automatic paragraph direction	自动段落方向
 	Left-to-right paragraph direction	从左到右的段落方向
 	Right-to-left paragraph direction	从右到左的段落方向
+	Not rendered: this adjustment ({key}) is kept as imported.	未渲染：此调整（{key}）按导入时的原样保留。

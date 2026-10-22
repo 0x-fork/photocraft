@@ -8,6 +8,10 @@
 # stay as they are; the trailing "…" of dialog commands is kept. UI text addresses the user
 # informally ("je") and uses sentence case.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Maskeropties…
+	Layer Mask Display Options…	Weergaveopties voor laagmasker…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Kanaalkleur
 	Color Indicates:	Kleur geeft aan:
@@ -3928,6 +3932,12 @@ curves	Smooth	Vloeiend maken
 	Remove after each stroke	Verwijderen na elke streek
 	Apply the removal ({key})	Verwijdering toepassen ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Streken om te verwijderen: {n} (Enter past toe, Esc annuleert)
+	Load Contours…	Contouren laden…
+	Replace Contours…	Contouren vervangen…
+	Save Contours…	Contouren opslaan…
+	Delete Contour	Contour verwijderen
+	Loaded contours from {file}	Contouren geladen uit {file}
+	Saved contours to {file}	Contouren opgeslagen in {file}
 	Show home recent files	Recente bestanden tonen op het startscherm
 	Clear Brush Controls	Penseelbesturing wissen
 	Reset All Locked Settings	Alle vergrendelde instellingen opnieuw instellen
@@ -4071,6 +4081,8 @@ curves	Smooth	Vloeiend maken
 	The fastest and the softest, with colour fringing on fine detail.	Het snelst en het zachtst, met kleurranden in fijne details.
 	“{name}” already exists. Replace it?	“{name}” bestaat al. Vervangen?
 	The name in the save dialog was “{name}”.	De naam in het venster Opslaan was “{name}”.
+	Move Up	Omhoog
+	Move Down	Omlaag
 	Memory Usage	Geheugengebruik
 	Per-document RAM limit (MB)	RAM-limiet per document (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Geïnstalleerd RAM: {ram} MB; deze limiet: {percent}%
@@ -4106,3 +4118,4 @@ curves	Smooth	Vloeiend maken
 	Automatic paragraph direction	Automatische alinearichting
 	Left-to-right paragraph direction	Alinearichting van links naar rechts
 	Right-to-left paragraph direction	Alinearichting van rechts naar links
+	Not rendered: this adjustment ({key}) is kept as imported.	Niet weergegeven: deze aanpassing ({key}) blijft behouden zoals geïmporteerd.

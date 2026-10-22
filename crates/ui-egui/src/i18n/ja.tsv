@@ -15,6 +15,10 @@
 # Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	マスクオプション…
+	Layer Mask Display Options…	レイヤーマスクの表示オプション…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	チャンネルカラー
 	Color Indicates:	着色表示:
@@ -3779,6 +3783,12 @@ curves	Smooth	スムーズ
 	Remove after each stroke	ストロークごとに削除
 	Apply the removal ({key})	削除を適用 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	削除するストローク: {n}（Enter で適用、Esc で取り消し）
+	Load Contours…	カーブを読み込み…
+	Replace Contours…	カーブを置き換え…
+	Save Contours…	カーブを保存…
+	Delete Contour	カーブを削除
+	Loaded contours from {file}	{file} からカーブを読み込みました
+	Saved contours to {file}	カーブを {file} に保存しました
 	Show home recent files	ホーム画面に最近使ったファイルを表示
 
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
@@ -3988,6 +3998,8 @@ curves	Smooth	スムーズ
 	The fastest and the softest, with colour fringing on fine detail.	最も高速で最も柔らかく、細部に色にじみが出る。
 	“{name}” already exists. Replace it?	「{name}」は既に存在します。置き換えますか？
 	The name in the save dialog was “{name}”.	保存ダイアログで指定した名前は「{name}」でした。
+	Move Up	上へ移動
+	Move Down	下へ移動
 	Memory Usage	メモリ使用量
 	Per-document RAM limit (MB)	ドキュメントあたりの RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	搭載 RAM: {ram} MB、この上限: {percent}%
@@ -4024,3 +4036,4 @@ curves	Smooth	スムーズ
 	Automatic paragraph direction	段落の方向を自動判別
 	Left-to-right paragraph direction	左から右への段落方向
 	Right-to-left paragraph direction	右から左への段落方向
+	Not rendered: this adjustment ({key}) is kept as imported.	レンダリングされません: この調整（{key}）はインポートされたまま保持されます。

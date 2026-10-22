@@ -19,6 +19,10 @@
 # kept. Full-width punctuation (，。：) inside sentences; half-width parentheses and the " · "
 # separators as in the English.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	遮色片選項…
+	Layer Mask Display Options…	圖層遮色片顯示選項…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	色版顏色
 	Color Indicates:	色彩指示：
@@ -2778,6 +2782,12 @@ curves	Smooth	平滑
 	Remove after each stroke	每次描邊後移除
 	Apply the removal ({key})	套用移除 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	待移除的描邊：{n}（Enter 套用，Esc 取消）
+	Load Contours…	載入等高線…
+	Replace Contours…	取代等高線…
+	Save Contours…	儲存等高線…
+	Delete Contour	刪除等高線
+	Loaded contours from {file}	已從 {file} 載入等高線
+	Saved contours to {file}	已將等高線儲存到 {file}
 	Show home recent files	在主畫面上顯示最近的檔案
 	Clear Brush Controls	清除筆刷控制項
 	Reset All Locked Settings	重設所有鎖定的設定
@@ -2931,6 +2941,8 @@ curves	Smooth	平滑
 	The fastest and the softest, with colour fringing on fine detail.	最快也最柔和，細節處有色邊。
 	“{name}” already exists. Replace it?	「{name}」已存在。要取代它嗎？
 	The name in the save dialog was “{name}”.	儲存對話框中的名稱是「{name}」。
+	Move Up	上移
+	Move Down	下移
 	Memory Usage	記憶體使用量
 	Per-document RAM limit (MB)	每個文件的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安裝 RAM：{ram} MB；此上限：{percent}%
@@ -2968,3 +2980,4 @@ curves	Smooth	平滑
 	Automatic paragraph direction	自動段落方向
 	Left-to-right paragraph direction	由左至右的段落方向
 	Right-to-left paragraph direction	由右至左的段落方向
+	Not rendered: this adjustment ({key}) is kept as imported.	未算繪：此調整（{key}）依匯入時的原樣保留。

@@ -20,6 +20,10 @@
 # (`plural_none` in i18n/mod.rs).
 
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Tùy chọn mặt nạ…
+	Layer Mask Display Options…	Tùy chọn hiển thị mặt nạ lớp…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Màu kênh
 	Color Indicates:	Màu biểu thị:
@@ -3613,6 +3617,12 @@ curves	Smooth	Làm mượt
 	Remove after each stroke	Xóa sau mỗi nét vẽ
 	Apply the removal ({key})	Áp dụng việc xóa ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)
+	Load Contours…	Tải đường viền…
+	Replace Contours…	Thay thế đường viền…
+	Save Contours…	Lưu đường viền…
+	Delete Contour	Xóa đường viền
+	Loaded contours from {file}	Đã tải đường viền từ {file}
+	Saved contours to {file}	Đã lưu đường viền vào {file}
 # Edit › Content-Aware Fill workspace
 	Excluded Area	Vùng loại trừ
 	Fill Settings	Cài đặt tô
@@ -3802,6 +3812,8 @@ curves	Smooth	Làm mượt
 	The fastest and the softest, with colour fringing on fine detail.	Nhanh nhất và mềm nhất, có viền màu ở chi tiết nhỏ.
 	“{name}” already exists. Replace it?	“{name}” đã tồn tại. Thay thế?
 	The name in the save dialog was “{name}”.	Tên trong hộp thoại lưu là “{name}”.
+	Move Up	Di chuyển lên
+	Move Down	Di chuyển xuống
 	Memory Usage	Sử dụng bộ nhớ
 	Per-document RAM limit (MB)	Giới hạn RAM mỗi tài liệu (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM đã cài: {ram} MB; giới hạn này: {percent}%
@@ -3838,3 +3850,4 @@ curves	Smooth	Làm mượt
 	Automatic paragraph direction	Hướng đoạn văn tự động
 	Left-to-right paragraph direction	Hướng đoạn văn từ trái sang phải
 	Right-to-left paragraph direction	Hướng đoạn văn từ phải sang trái
+	Not rendered: this adjustment ({key}) is kept as imported.	Không được kết xuất: điều chỉnh này ({key}) được giữ nguyên như khi nhập.

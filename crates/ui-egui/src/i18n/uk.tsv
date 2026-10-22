@@ -8,6 +8,10 @@
 # No proprietary translation resources were used.
 # Licensed MIT OR Apache-2.0. See LICENSE-translations.txt and ATTRIBUTION.md.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Параметри маски…
+	Layer Mask Display Options…	Параметри відображення маски шару…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Колір каналу
 	Color Indicates:	Кольором позначено:
@@ -3867,6 +3871,12 @@ curves	Smooth	Згладити
 	Remove after each stroke	Видаляти після кожного штриха
 	Apply the removal ({key})	Застосувати видалення ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихів для видалення: {n} (Enter застосовує, Esc скасовує)
+	Load Contours…	Завантажити контури…
+	Replace Contours…	Замінити контури…
+	Save Contours…	Зберегти контури…
+	Delete Contour	Видалити контур
+	Loaded contours from {file}	Контури завантажено з {file}
+	Saved contours to {file}	Контури збережено в {file}
 	Show home recent files	Показувати нещодавні файли на головному екрані
 	Clear Brush Controls	Очистити параметри пензля
 	Reset All Locked Settings	Скинути всі заблоковані параметри
@@ -4019,6 +4029,8 @@ curves	Smooth	Згладити
 	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Хіракава–Паркс: найчистіші краї й найменше кольорової облямівки, найповільніший.
 	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Інтерполяція з корекцією градієнта: різка й швидка, з невеликою кольоровою облямівкою на дрібних деталях.
 	The fastest and the softest, with colour fringing on fine detail.	Найшвидший і найм'якший, з кольоровою облямівкою на дрібних деталях.
+	Move Up	Перемістити вгору
+	Move Down	Перемістити вниз
 	Memory Usage	Використання пам’яті
 	Per-document RAM limit (MB)	Ліміт RAM на документ (МБ)
 	Installed RAM: {ram} MB; this limit: {percent}%	Встановлено RAM: {ram} МБ; цей ліміт: {percent}%
@@ -4055,3 +4067,4 @@ curves	Smooth	Згладити
 	Automatic paragraph direction	Автоматичний напрямок абзацу
 	Left-to-right paragraph direction	Напрямок абзацу зліва направо
 	Right-to-left paragraph direction	Напрямок абзацу справа наліво
+	Not rendered: this adjustment ({key}) is kept as imported.	Не відображається: це коригування ({key}) збережено як було імпортовано.

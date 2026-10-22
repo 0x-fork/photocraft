@@ -19,6 +19,10 @@
 # (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin letters; the trailing "…" of
 # dialog commands is kept.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Možnosti masky…
+	Layer Mask Display Options…	Možnosti zobrazení masky vrstvy…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Barva kanálu
 	Color Indicates:	Barva označuje:
@@ -3779,6 +3783,12 @@ navigator	Zoom	Zvětšení
 	Remove after each stroke	Odstranit po každém tahu
 	Apply the removal ({key})	Použít odstranění ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Tahy k odstranění: {n} (Enter použije, Esc zruší)
+	Load Contours…	Načíst obrysy…
+	Replace Contours…	Nahradit obrysy…
+	Save Contours…	Uložit obrysy…
+	Delete Contour	Smazat obrys
+	Loaded contours from {file}	Obrysy načteny ze souboru {file}
+	Saved contours to {file}	Obrysy uloženy do souboru {file}
 	Show home recent files	Zobrazit nedávné soubory na úvodní obrazovce
 	Clear Brush Controls	Obnovit ovládací prvky stopy
 	Reset All Locked Settings	Obnovit všechna zamknutá nastavení
@@ -4055,6 +4065,8 @@ navigator	Zoom	Zvětšení
 layers	Fill	Krytí výplně
 layers	Fill:	Krytí výplně:
 cameraRaw	Dehaze	Odstranění oparu
+	Move Up	Přesunout nahoru
+	Move Down	Přesunout dolů
 	Memory Usage	Využití paměti
 	Per-document RAM limit (MB)	Limit RAM na dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Nainstalovaná RAM: {ram} MB; tento limit: {percent}%
@@ -4090,3 +4102,4 @@ cameraRaw	Dehaze	Odstranění oparu
 	Automatic paragraph direction	Automatický směr odstavce
 	Left-to-right paragraph direction	Směr odstavce zleva doprava
 	Right-to-left paragraph direction	Směr odstavce zprava doleva
+	Not rendered: this adjustment ({key}) is kept as imported.	Nevykresleno: tato úprava ({key}) je ponechána tak, jak byla importována.

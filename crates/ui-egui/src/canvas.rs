@@ -7977,7 +7977,7 @@ mod tests {
                             &app.session.documents()[0].channel_view,
                             r,
                             factor,
-                            false,
+                            crate::channel_view::Look::default(),
                             app.session.documents()[0].active_layer,
                         )
                         .unwrap();
@@ -8008,7 +8008,8 @@ mod tests {
                     let st = &app.session.documents()[0];
                     assert_eq!(
                         image.pixels,
-                        crate::channel_view::render(&st.doc, &st.channel_view, st.doc.bounds(), factor, false, st.active_layer).unwrap(),
+                        crate::channel_view::render(&st.doc, &st.channel_view, st.doc.bounds(), factor, crate::channel_view::Look::default(), st.active_layer)
+                            .unwrap(),
                         "undo restores the shown mask"
                     );
                     delta.clear();
@@ -8053,12 +8054,28 @@ mod tests {
             let r = DRect::new(pos[0] as i32, pos[1] as i32, (pos[0] + image.size[0]) as i32, (pos[1] + image.size[1]) as i32);
             assert_eq!(
                 image.pixels,
-                crate::channel_view::render(&shown, &app.session.documents()[0].channel_view, r, 1, false, app.session.documents()[0].active_layer).unwrap(),
+                crate::channel_view::render(
+                    &shown,
+                    &app.session.documents()[0].channel_view,
+                    r,
+                    1,
+                    crate::channel_view::Look::default(),
+                    app.session.documents()[0].active_layer
+                )
+                .unwrap(),
                 "{target}"
             );
             assert_ne!(
                 image.pixels,
-                crate::channel_view::render(&original, &app.session.documents()[0].channel_view, r, 1, false, app.session.documents()[0].active_layer).unwrap(),
+                crate::channel_view::render(
+                    &original,
+                    &app.session.documents()[0].channel_view,
+                    r,
+                    1,
+                    crate::channel_view::Look::default(),
+                    app.session.documents()[0].active_layer
+                )
+                .unwrap(),
                 "target was painted"
             );
             delta.clear();
@@ -8080,7 +8097,7 @@ mod tests {
                     &app.session.documents()[0].channel_view,
                     original.bounds(),
                     1,
-                    false,
+                    crate::channel_view::Look::default(),
                     app.session.documents()[0].active_layer
                 )
                 .unwrap()
@@ -9243,7 +9260,8 @@ mod rotation_preview_isolation_tests {
         let mut delta = ctx.tex_manager().write().take_delta();
         let egui::ImageData::Color(image) = &delta.set.get(&texture).expect("filter preview must update channel overlay")[0].image;
         let st = app.session.active().unwrap();
-        let original = crate::channel_view::render(&before, &st.channel_view, before.bounds(), 1, false, st.active_layer).unwrap();
+        let original =
+            crate::channel_view::render(&before, &st.channel_view, before.bounds(), 1, crate::channel_view::Look::default(), st.active_layer).unwrap();
         assert_ne!(image.pixels, original, "a nontrivial filter must be visible before OK");
         delta.clear();
         assert!(std::sync::Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
@@ -9404,7 +9422,8 @@ mod rotation_preview_isolation_tests {
             let egui::ImageData::Color(image) = &delta.set.get(&texture).expect("preview must refresh overlay")[0].image;
             crate::dialogs::confirm(&mut app, dialog).unwrap();
             let st = app.session.active().unwrap();
-            let expected = crate::channel_view::render(&st.doc, &st.channel_view, st.doc.bounds(), 1, false, st.active_layer).unwrap();
+            let expected =
+                crate::channel_view::render(&st.doc, &st.channel_view, st.doc.bounds(), 1, crate::channel_view::Look::default(), st.active_layer).unwrap();
             assert_eq!(image.pixels, expected, "quick_mask={quick_mask}");
             delta.clear();
         }

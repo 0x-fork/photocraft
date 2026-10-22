@@ -17,6 +17,10 @@
 # letters; the trailing "…" of dialog commands is kept; the colon of a label ("Width:") becomes
 # the Russian typographic equivalent, with the space the source carries.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Параметры маски…
+	Layer Mask Display Options…	Параметры отображения маски слоя…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Цвет канала
 	Color Indicates:	Цветом обозначены:
@@ -3120,6 +3124,12 @@ curves	Smooth	Сгладить
 	Remove after each stroke	Удалять после каждого штриха
 	Apply the removal ({key})	Применить удаление ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихов к удалению: {n} (Enter применяет, Esc отменяет)
+	Load Contours…	Загрузить контуры…
+	Replace Contours…	Заменить контуры…
+	Save Contours…	Сохранить контуры…
+	Delete Contour	Удалить контур
+	Loaded contours from {file}	Контуры загружены из {file}
+	Saved contours to {file}	Контуры сохранены в {file}
 	Show home recent files	Показывать недавние файлы на домашнем экране
 	Clear Brush Controls	Очистить параметры кисти
 	Reset All Locked Settings	Сбросить все заблокированные параметры
@@ -3790,6 +3800,8 @@ curves	Smooth	Сгладить
 	The fastest and the softest, with colour fringing on fine detail.	Самый быстрый и самый мягкий, с цветной каймой на мелких деталях.
 	“{name}” already exists. Replace it?	«{name}» уже существует. Заменить?
 	The name in the save dialog was “{name}”.	В окне сохранения было указано имя «{name}».
+	Move Up	Переместить вверх
+	Move Down	Переместить вниз
 	Memory Usage	Использование памяти
 	Per-document RAM limit (MB)	Лимит ОЗУ на документ (МБ)
 	Installed RAM: {ram} MB; this limit: {percent}%	Установлено ОЗУ: {ram} МБ; этот лимит: {percent}%
@@ -4551,3 +4563,4 @@ shape	Appearance	Оформление
 	Automatic paragraph direction	Автоматическое направление абзаца
 	Left-to-right paragraph direction	Направление абзаца слева направо
 	Right-to-left paragraph direction	Направление абзаца справа налево
+	Not rendered: this adjustment ({key}) is kept as imported.	Не отображается: эта коррекция ({key}) сохранена как при импорте.

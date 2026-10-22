@@ -15,6 +15,10 @@
 # entries the same way. Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...)
 # stay as they are; the trailing "…" of dialog commands is kept.
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Opções de máscara…
+	Layer Mask Display Options…	Opções de exibição de máscara de camada…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Cor do canal
 	Color Indicates:	A cor indica:
@@ -3958,6 +3962,12 @@ layerLabel	No Color	Sem cor
 	Remove after each stroke	Remover após cada traço
 	Apply the removal ({key})	Aplicar a remoção ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Traços a remover: {n} (Enter aplica, Esc cancela)
+	Load Contours…	Carregar contornos…
+	Replace Contours…	Substituir contornos…
+	Save Contours…	Salvar contornos…
+	Delete Contour	Excluir contorno
+	Loaded contours from {file}	Contornos carregados de {file}
+	Saved contours to {file}	Contornos salvos em {file}
 	Show home recent files	Mostrar arquivos recentes na tela inicial
 	Clear Brush Controls	Limpar controles de pincel
 	Reset All Locked Settings	Redefinir todas as configurações bloqueadas
@@ -4101,6 +4111,8 @@ layerLabel	No Color	Sem cor
 	The fastest and the softest, with colour fringing on fine detail.	O mais rápido e o mais suave, com franjamento de cor em detalhes finos.
 	“{name}” already exists. Replace it?	“{name}” já existe. Substituir?
 	The name in the save dialog was “{name}”.	O nome na caixa de diálogo Salvar era “{name}”.
+	Move Up	Mover para cima
+	Move Down	Mover para baixo
 	Memory Usage	Uso de memória
 	Per-document RAM limit (MB)	Limite de RAM por documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM instalada: {ram} MB; este limite: {percent}%
@@ -4285,3 +4297,4 @@ layerLabel	No Color	Sem cor
 	Automatic paragraph direction	Direção automática do parágrafo
 	Left-to-right paragraph direction	Direção do parágrafo da esquerda para a direita
 	Right-to-left paragraph direction	Direção do parágrafo da direita para a esquerda
+	Not rendered: this adjustment ({key}) is kept as imported.	Não renderizado: este ajuste ({key}) é mantido como foi importado.

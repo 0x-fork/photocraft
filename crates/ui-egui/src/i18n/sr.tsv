@@ -3109,6 +3109,12 @@ curves	Smooth	Izgladi
 	Remove after each stroke	Ukloni posle svakog poteza
 	Apply the removal ({key})	Primeni uklanjanje ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Potezi za uklanjanje: {n} (Enter primenjuje, Esc otkazuje)
+	Load Contours…	Učitaj konture…
+	Replace Contours…	Zameni konture…
+	Save Contours…	Sačuvaj konture…
+	Delete Contour	Obriši konturu
+	Loaded contours from {file}	Konture učitane iz {file}
+	Saved contours to {file}	Konture sačuvane u {file}
 
 # Gradient Editor window, opened from the options bar's gradient swatch.
 	The current gradient (pick one in Window › Gradients)	Tekući gradijent (izaberite ga u Prozor › Gradijenti)
@@ -4242,6 +4248,10 @@ shape	Appearance	Izgled
 # ICO dimensions
 	ICO is limited to 256 × 256 pixels	ICO je ograničen na 256 × 256 piksela
 
+# Layer Mask Display Options (the layer mask rubylith's colour and opacity)
+	Mask Options…	Opcije maske…
+	Layer Mask Display Options…	Opcije prikaza maske sloja…
+
 # Channel Options and New Spot Channel (#3761)
 	Channel Color	Boja kanala
 	Color Indicates:	Boja označava:
@@ -4383,6 +4393,8 @@ shape	Appearance	Izgled
 	The fastest and the softest, with colour fringing on fine detail.	Najbrži i najmekši, sa obojenim rubovima na finim detaljima.
 	“{name}” already exists. Replace it?	„{name}“ već postoji. Zameniti?
 	The name in the save dialog was “{name}”.	Ime u dijalogu za čuvanje je bilo „{name}“.
+	Move Up	Pomeri nagore
+	Move Down	Pomeri nadole
 	Memory Usage	Upotreba memorije
 	Per-document RAM limit (MB)	RAM limit po dokumentu (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Instalisan RAM: {ram} MB; ovaj limit: {percent}%
@@ -4418,3 +4430,4 @@ shape	Appearance	Izgled
 	Automatic paragraph direction	Automatski smer pasusa
 	Left-to-right paragraph direction	Smer pasusa sleva nadesno
 	Right-to-left paragraph direction	Smer pasusa zdesna nalevo
+	Not rendered: this adjustment ({key}) is kept as imported.	Није приказано: ово прилагођавање ({key}) је задржано онако како је увезено.
