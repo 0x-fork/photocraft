@@ -1103,6 +1103,7 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let labels = f.get("__labels").cloned().unwrap_or(Value::Null);
     let label = |k: &str| labels.get(k).and_then(Value::as_str).map_or_else(|| label_of(k), str::to_string);
     let keys = form_keys(f);
+    let mut browse: Option<String> = None;
     egui::Grid::new("form-dialog").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for k in keys {
             let v = f.get(&k).cloned().unwrap_or(Value::Null);
@@ -1149,7 +1150,13 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                             crate::widgets::dropdown(ui, &format!("form-{k}"), &mut s, &refs, 200.0);
                         }
                         None => {
-                            ui.add(egui::TextEdit::singleline(&mut s).desired_width(260.0));
+                            ui.horizontal(|ui| {
+                                ui.add(egui::TextEdit::singleline(&mut s).desired_width(260.0));
+                                // A folder field gets the system folder picker (#7942).
+                                if k == "dir" && crate::widgets::secondary_button(ui, tl!("Browse…"), 0.0).clicked() {
+                                    browse = Some(k.clone());
+                                }
+                            });
                         }
                     }
                     json!(s)
@@ -1170,6 +1177,9 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             ui.end_row();
         }
     });
+    if let Some(key) = browse {
+        f.insert(crate::dialogs::BROWSE_FIELD.into(), json!(key));
+    }
     camera_data(ui, f);
 }
 

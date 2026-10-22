@@ -3598,4 +3598,6 @@ mod channel_tint_tests {
 }
 
 #[cfg(test)]
+mod browse_field_tests;
+#[cfg(test)]
 mod options_hit_area_tests;

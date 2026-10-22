@@ -7,6 +7,37 @@ use crate::PhotocraftApp;
 use crate::state::{Dialog, DialogKind};
 use crate::widgets::{ButtonRole, DialogButton, dialog_buttons};
 
+/// A dialog body sets this field to the key of the text field whose Browse… button was clicked;
+/// [`show`] takes it out again and opens the matching file or folder dialog.
+pub(crate) const BROWSE_FIELD: &str = "__browse";
+
+/// Browse… beside a path field of dialog `id`: a folder picker for `dir` fields, a `.wasm` picker
+/// for Install Plug-in…'s `path`. The answer fills the field.
+fn browse_field(app: &mut PhotocraftApp, id: u64, fields: &serde_json::Map<String, Value>, key: &str) {
+    let key = key.to_string();
+    let r = if key == "dir" {
+        app.ask_folder(move |app, path| fill_field(app, id, &key, path))
+    } else if fields.get("__command").and_then(Value::as_str) == Some("plugin.install") {
+        let initial_dir = crate::file_dialog::last_used_dir(&app.ui.recent_files);
+        let request = crate::file_dialog::FileDialogRequest::Open { multiple: false, initial_dir, extensions: Some(vec!["wasm".into()]) };
+        app.ask_file(request, move |app, answer| match answer {
+            crate::file_dialog::FileDialogAnswer::Paths(mut paths) if !paths.is_empty() => fill_field(app, id, &key, paths.remove(0)),
+            _ => Err("Install Plug-in reads a .wasm file from disk".into()),
+        })
+    } else {
+        return;
+    };
+    if let Err(e) = r.map(|_| ()).or_else(|e| if e == crate::file_dialog::CANCELLED { Ok(()) } else { Err(e) }) {
+        app.ui.status = e;
+    }
+}
+
+fn fill_field(app: &mut PhotocraftApp, id: u64, key: &str, path: String) -> Result<Value, String> {
+    let d = app.ui.dialog_mut(id).ok_or("the dialog was closed")?;
+    d.fields.insert(key.into(), json!(path));
+    Ok(Value::Null)
+}
+
 /// Where this frame's dialogs are on screen (the canvas reads last frame's: it draws first).
 const RECTS: &str = "pc-dialog-rects";
 
@@ -388,6 +419,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 }
             }
             crate::field_tab::end(ui.ctx(), tab);
+            if let Some(Value::String(key)) = fields.remove(BROWSE_FIELD) {
+                browse_field(app, d.id, &fields, &key);
+            }
             if crate::guide_layout_ui::owns(&fields) || crate::brush_preset_dialog::owns(&fields) {
                 // These dialogs own their right-side actions and validate Enter themselves.
             } else if crate::color_picker_ui::owns(&fields) {
