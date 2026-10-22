@@ -1611,6 +1611,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Δεν υπάρχει διαδρομή για δημιουργία επιλογής: σχεδιάστε μία με το εργαλείο Πένα (Pen Tool) ή επιλέξτε μία στο πλαίσιο Διαδρομές.
 	Cancel opening	Ακύρωση ανοίγματος
 	Cancelled opening {name}	Ακυρώθηκε το άνοιγμα του {name}
+	Damaged Photoshop document	Κατεστραμμένο έγγραφο Photoshop
+	The document “{name}” may be damaged.	Το έγγραφο «{name}» μπορεί να είναι κατεστραμμένο.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Δεν ήταν δυνατή η ανάγνωση ορισμένων επιπέδων, εικονοστοιχείων ή μασκών. Θέλετε να συνεχίσετε το άνοιγμα;
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Αν συνεχίσετε, η αποθήκευση πάνω στο πρωτότυπο μπορεί να απορρίψει οριστικά τα μη αναγνώσιμα δεδομένα. Αποθηκεύστε ένα αντίγραφο για να διατηρήσετε το πρωτότυπο.
 	The document “{name}” does not have an embedded {mode} profile.	Το έγγραφο «{name}» δεν έχει ενσωματωμένο προφίλ {mode}.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Το έγγραφο «{name}» έχει ενσωματωμένο χρωματικό προφίλ που δεν ταιριάζει με τον τρέχοντα χώρο εργασίας {mode}.
 	Working: {working}	Χώρος εργασίας: {working}

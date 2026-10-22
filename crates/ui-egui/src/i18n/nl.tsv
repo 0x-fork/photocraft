@@ -2171,6 +2171,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Geen pad om een selectie van te maken: teken er een met het pengereedschap of selecteer er een in het paneel Paden.
 	Cancel opening	Openen annuleren
 	Cancelled opening {name}	Openen van {name} geannuleerd
+	Damaged Photoshop document	Beschadigd Photoshop-document
+	The document “{name}” may be damaged.	Het document ‘{name}’ is mogelijk beschadigd.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Sommige lagen, pixels of maskers konden niet worden gelezen. Wilt u doorgaan met openen?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Als u doorgaat, kan opslaan over het origineel onleesbare gegevens definitief verwijderen. Sla een kopie op om het origineel te behouden.
 	The document “{name}” does not have an embedded {mode} profile.	Het document “{name}” heeft geen ingesloten {mode}-profiel.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Het document “{name}” heeft een ingesloten kleurprofiel dat niet overeenkomt met de huidige {mode}-werkruimte.
 	Working: {working}	Werkruimte: {working}

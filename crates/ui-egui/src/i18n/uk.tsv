@@ -2457,6 +2457,11 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Немає контуру для створення виділення: намалюйте його пером або виберіть на панелі контурів.
 	Cancel opening	Скасувати відкриття
 	Cancelled opening {name}	Відкриття {name} скасовано
+	Damaged Photoshop document	Пошкоджений документ Photoshop
+	The document “{name}” may be damaged.	Документ «{name}», можливо, пошкоджено.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Не вдалося прочитати деякі шари, пікселі або маски. Продовжити відкриття?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Якщо продовжити, збереження поверх оригіналу може безповоротно видалити дані, які не вдалося прочитати. Щоб зберегти оригінал, збережіть копію.
+	Continue	Продовжити
 	The document “{name}” does not have an embedded {mode} profile.	Документ «{name}» не має вбудованого профілю {mode}.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Вбудований колірний профіль документа «{name}» не відповідає поточному робочому простору {mode}.
 	Working: {working}	Робочий простір: {working}

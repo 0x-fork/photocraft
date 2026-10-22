@@ -2165,6 +2165,11 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	선택 영역으로 만들 패스가 없습니다: 펜 도구로 그리거나 패스 패널에서 선택하세요.
 	Cancel opening	열기 취소
 	Cancelled opening {name}	{name} 열기를 취소했습니다
+	Damaged Photoshop document	손상된 Photoshop 문서
+	The document “{name}” may be damaged.	문서 “{name}”이(가) 손상되었을 수 있습니다.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	일부 레이어, 픽셀 또는 마스크를 읽을 수 없습니다. 계속 여시겠습니까?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	계속하면 원본에 덮어써서 저장할 때 읽을 수 없는 데이터가 영구적으로 삭제될 수 있습니다. 원본을 유지하려면 사본을 저장하십시오.
+	Continue	계속
 	The document “{name}” does not have an embedded {mode} profile.	문서 “{name}”에 포함된 {mode} 프로파일이 없습니다.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	문서 “{name}”에 포함된 색상 프로파일이 현재 {mode} 작업 색상 공간과 일치하지 않습니다.
 	Working: {working}	작업 색상 공간: {working}

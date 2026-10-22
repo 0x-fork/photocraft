@@ -2212,6 +2212,11 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	沒有可用來建立選取範圍的路徑：請使用鋼筆工具繪製，或在路徑面板中選取一個路徑。
 	Cancel opening	取消開啟
 	Cancelled opening {name}	已取消開啟 {name}
+	Damaged Photoshop document	已損毀的 Photoshop 文件
+	The document “{name}” may be damaged.	文件「{name}」可能已損毀。
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	無法讀取部分圖層、像素或遮色片。是否繼續開啟？
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	如果繼續，覆寫儲存原始檔案可能會永久捨棄無法讀取的資料。請儲存拷貝以保留原始檔案。
+	Continue	繼續
 	The document “{name}” does not have an embedded {mode} profile.	文件「{name}」沒有嵌入的 {mode} 描述檔。
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	文件「{name}」嵌入的色彩描述檔與目前的 {mode} 工作空間不符。
 	Working: {working}	工作空間：{working}

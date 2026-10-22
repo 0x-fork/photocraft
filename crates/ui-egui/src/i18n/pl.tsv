@@ -2190,6 +2190,11 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Brak ścieżki, z której można utworzyć zaznaczenie: narysuj ją narzędziem Pióro lub wybierz w panelu Ścieżki.
 	Cancel opening	Anuluj otwieranie
 	Cancelled opening {name}	Anulowano otwieranie {name}
+	Damaged Photoshop document	Uszkodzony dokument programu Photoshop
+	The document “{name}” may be damaged.	Dokument „{name}” może być uszkodzony.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Nie udało się odczytać niektórych warstw, pikseli lub masek. Czy kontynuować otwieranie?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Jeśli będziesz kontynuować, zapisanie na oryginale może trwale usunąć nieczytelne dane. Zapisz kopię, aby zachować oryginał.
+	Continue	Kontynuuj
 	The document “{name}” does not have an embedded {mode} profile.	Dokument „{name}” nie ma osadzonego profilu {mode}.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokument „{name}” ma osadzony profil kolorów, który nie pasuje do bieżącej przestrzeni roboczej {mode}.
 	Working: {working}	Przestrzeń robocza: {working}

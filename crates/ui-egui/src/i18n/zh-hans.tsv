@@ -2273,6 +2273,11 @@ cameraRaw	Blending	混合
 # Layer navigation, copy transforms and cancellable opening (labels added on main since this catalog).
 	Cancel opening	取消打开
 	Cancelled opening {name}	已取消打开 {name}
+	Damaged Photoshop document	已损坏的 Photoshop 文档
+	The document “{name}” may be damaged.	文档“{name}”可能已损坏。
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	无法读取某些图层、像素或蒙版。是否继续打开？
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	如果继续，覆盖保存原始文件可能会永久丢弃无法读取的数据。请保存副本以保留原始文件。
+	Continue	继续
 	The document “{name}” does not have an embedded {mode} profile.	文档“{name}”没有嵌入的 {mode} 配置文件。
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	文档“{name}”嵌入的颜色配置文件与当前的 {mode} 工作空间不匹配。
 	Working: {working}	工作空间：{working}

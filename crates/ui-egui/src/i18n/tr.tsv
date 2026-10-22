@@ -2144,6 +2144,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Seçim yapılabilecek yol yok: Kalem aracıyla bir yol çizin veya Yollar panelinden birini seçin.
 	Cancel opening	Açılışı iptal et
 	Cancelled opening {name}	{name} açılışı iptal edildi
+	Damaged Photoshop document	Hasarlı Photoshop belgesi
+	The document “{name}” may be damaged.	“{name}” belgesi hasarlı olabilir.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Bazı katmanlar, pikseller veya maskeler okunamadı. Açmaya devam etmek istiyor musunuz?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Devam ederseniz, orijinalin üzerine kaydetmek okunamayan verileri kalıcı olarak silebilir. Orijinali korumak için bir kopya kaydedin.
 	The document “{name}” does not have an embedded {mode} profile.	'{name}' belgesinde gömülü bir {mode} profili yok.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	'{name}' belgesinin gömülü renk profili geçerli {mode} çalışma alanıyla eşleşmiyor.
 	Working: {working}	Çalışma alanı: {working}
