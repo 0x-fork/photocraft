@@ -183,6 +183,14 @@ fn hit_offset(app: &mut PhotocraftApp, id: LayerId, x: f64, y: f64) -> usize {
 pub(crate) fn offset_at(app: &mut PhotocraftApp, id: LayerId, x: f64, y: f64) -> usize {
     let Some((l, aff, text)) = layout(app, id) else { return 0 };
     let (tx, ty) = to_text(&aff, x, y);
+    // Type on a path: the point's place along the path is the position in the (single) line.
+    let shape = app.session.active().and_then(|s| text_layer(&s.doc, id).map(|t| t.shape.clone()));
+    let (tx, ty) = match shape {
+        Some(photocraft_doc::text::TextShape::Path { path, start, flip }) => {
+            photocraft_text::warp::arc_length_at(&path, flip, f64::from(tx), f64::from(ty)).map_or((tx, ty), |s| ((s - f64::from(start)) as f32, -1.0))
+        }
+        _ => (tx, ty),
+    };
     photocraft_text::hit_char(&l, &text, tx, ty).0
 }
 
@@ -367,6 +375,8 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
         p["x"] = json!(start[0].round());
         p["y"] = json!(start[1].round());
     }
+    // A click on a shown path starts type on that path, from the point clicked (Photoshop).
+    let on_path = if p.get("box").is_none() { path_at(app, start[0], start[1]) } else { None };
     let key = session_key(app);
     p["coalesce"] = json!(key);
     if let Ok(v) = app.run("type.create", p)
@@ -374,6 +384,14 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     {
         if o.type_aa != "sharp" {
             let _ = app.run("type.edit", json!({"layer": id, "antialias": o.type_aa, "coalesce": key}));
+        }
+        if let Some(mut q) = on_path {
+            q["layer"] = json!(id);
+            q["at"] = json!([start[0], start[1]]);
+            q["coalesce"] = json!(key);
+            if let Err(e) = app.run("type.attachToPath", q) {
+                app.ui.status = e;
+            }
         }
         // A Type Mask's text is a hidden working layer: the canvas shows the mask overlay
         // instead, and committing turns it into the selection.
@@ -397,6 +415,53 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
         });
         app.ui.text_edit_return_tool = None;
     }
+}
+
+/// The shown path a Type tool click at document point (`x`, `y`) puts type on, as
+/// `type.attachToPath` params naming it (`shape`, `subpath`): the active shape layer's path, else
+/// the work path, within a few screen pixels, as in Photoshop. Only the horizontal Type tool
+/// starts path type for now; vertical type on a path is not laid out yet.
+pub(crate) fn path_at(app: &PhotocraftApp, x: f64, y: f64) -> Option<serde_json::Value> {
+    if app.ui.tool != crate::state::Tool::Type || app.ui.text_edit.is_some() || !app.ui.view.shows(app.ui.view.show.target_path) {
+        return None;
+    }
+    let tol = f64::from(6.0 / app.point_zoom().max(0.01));
+    let hit = |p: &photocraft_doc::vector::Path| {
+        let s = match photocraft_vector::edit::hit(p, Point::new(x, y), tol, &[])? {
+            photocraft_vector::edit::Hit::Anchor([s, _]) | photocraft_vector::edit::Hit::Segment([s, _], _) => s,
+            photocraft_vector::edit::Hit::Handle(..) => return None,
+        };
+        p.subpaths.get(s).filter(|sp| sp.knots.len() >= 2).map(|_| s)
+    };
+    if let Some((id, p)) = crate::vector_ui::active_shape_path(app)
+        && let Some(s) = hit(&p)
+    {
+        return Some(json!({"shape": id, "subpath": s}));
+    }
+    let work = app.session.active()?.doc.work_path.as_ref()?;
+    hit(work).map(|s| json!({"subpath": s}))
+}
+
+/// The Type tool's pointer over a path it can follow: Photoshop's I-beam crossed by a dotted
+/// wavy line, drawn on the canvas.
+pub(crate) fn path_cursor(painter: &egui::Painter, at: Pos2) -> egui::CursorIcon {
+    let beam = |c: Color32, w: f32| {
+        let s = Stroke::new(w, c);
+        painter.line_segment([at + egui::vec2(0.0, -8.0), at + egui::vec2(0.0, 8.0)], s);
+        for dy in [-8.0, 8.0] {
+            painter.line_segment([at + egui::vec2(-3.0, dy), at + egui::vec2(3.0, dy)], s);
+        }
+    };
+    beam(Color32::WHITE, 3.0);
+    beam(Color32::BLACK, 1.0);
+    // The wave: short dashes along a sine through the beam's lower half.
+    let wave = |t: f32| at + egui::vec2(-9.0 + 18.0 * t, 5.0 - 3.0 * t + 2.0 * (t * std::f32::consts::TAU * 1.5).sin());
+    for i in (0..12).step_by(2) {
+        let (a, b) = (wave(i as f32 / 12.0), wave((i + 1) as f32 / 12.0));
+        painter.line_segment([a, b], Stroke::new(3.0, Color32::WHITE));
+        painter.line_segment([a, b], Stroke::new(1.0, Color32::BLACK));
+    }
+    egui::CursorIcon::None
 }
 
 fn session_key(app: &mut PhotocraftApp) -> String {
@@ -1140,10 +1205,24 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
         let p = aff.apply(Point::new(x as f64, y as f64));
         xf.to_screen(p.x as f32, p.y as f32)
     };
+    let shape = app.session.active().and_then(|s| text_layer(&s.doc, id).map(|t| t.shape.clone()));
+    // Type on a path: the caret, selection and underline follow the curve the glyphs sit on.
+    let bend = shape.as_ref().and_then(photocraft_text::warp::Warp::on_path);
     // Line space (lines, clusters, carets) → screen: vertical type turns it 90° clockwise.
     let scr = |x: f32, y: f32| -> Pos2 {
         let (x, y) = l.to_text(x, y);
-        scr_t(x, y)
+        match &bend {
+            Some(w) => {
+                let (x, y) = w.apply(f64::from(x), f64::from(y));
+                scr_t(x as f32, y as f32)
+            }
+            None => scr_t(x, y),
+        }
+    };
+    // A line-space run from `x0` to `x1` at height `y`: sampled, so it bends with path type.
+    let run = |x0: f32, x1: f32, y: f32| -> Vec<Pos2> {
+        let n = if bend.is_some() { ((x1 - x0) / 4.0).ceil().clamp(1.0, 512.0) as usize } else { 1 };
+        (0..=n).map(|i| scr(x0 + (x1 - x0) * i as f32 / n as f32, y)).collect()
     };
     // Tell the OS where the caret is: this is what enables the IME and places its candidate window.
     {
@@ -1157,7 +1236,6 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
     // Frame: paragraph text shows its box with handles; point text an underline per line.
     let mods = crate::workspace_ui::sticky_mods(app, painter.ctx().input(|i| i.modifiers));
     let has_transform = crate::type_transform::draw(app, painter, xf, mods);
-    let shape = app.session.active().and_then(|s| text_layer(&s.doc, id).map(|t| t.shape.clone()));
     let frame = Stroke::new(1.0, t.accent);
     match shape {
         Some(photocraft_doc::text::TextShape::Box { x, y, width, height }) => {
@@ -1176,7 +1254,7 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
             for ln in &l.lines {
                 // Horizontal: just under the baseline; vertical: the column's centre line.
                 let y = if l.vertical { ln.baseline } else { ln.baseline + ln.descent * 0.25 };
-                painter.line_segment([scr(ln.x0.min(0.0), y), scr(ln.x1.max(ln.x0 + 1.0), y)], Stroke::new(1.0, t.accent.gamma_multiply(0.8)));
+                painter.add(egui::Shape::line(run(ln.x0.min(0.0), ln.x1.max(ln.x0 + 1.0), y), Stroke::new(1.0, t.accent.gamma_multiply(0.8))));
             }
         }
     }
@@ -1189,7 +1267,7 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
             let (x0, x1) = xs.iter().fold((f32::MAX, f32::MIN), |(lo, hi), (p, q)| (lo.min(*p), hi.max(*q)));
             if x0 < x1 {
                 let y = ln.baseline + ln.descent * 0.5;
-                painter.line_segment([scr(x0, y), scr(x1, y)], Stroke::new(1.5, t.accent));
+                painter.add(egui::Shape::line(run(x0, x1, y), Stroke::new(1.5, t.accent)));
             }
         }
     }
@@ -1206,8 +1284,15 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
                 x1 = x1.max(ln.x1 + (ln.ascent + ln.descent) * 0.25);
                 x0 = x0.min(ln.x1);
             }
-            if x0 < x1 {
-                let (top, bot) = (ln.baseline - ln.ascent, ln.baseline + ln.descent);
+            let (top, bot) = (ln.baseline - ln.ascent, ln.baseline + ln.descent);
+            if bend.is_some() {
+                // On a path each glyph turns on its own, so each gets its own highlight.
+                // Glyphs past the end of the path are not drawn, so neither is their highlight.
+                let shown = |p: f32, q: f32| bend.as_ref().is_some_and(|w| w.place_glyph(f64::from(p + q) / 2.0) != photocraft_text::warp::Placement::Hidden);
+                for (p, q) in xs.into_iter().filter(|&(p, q)| shown(p, q)) {
+                    painter.add(egui::Shape::convex_polygon(vec![scr(p, top), scr(q, top), scr(q, bot), scr(p, bot)], fill, Stroke::NONE));
+                }
+            } else if x0 < x1 {
                 painter.add(egui::Shape::convex_polygon(vec![scr(x0, top), scr(x1, top), scr(x1, bot), scr(x0, bot)], fill, Stroke::NONE));
             }
         }
@@ -2831,6 +2916,62 @@ mod tests {
         let doc = &app.session.active().unwrap().doc;
         assert_eq!(doc.layers.last().unwrap().name, "Héllo world");
         assert!(app.ui.text_edit.is_none());
+    }
+
+    /// TYPE-218-1: a Type tool click on the work path starts type on the path from the point
+    /// clicked, in one history step with the placeholder selected; a click off it is point text.
+    #[test]
+    fn click_on_a_path_starts_type_on_the_path() {
+        use photocraft_doc::text::TextShape;
+        let mut app = app();
+        app.session
+            .edit("path", |doc, _| {
+                doc.work_path = Some(photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polyline(&[(20.0, 100.0), (380.0, 100.0)])]));
+                Ok(())
+            })
+            .unwrap();
+        assert!(path_at(&app, 200.0, 101.0).is_some());
+        assert!(path_at(&app, 200.0, 160.0).is_none(), "off the path");
+        let before = app.session.active().unwrap().history.entries().len();
+        assert!(!pointer_down(&mut app, 200.0, 101.0, egui::Modifiers::NONE));
+        pointer_up(&mut app, [200.0, 101.0], [200.0, 101.0]);
+        let ed = app.ui.text_edit.clone().unwrap();
+        assert_eq!((ed.anchor, ed.caret), (0, PLACEHOLDER.chars().count()), "the placeholder is selected");
+        let shape = text_layer(&app.session.active().unwrap().doc, LayerId(ed.layer)).unwrap().shape.clone();
+        assert!(matches!(shape, TextShape::Path { start, flip: false, .. } if (start - 180.0).abs() < 0.5), "{shape:?}");
+        assert_eq!(app.session.active().unwrap().history.entries().len(), before + 1, "one step for the click");
+        insert(&mut app, "On the line");
+        assert_eq!(layer_text(&app), "On the line");
+        commit(&mut app);
+        // With the vertical tool a click does not start path type.
+        app.ui.tool = crate::state::Tool::VerticalType;
+        assert!(path_at(&app, 200.0, 101.0).is_none());
+        app.ui.tool = crate::state::Tool::Type;
+        pointer_up(&mut app, [200.0, 160.0], [200.0, 160.0]);
+        let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+        assert_eq!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, TextShape::Point);
+    }
+
+    /// A click in type on a path puts the caret at the glyph there along the curve, not where the
+    /// straight line would have it.
+    #[test]
+    fn caret_hits_type_on_a_path_along_the_curve() {
+        let mut app = app();
+        app.session
+            .edit("path", |doc, _| {
+                doc.work_path = Some(photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polyline(&[(300.0, 10.0), (300.0, 195.0)])]));
+                Ok(())
+            })
+            .unwrap();
+        pointer_up(&mut app, [300.0, 20.0], [300.0, 20.0]);
+        insert(&mut app, "ABCDEFGH");
+        let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+        assert!(matches!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, photocraft_doc::text::TextShape::Path { .. }));
+        // The type runs down the path: near its start the caret is at the beginning, far down at the end.
+        assert_eq!(offset_at(&mut app, id, 300.0, 18.0), 0);
+        // (The straight line would put both of these at the start: they are left of its first glyph.)
+        let (mid, far) = (offset_at(&mut app, id, 296.0, 60.0), offset_at(&mut app, id, 296.0, 190.0));
+        assert!(0 < mid && mid < far, "{mid} {far}");
     }
 
     /// Preferences ▸ Units & Rulers ▸ Type switches the display unit of type metrics: points by

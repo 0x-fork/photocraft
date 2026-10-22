@@ -84,7 +84,7 @@ what an agent can't finish alone.
 - **Estimate:** 80–140 h.
 
 ### G8. Type depth
-- **Missing:** type on a path beyond rigid glyph placement (TYPE-218-1 partial, #4365),
+- **Missing:** type on a path beyond rigid glyph placement (TYPE-218-1 partial, #4365; the Type tool's click on a shown path landed),
   paragraph direction UI (TYPE-218-2), complex-script fallback fonts and golden tests
   (TYPE-218-3), OpenType Numerals and Stylistic Sets submenus
   (TYPE-218-5; the Character panel buttons landed 2026-10-11, #3752), text free transform
@@ -315,6 +315,7 @@ what an agent can't finish alone.
 | 2026-10-13 | minor | G1: 16-bit Posterize bins the 16-bit sample, as Photoshop does (exact on two oracles); psd-tools floor → 241 of 309 |
 | 2026-10-13 | minor | G1: Gradient Map driven by the W3C luminosity (0.3, 0.59, 0.11), as Photoshop is; rgb8/rgb16 gradient-map pass; Photoshop-oracle floor 145 → 147 of 258 |
 | 2026-10-13 | minor | G6: stale "missing tool" list corrected against `main` — Color Replacement (`paint.colorReplacement`), Red Eye (`paint.redEye`) and Add/Delete Anchor Point (P flyout, #4144) are live tools, so the toolbox is 67 of 68 and Art History Brush is the only one missing; no percentage or estimate changed |
+| 2026-10-13 | minor | G8: a Type tool click on the work path or the active shape layer's path starts type on it at the point clicked (TYPE-218-1, partial); no readiness percentage or estimate changed |
 | 2026-10-13 | minor | G4: Hue Jitter amount-track appearance (#3825, partial); no readiness percentage or estimate changed |
 | 2026-10-13 | minor | G4: minimum inputs in Shape Dynamics and Transfer follow their Control (#3825, partial); no readiness percentage or estimate changed |
 | 2026-10-12 | minor | G5: Free Transform options bar H/V skew fields done |

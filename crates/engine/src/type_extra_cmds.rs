@@ -368,13 +368,24 @@ fn attach_to_path(s: &mut Session, p: &Value) -> Result<Value> {
         None | Some(Value::Null) => false,
         Some(v) => v.as_bool().ok_or_else(|| bad("\"flip\" must be true or false"))?,
     };
+    // A document point: the type starts where the path passes nearest it (the Type tool's click).
+    let at = match p.get("at") {
+        None | Some(Value::Null) => None,
+        Some(v) => {
+            let xy = v.as_array().filter(|a| a.len() == 2).and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)));
+            Some(xy.filter(|(x, y)| x.is_finite() && y.is_finite()).ok_or_else(|| bad("\"at\" must be [x, y] in document pixels"))?)
+        }
+    };
+    if at.is_some() && p.get("start").is_some_and(|v| !v.is_null()) {
+        return Err(bad("pass \"start\" or \"at\", not both"));
+    }
     let id = layer_param(s, p)?;
     let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
     if doc.effective_locks(id).all {
         return Err(EngineError::Other("the type layer is locked".into()));
     }
     let sub = path_source(doc, p)?;
-    with_text(s, p, "Type on a Path", |t, _| {
+    let start = with_text(s, p, "Type on a Path", |t, _| {
         // The path lives in document space; the type layer keeps it in its own text space, so
         // the type lands on the path where it is drawn.
         let inv = t.transform.inverse().ok_or_else(|| EngineError::Other("the type layer's transform cannot be inverted".into()))?;
@@ -384,8 +395,15 @@ fn attach_to_path(s: &mut Session, p: &Value) -> Result<Value> {
         if !path.knots.iter().all(|k| [k.anchor, k.in_ctrl, k.out_ctrl].iter().all(|q| q.x.is_finite() && q.y.is_finite())) {
             return Err(EngineError::Other("the path cannot be mapped into the type layer".into()));
         }
+        let start = match at {
+            None => start,
+            Some((x, y)) => {
+                let q = map(Point::new(x, y));
+                photocraft_text::warp::arc_length_at(&path, flip, q.x, q.y).ok_or_else(|| bad("the path has no length"))? as f32
+            }
+        };
         t.shape = TextShape::Path { path, start, flip };
-        Ok(())
+        Ok(start)
     })?;
     Ok(json!({"layer": id.0, "start": start, "flip": flip}))
 }
@@ -722,7 +740,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "type.attachToPath",
             "Type on a Path",
             &[],
-            r##"{"layer":id? (default active Type layer),"shape":layerId? (a shape layer; default the work path),"subpath":index=0,"start":px=0 (offset along the path),"flip":bool=false (run along the path the other way, on its other side)}"##,
+            r##"{"layer":id? (default active Type layer),"shape":layerId? (a shape layer; default the work path),"subpath":index=0,"start":px=0 (offset along the path),"at":[x,y]? (instead of "start": begin where the path passes nearest this document point, as a Type tool click does),"flip":bool=false (run along the path the other way, on its other side)}"##,
             has_text,
             attach_to_path
         ),

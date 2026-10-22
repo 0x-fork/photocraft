@@ -196,3 +196,7 @@ sync_github_name = true
 real_name = "Lorenzo Fasolino"
 display_name = "Lorenzo Fasolino"
 sync_github_name = false
+
+[people.zolyy]
+real_name = "Gall Zoltan"
+sync_github_name = false
