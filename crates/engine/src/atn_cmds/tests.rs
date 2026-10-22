@@ -3,6 +3,59 @@ use photocraft_psd::atn::{AtnAction, AtnEvent, AtnFile, AtnItem};
 use photocraft_psd::descriptor::{Descriptor, Id, ReferenceItem, UnicodeString, Value as D};
 use serde_json::json;
 
+#[test]
+fn blend_modes_accept_photoshop_string_ids_and_export_canonical_char_ids() {
+    for (string_id, char_id, label) in [
+        ("normal", "Nrml", "Normal"),
+        ("dissolve", "Dslv", "Dissolve"),
+        ("darken", "Drkn", "Darken"),
+        ("multiply", "Mltp", "Multiply"),
+        ("colorBurn", "CBrn", "Color Burn"),
+        ("lighten", "Lghn", "Lighten"),
+        ("screen", "Scrn", "Screen"),
+        ("colorDodge", "CDdg", "Color Dodge"),
+        ("overlay", "Ovrl", "Overlay"),
+        ("softLight", "SftL", "Soft Light"),
+        ("hardLight", "HrdL", "Hard Light"),
+        ("difference", "Dfrn", "Difference"),
+        ("exclusion", "Xclu", "Exclusion"),
+        ("hue", "H", "Hue"),
+        ("saturation", "Strt", "Saturation"),
+        ("color", "Clr", "Color"),
+        ("luminosity", "Lmns", "Luminosity"),
+        ("passThrough", "PsTh", "Pass Through"),
+    ] {
+        assert_eq!(blend_label(string_id), Some(label), "{string_id}");
+        assert_eq!(blend_ps(label), Some(char_id), "{label} remains serialized canonically");
+    }
+}
+
+/// #8454: a Set and a Make layer step whose blend mode is stored as a Photoshop stringID import
+/// with that mode (a Set was unsupported, a Make silently fell back to Normal).
+#[test]
+fn layer_steps_with_string_id_blend_modes_import_with_their_mode() {
+    let set = desc("null").with("null", target_ref("Lyr ")).with("T   ", D::Descriptor(desc("Lyr ").with("Md  ", enm("BlnM", "softLight"))));
+    let make = desc("null").with("null", class_ref("Lyr ")).with("Usng", D::Descriptor(desc("Lyr ").with("Md  ", enm("BlnM", "luminosity"))));
+    let file = AtnFile {
+        name: UnicodeString::new_nul("Blend"),
+        expanded: false,
+        actions: vec![AtnAction {
+            name: UnicodeString::new_nul("A"),
+            items: vec![item("setd", "Set", Some(set)), item("Mk  ", "Make", Some(make))],
+            ..Default::default()
+        }],
+        warnings: vec![],
+    };
+    let imp = import(&atn::write(&file).unwrap()).unwrap();
+    assert!(imp.unsupported.is_empty(), "{:?}", imp.unsupported.iter().map(|u| &u.event).collect::<Vec<_>>());
+    let steps = &imp.actions[0].steps;
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].0, "layer.setProps");
+    assert_eq!(steps[0].1["blend"], json!("Soft Light"));
+    assert_eq!(steps[1].0, "layer.new.layer");
+    assert_eq!(steps[1].1["mode"], json!("Luminosity"));
+}
+
 fn item(event: &str, label: &str, d: Option<Descriptor>) -> AtnItem {
     let event = match event.as_bytes() {
         [a, b, c, dd] => AtnEvent::Code([*a, *b, *c, *dd]),
