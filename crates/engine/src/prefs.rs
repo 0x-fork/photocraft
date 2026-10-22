@@ -1074,7 +1074,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "enhancedControls.scrubbySliderAcceleration",
     "rawDefaults.colorSpace",
     "rawDefaults.bitDepth",
-    "rawDefaults.resolution",
     "rawDefaults.sharpenFor",
     "rawDefaults.openAsSmartObject",
     "rawDefaults.applyAutoTone",

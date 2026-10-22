@@ -92,6 +92,35 @@ fn batch_same_format_saves_camera_raws_as_psd() {
     }
 }
 
+/// Edit › Preferences › Raw Defaults › Resolution sets the ppi a raw opens with, through
+/// File › Open (the background open job) and through opening bytes; other files keep their own.
+#[test]
+fn a_developed_raw_opens_at_the_raw_defaults_resolution() {
+    use photocraft_raw::testgen::{DngSpec, mosaic, scene};
+    let (w, h) = (24, 16);
+    let raw = DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535)).build();
+    let dir = tmp("raw-defaults");
+    let path = join(&dir, "IMG_0002.dng");
+    std::fs::write(&path, &raw).unwrap();
+    let open = |s: &mut Session, path: &str| match s.start_open(path, crate::jobs::OpenSource::Path(path.into())).unwrap() {
+        crate::jobs::Started::Job(id) => {
+            s.wait_job(id).unwrap();
+        }
+        crate::jobs::Started::Done(_) => {}
+    };
+    let mut s = Session::new();
+    open_bytes_as(&mut s, "IMG_0001.dng", &raw, None, None).unwrap();
+    assert_eq!(doc(&s).resolution_dpi, 300.0, "the default");
+    s.execute("prefs.set", json!({"path": "rawDefaults.resolution", "value": 240})).unwrap();
+    open_bytes_as(&mut s, "IMG_0001.dng", &raw, None, None).unwrap();
+    assert_eq!(doc(&s).resolution_dpi, 240.0);
+    open(&mut s, &path);
+    assert_eq!(doc(&s).resolution_dpi, 240.0, "File › Open");
+    let png = png(&dir, "a.png", 4, 4, "#ff0000");
+    open(&mut s, &png);
+    assert_eq!(doc(&s).resolution_dpi, 72.0, "not a raw");
+}
+
 #[test]
 fn revert_reloads_as_one_undoable_step() {
     let dir = tmp("revert");

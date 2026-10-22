@@ -469,12 +469,16 @@ fn commit_open_raw(app: &mut PhotocraftApp, params: &CameraRaw, raw: &RawOpen) -
 fn replace_raw_document(
     s: &mut photocraft_engine::Session,
     doc_id: photocraft_doc::DocId,
-    r: photocraft_io::ImportResult,
+    mut r: photocraft_io::ImportResult,
     wb: bool,
 ) -> photocraft_engine::Result<Value> {
     let index =
         s.documents().iter().position(|st| st.doc.id == doc_id).ok_or_else(|| photocraft_engine::EngineError::Other("the raw document was closed".into()))?;
     let path = s.documents().get(index).and_then(|st| st.path.clone());
+    // The resolution it opened with (Preferences › Raw Defaults), which re-developing keeps.
+    if let Some(st) = s.documents().get(index) {
+        r.document.resolution_dpi = st.doc.resolution_dpi;
+    }
     s.close(index);
     let (opened, _) = s.open_document(r.document, path);
     let index = match s.execute("document.move", json!({"document": opened, "to": index})) {
@@ -1884,6 +1888,25 @@ mod tests {
         assert_eq!(app.session.active_index(), Some(1));
         assert_eq!(app.ui.views[1].zoom, 3.0, "the view carries over to the re-developed document");
         assert!(mean_red(&app) > before + 0.05, "{before} → {}", mean_red(&app));
+    }
+
+    /// #7789: Preferences › Raw Defaults › Resolution sets a raw's ppi when the app opens it
+    /// itself (no background job) and from automation, and a Camera Raw re-develop keeps it.
+    #[test]
+    fn a_raw_opens_and_redevelops_at_the_raw_defaults_resolution() {
+        let (mut app, dng) = raw_app();
+        let ctx = egui::Context::default();
+        app.run("prefs.set", json!({"path": "rawDefaults.resolution", "value": 240})).unwrap();
+        app.open_bytes("IMG_0004.dng", &dng).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.resolution_dpi, 240.0);
+        let raw = app.pending_raw_open.take().unwrap();
+        open_raw(&mut app, &ctx, raw).unwrap();
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"exposure": 1.0}}})).unwrap().unwrap();
+        let r = menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"commit": true}})).unwrap().unwrap();
+        assert_eq!(r["redeveloped"], true, "{r}");
+        assert_eq!(app.session.active().unwrap().doc.resolution_dpi, 240.0, "kept by the re-develop");
+        app.open_automation_bytes("IMG_0005.dng", &dng).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.resolution_dpi, 240.0, "automation open");
     }
 
     #[test]
