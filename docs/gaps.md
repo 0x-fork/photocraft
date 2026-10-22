@@ -206,6 +206,9 @@ what an agent can't finish alone.
 ### G9. Panels, preferences and workspace
 - **Progress (2026-10-15):** Preferences › General › Animated Zoom takes effect: a held Zoom
   tool press zooms continuously about the press point, ⌥ out (#6210, `ui-egui/src/zoom_hold.rs`).
+- **Progress (2026-10-14, #5556):** Character and Paragraph controls stay available without
+  a type target, editing persisted Type tool defaults inherited by new text. Formatting existing
+  selected text keeps its current command and undo scope. Other panel gaps remain open.
 - **Progress (2026-10-12):** toolbar tool shortcuts can be reassigned, removed and reset (#4086),
   with saved bindings, matching toolbar hints and regression coverage (`ui-egui/src/tool_shortcuts.rs`).
 - **Missing:** 24 of 171 preferences do nothing (scorecard prefs audit, 2026-10-15: Save in
@@ -314,6 +317,7 @@ what an agent can't finish alone.
 | 2026-10-13 | minor | G1: a pass-through group that is a clipping base and holds an adjustment layer renders isolated; psd-tools passthrough_clipping_mask_adjustment passes; psd-tools floor → 240 of 309 |
 | 2026-10-13 | minor | G1: 16-bit Posterize bins the 16-bit sample, as Photoshop does (exact on two oracles); psd-tools floor → 241 of 309 |
 | 2026-10-13 | minor | G1: Gradient Map driven by the W3C luminosity (0.3, 0.59, 0.11), as Photoshop is; rgb8/rgb16 gradient-map pass; Photoshop-oracle floor 145 → 147 of 258 |
+| 2026-10-14 | minor | G9: Character/Paragraph defaults before creating text (#5556); no percentage or estimate changed |
 | 2026-10-13 | minor | G6: stale "missing tool" list corrected against `main` — Color Replacement (`paint.colorReplacement`), Red Eye (`paint.redEye`) and Add/Delete Anchor Point (P flyout, #4144) are live tools, so the toolbox is 67 of 68 and Art History Brush is the only one missing; no percentage or estimate changed |
 | 2026-10-13 | minor | G8: a Type tool click on the work path or the active shape layer's path starts type on it at the point clicked (TYPE-218-1, partial); no readiness percentage or estimate changed |
 | 2026-10-13 | minor | G4: Hue Jitter amount-track appearance (#3825, partial); no readiness percentage or estimate changed |
