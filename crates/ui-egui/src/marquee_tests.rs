@@ -655,8 +655,8 @@ fn drag_inside_the_selection_moves_the_outline() {
     assert_eq!(sel(&app), None);
 }
 
-/// #6231: ⇧ held during a selection-tool drag of the selection locks the move to the dominant
-/// axis (⇧ at the press still means add-to-selection, so the lock only applies mid-drag).
+/// #6231: ⇧ held during a selection-tool drag of the selection locks the move to multiples of
+/// 45° (⇧ at the press still means add-to-selection, so the lock only applies mid-drag).
 #[test]
 fn shift_constrains_a_selection_drag_to_an_axis() {
     use crate::canvas::{ToolEvent, tool_event};
@@ -674,9 +674,12 @@ fn shift_constrains_a_selection_drag_to_an_axis() {
     // Without ⇧ the drag is free (the outline already sits at (30,26,50,46)).
     drag(&mut app, [40.0, 30.0], [50.0, 20.0], Modifiers::NONE);
     assert_eq!(sel(&app), Some(Rect::new(40, 16, 60, 36)), "plain drag moves both axes");
+    // A near-diagonal ⇧-drag locks to 45°, as in Photoshop: (13,11) projects onto (12,12).
+    drag_shift(&mut app, [50.0, 26.0], [63.0, 37.0]);
+    assert_eq!(sel(&app), Some(Rect::new(52, 28, 72, 48)), "diagonal drag locks to 45°");
 }
 
-/// #6231: ⇧ also locks a ⌘-drag of the selected pixels to the dominant axis.
+/// #6231: ⇧ also locks a ⌘-drag of the selected pixels to multiples of 45°.
 #[test]
 fn shift_constrains_a_floating_selection_drag() {
     use crate::canvas::{ToolEvent, tool_event};
@@ -684,8 +687,8 @@ fn shift_constrains_a_floating_selection_drag() {
     let offset = |app: &PhotocraftApp| photocraft_engine::float_cmds::floating(app.session.active().unwrap()).map(|f| f.offset);
     let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
     tool_event(&mut app, ToolEvent::Down { x: 20.0, y: 20.0, pressure: 1.0 }, Modifiers::COMMAND);
-    tool_event(&mut app, ToolEvent::Move { x: 34.0, y: 28.0, pressure: 1.0 }, cmd_shift);
-    tool_event(&mut app, ToolEvent::Up { x: 34.0, y: 28.0 }, cmd_shift);
+    tool_event(&mut app, ToolEvent::Move { x: 34.0, y: 22.0, pressure: 1.0 }, cmd_shift);
+    tool_event(&mut app, ToolEvent::Up { x: 34.0, y: 22.0 }, cmd_shift);
     assert_eq!(offset(&app), Some((14, 0)), "locked to the horizontal axis");
     app.run("select.drop", json!({})).unwrap();
 }
