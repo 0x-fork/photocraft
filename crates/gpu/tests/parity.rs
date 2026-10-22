@@ -2872,6 +2872,13 @@ fn layer_pages_that_just_miss_borrow_the_effect_map_share() {
     comp.fit_layers(need, true);
     assert_eq!(comp.fit_layers(own, true), own);
     assert_eq!(comp.memory_budget(), budget);
+    // An exact resident budget returns the loan and lends nothing until the next memory budget.
+    comp.fit_layers(need, true);
+    comp.set_resident_budget(own);
+    assert_eq!(comp.memory_budget(), budget, "the loan went back to the effect maps");
+    assert_eq!(comp.fit_layers(need, true), own, "an exact budget stays exact");
+    comp.set_memory_budget(budget);
+    assert_eq!(comp.resident_budget(), need, "the next memory budget lends again");
 }
 
 // A pass-through group holding an adjustment renders isolated when layers clip to it, on the GPU

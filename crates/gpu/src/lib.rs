@@ -472,6 +472,8 @@ pub struct Compositor {
     layer_need: u64,
     /// Bytes of `fx_budget` lent to `resident_budget` so those pages fit.
     lent: u64,
+    /// `resident_budget` was set exactly ([`Compositor::set_resident_budget`]): nothing is lent.
+    exact_resident: bool,
     /// What the view shows: a full refresh draws these cells last, so their pages are the
     /// ones still resident for the edits that follow.
     focus: Option<Rect>,
@@ -744,6 +746,7 @@ impl Compositor {
             fx_budget: (FX_BUDGET as u64).saturating_sub(prefix::MAX_BYTES),
             layer_need: 0,
             lent: 0,
+            exact_resident: false,
             focus: None,
             frame: 0,
             stamp: 0,
@@ -793,8 +796,11 @@ impl Compositor {
     /// Set the GPU memory resident layer pages may hold (default [`RESIDENT_BUDGET`]), exactly:
     /// nothing is lent to it ([`Self::fit_layers`]) until the next [`Self::set_memory_budget`].
     pub fn set_resident_budget(&mut self, bytes: u64) {
-        self.resident_budget = bytes;
+        // The loan goes back to the effect maps, so the total budget stays what it was.
+        self.fx_budget = self.fx_budget.saturating_add(self.lent);
         self.lent = 0;
+        self.resident_budget = bytes;
+        self.exact_resident = true;
     }
 
     /// Set the GPU memory the compositor may hold for layer pages and caches together
@@ -806,6 +812,7 @@ impl Compositor {
         self.fx_budget = caches.saturating_sub(self.prefix.budget());
         self.resident_budget = bytes.saturating_sub(caches);
         self.lent = 0;
+        self.exact_resident = false;
         self.lend();
     }
 
@@ -831,7 +838,7 @@ impl Compositor {
         self.fx_budget = self.fx_budget.saturating_add(self.lent);
         self.resident_budget = self.resident_budget.saturating_sub(self.lent);
         let short = self.layer_need.saturating_sub(self.resident_budget);
-        self.lent = if short <= self.fx_budget { short } else { 0 };
+        self.lent = if short <= self.fx_budget && !self.exact_resident { short } else { 0 };
         self.fx_budget = self.fx_budget.saturating_sub(self.lent);
         self.resident_budget = self.resident_budget.saturating_add(self.lent);
     }
