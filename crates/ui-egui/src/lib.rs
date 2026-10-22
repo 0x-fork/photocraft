@@ -157,6 +157,7 @@ pub mod object_finder;
 mod opacity_keys;
 pub mod open_prompt;
 pub mod outline;
+mod page_keys;
 pub mod paint_mouse;
 pub mod palette;
 mod panel_docking;
