@@ -3981,6 +3981,10 @@ curves	Smooth	Згладити
 	Increase Brush Size	Збільшити розмір пензля
 	Decrease Brush Hardness	Зменшити жорсткість пензля
 	Increase Brush Hardness	Збільшити жорсткість пензля
+	Previous Brush	Попередній пензель
+	Next Brush	Наступний пензель
+	First Brush	Перший пензель
+	Last Brush	Останній пензель
 # Dynamic color-picker titles and warnings about losing editable layer content.
 	Color Picker (Background Color)	Вибір кольору (колір тла)
 	Color Picker (Foreground Color)	Вибір кольору (основний колір)

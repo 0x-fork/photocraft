@@ -211,7 +211,7 @@ pub fn commit_gesture(app: &mut PhotocraftApp, ctx: &egui::Context, before: &Bru
 }
 
 /// Group label for presets saved without a group.
-pub const UNGROUPED: &str = "My Brushes";
+pub const UNGROUPED: &str = photocraft_engine::brush_key_cmds::UNGROUPED;
 
 /// Preset indices in panel order: groups in order of first appearance.
 pub fn grouped_presets(presets: &[paint::BrushPreset]) -> Vec<(String, Vec<usize>)> {
