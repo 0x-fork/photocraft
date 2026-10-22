@@ -690,6 +690,7 @@ fn image_assets_keep_full_artboards() {
     })
     .unwrap();
 
+    s.execute("prefs.set", json!({"path": "plugIns.generatorEnabled", "value": true})).unwrap();
     let r = s.execute("file.generate.imageAssets", json!({"on": true, "dir": dir})).unwrap();
     assert!(r["errors"].as_array().unwrap().is_empty(), "{r}");
     let board = decode(&format!("{dir}/board.png"));
@@ -727,6 +728,7 @@ fn image_assets_refuse_empty_artboards() {
         Ok(())
     })
     .unwrap();
+    s.execute("prefs.set", json!({"path": "plugIns.generatorEnabled", "value": true})).unwrap();
     let r = s.execute("file.generate.imageAssets", json!({"on": true, "dir": dir})).unwrap();
     assert_eq!(r["files"], json!([]), "{r}");
     let errors = r["errors"].as_array().unwrap();
