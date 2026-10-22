@@ -3090,7 +3090,7 @@ fn clipping_from(d: &Descriptor, id: &str) -> Mapped {
 }
 
 fn clipping_to(_: &str, p: &Value) -> Option<Descriptor> {
-    Some(desc("null").with("null", layer_ref(p)))
+    Some(desc("null").with("null", layer_ref(p)?))
 }
 
 /// A clipping mask event: `clipping_from` / `clipping_to` with one command id.
