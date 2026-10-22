@@ -2912,7 +2912,10 @@ const RIPPLE_SIZE: &[(&str, &str)] = &[("Sml", "small"), ("Mdm", "medium"), ("Lr
 /// step with `refineStrokes` can't be exported faithfully. One with `sampleAllLayers` is not
 /// exported here either: it exports as `smartBrushWorkspace`.
 fn refine_edge_to(_: &str, p: &Value) -> Option<Descriptor> {
-    if !pixel_target(p) || p.get("sampleAllLayers").is_some() || p.get("refineStrokes").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty())) {
+    if !pixel_target(p)
+        || p.get("sampleAllLayers").is_some()
+        || p.get("refineStrokes").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()))
+    {
         return None;
     }
     fields_to(p, REFINE_EDGE, desc("null"))
