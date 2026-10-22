@@ -1070,8 +1070,9 @@ fn align(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
                 // Photoshop: with an active selection, the layers align to its bounds (Layer › Align
                 // Layers to Selection), however many are selected.
                 (Some(m), _) if to == "auto" && !m.content_bounds().is_empty() => m.content_bounds(),
-                // One layer with no selection aligns to the canvas (otherwise it would align to itself).
-                (None, 1) if to == "auto" => doc.bounds(),
+                // One layer with no selection aligns to the canvas (otherwise it would align to
+                // itself), or to the artboard it sits in, as in Photoshop (#7945).
+                (None, 1) if to == "auto" => items.first().map_or_else(|| doc.bounds(), |(id, _)| board_or_canvas(doc, *id)),
                 _ => items.iter().fold(Rect::EMPTY, |a, (_, b)| a.union(b)),
             },
             other => return Err(bad(&cmd, format!("`to` must be auto|layers|selection|canvas, not `{other}`"))),
@@ -1094,6 +1095,12 @@ fn align(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
         Ok(moves.iter().filter(|m| m.1 != 0 || m.2 != 0).count())
     })?;
     Ok(json!({"moved": moved}))
+}
+
+/// The bounds a lone layer aligns to: the artboard holding it, else the canvas. An artboard
+/// itself aligns to the canvas.
+fn board_or_canvas(doc: &Document, id: LayerId) -> Rect {
+    doc.artboard_of(id).filter(|board| *board != id).and_then(|board| doc.layer(board)?.artboard().map(|a| a.rect)).unwrap_or_else(|| doc.bounds())
 }
 
 /// One move per layer (first wins), skipping layers nested in another moved layer.
