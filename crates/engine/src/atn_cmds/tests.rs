@@ -2604,7 +2604,7 @@ fn crop_with_output_size_or_resolution_is_not_exported_as_plain_crop() {
     let (bytes, skipped) = export("Audit", &[&plain], &[], false).unwrap();
     assert!(skipped.is_empty());
     let imported = import(&bytes).unwrap();
-    assert_eq!(imported.actions[0].steps, vec![("image.crop".to_string(), json!({"x": 1, "y": 1, "width": 4, "height": 3, "deleteCroppedPixels": true}))]);
+    assert_eq!(imported.actions[0].steps, vec![("image.crop".to_string(), json!({"x": 1, "y": 1, "width": 4, "height": 3}))]);
 }
 
 /// `image.imageSize` with `resample: "none"` ignores width, height and percent; the `.atn`
