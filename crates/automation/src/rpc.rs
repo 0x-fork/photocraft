@@ -712,22 +712,42 @@ mod tests {
         let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
         h.handle("doc.new", json!({"width": 40, "height": 30})).unwrap();
         let layer = h.handle("doc.place", json!({"path": "logo.png"})).unwrap()["layer"].clone();
+        // The smart object's file name and the composite at its centre: what Replace Contents changes.
+        let contents = |h: &mut Headless| {
+            let inspected = h.handle("doc.inspect", json!({})).unwrap();
+            let layers = inspected["layers"].as_array().unwrap();
+            let so = layers.iter().find(|l| l["id"] == layer).unwrap_or_else(|| panic!("{inspected}"));
+            let name = so["smartSource"]["fileName"].as_str().unwrap_or_default().to_owned();
+            let rendered = h.handle("doc.render", json!({"maxSide": 0})).unwrap();
+            let png = base64::engine::general_purpose::STANDARD.decode(rendered["base64"].as_str().unwrap()).unwrap();
+            let img = photocraft_codecs::decode(&png).unwrap();
+            let (w, ht) = img.dimensions();
+            let data = img.as_u8().unwrap();
+            let channels = data.len() / (w * ht) as usize;
+            (name, data[((ht / 2 * w + w / 2) as usize) * channels])
+        };
+        assert_eq!(contents(&mut h), ("logo.png".to_owned(), 42), "the placed contents");
         let replaced = h.handle("doc.replaceSmartObject", json!({"path": "red.png", "layer": layer})).unwrap();
         assert_eq!(replaced["layer"], layer, "{replaced}");
-        let undo = h.handle("engine.execute", json!({"command": "edit.undo"}));
-        assert!(undo.is_ok(), "the replacement is one history step: {undo:?}");
+        assert_eq!(contents(&mut h), ("red.png".to_owned(), 200), "the contents were replaced");
+        h.handle("engine.execute", json!({"command": "edit.undo"})).unwrap();
+        assert_eq!(contents(&mut h), ("logo.png".to_owned(), 42), "one undo step restores the old contents");
+        h.handle("engine.execute", json!({"command": "edit.redo"})).unwrap();
+        assert_eq!(contents(&mut h), ("red.png".to_owned(), 200), "redo replaces them again");
         // Outside the read root, a bad layer, a missing path or a file that is no image: refused, nothing changed.
         for (params, reason) in [
             (json!({"path": "../outside/red.png"}), "parent traversal"),
             (json!({"path": absolute}), "must be inside the automation root"),
-            (json!({"path": "red.png", "layer": 999_999}), ""),
+            (json!({"path": "logo.png", "layer": 999_999}), "no such layer"),
             (json!({}), "needs `path`"),
         ] {
             let refused = h.handle("doc.replaceSmartObject", params).unwrap_err().to_string();
             assert!(refused.contains(reason), "{refused}");
+            assert_eq!(contents(&mut h), ("red.png".to_owned(), 200), "nothing changed: {refused}");
         }
         std::fs::write(root.join("junk.png"), b"not an image").unwrap();
         assert!(h.handle("doc.replaceSmartObject", json!({"path": "junk.png", "layer": layer})).is_err());
+        assert_eq!(contents(&mut h), ("red.png".to_owned(), 200), "a file that is no image changes nothing");
         // The ambient command keeps its refusal.
         let ambient = h.handle("engine.execute", json!({"command": "layer.smartObjects.replaceContents", "params": {"path": "red.png"}}));
         assert!(ambient.unwrap_err().to_string().contains("ambient filesystem paths"));

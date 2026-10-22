@@ -318,7 +318,7 @@ How each MCP tool maps onto control methods in bridge mode:
 | `doc_inspect` | `engine.execute {command: "document.inspect"}` |
 | `doc_open {path}` | `app.open {path}` |
 | `doc_place {path, …}` | `engine.execute {command: "file.placeEmbedded", params}` |
-| `doc_replace_smart_object {path, layer?, …}` | `engine.execute {command: "layer.smartObjects.replaceContents", params}` |
+| `doc_replace_smart_object {path, layer?, …}` | `engine.execute {command: "layer.smartObjects.replaceContents", params}`, which the desktop refuses (the command reads an ambient path, and no control method reads it through the automation root yet; `doc_place` is refused the same way). Use it headless or in the workspace server (`doc.replaceSmartObject`), where `path` resolves beneath the read root |
 | `doc_export_layers {dir, …}` | `engine.execute {command: "file.export.layersToFiles", params}` |
 | `doc_export_data_sets {dir, …}` | `engine.execute {command: "file.export.dataSetsAsFiles", params}` |
 | `doc_import_data_sets {path, …}` | `engine.execute {command: "file.import.variableDataSets", params}` |
