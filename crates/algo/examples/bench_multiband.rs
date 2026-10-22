@@ -2,11 +2,12 @@
 //! Backwards compatible: `cargo run --release -p photocraft-algo --example bench_multiband [n] [mp]`.
 //! `cargo xtask perf --bench bench_multiband --quick` also collects repeatable JSON timings.
 //! The peak is the entire process's resident-set high-water mark, not an estimate of allocations
-//! by the blend alone. Available on Linux and Windows; other platforms report no peak value.
+//! by the blend alone (`photocraft_testkit::perf`: the kernel's mark on Linux, sampled elsewhere).
 use std::path::PathBuf;
 use std::time::Instant;
 
 use photocraft_algo::panorama::{self, RoiImage};
+use photocraft_testkit::perf::{self, RssSampler, Summary};
 use serde_json::json;
 
 const ROW: &str = "Photomerge multiband blend";
@@ -27,7 +28,10 @@ fn options(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
-            "--json" => out.json = Some(PathBuf::from(it.next().ok_or("--json needs a file path")?)),
+            "--json" => {
+                let path = it.next().filter(|p| !p.starts_with('-')).ok_or("--json needs a file path")?;
+                out.json = Some(PathBuf::from(path));
+            }
             "--reps" => {
                 out.reps = it.next().ok_or("--reps needs an integer")?.parse().map_err(|_| "--reps needs an integer")?;
             }
@@ -44,31 +48,10 @@ fn options(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
     if let Some(mp) = positional.get(1) {
         out.mp = mp.parse().map_err(|_| "mp must be a number")?;
     }
-    if !(1..=16).contains(&out.n) || !(1..=25).contains(&out.reps) || !out.mp.is_finite() || !(0.01..=24.0).contains(&out.mp) {
-        return Err("expected 1..=16 images, 0.01..=24 MP per image and 1..=25 repetitions".into());
+    if !(1..=16).contains(&out.n) || !(1..=25).contains(&out.reps) || !out.mp.is_finite() || !(0.01..=36.0).contains(&out.mp) {
+        return Err("expected 1..=16 images, 0.01..=36 MP per image and 1..=25 repetitions".into());
     }
     Ok(out)
-}
-
-/// Peak resident set size in bytes (Linux: VmHWM; Windows: PeakWorkingSet64).
-/// Called outside the timed code. This metric includes input buffers and output buffers.
-fn peak_rss_bytes() -> Option<u64> {
-    #[cfg(target_os = "linux")]
-    {
-        let s = std::fs::read_to_string("/proc/self/status").ok()?;
-        let kb: u64 = s.lines().find(|l| l.starts_with("VmHWM:"))?.split_whitespace().nth(1)?.parse().ok()?;
-        return kb.checked_mul(1024);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // A standard Windows system utility; no unsafe FFI or new crate is needed in this
-        // performance example. Its process-launch cost is outside the measurement window.
-        let cmd = format!("(Get-Process -Id {}).PeakWorkingSet64", std::process::id());
-        let out = std::process::Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", &cmd]).output().ok()?;
-        return out.status.success().then_some(out.stdout).and_then(|v| String::from_utf8(v).ok())?.trim().parse().ok();
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    None
 }
 
 /// Builds deterministic overlapping RGB inputs and times each multi-band blend.
@@ -89,7 +72,8 @@ fn run() -> Result<(), String> {
         .map(|k| (0..sw * sh).map(|i| if ((step * k + i % sw + step / 2) / step).saturating_sub(1).min(o.n - 1) == k { 1.0 } else { 0.0 }).collect())
         .collect();
     let levels = panorama::blend_levels(cw, ch).min(7);
-    let before = peak_rss_bytes();
+    let before = perf::process_peak_rss_bytes().or_else(perf::current_rss_bytes);
+    let sampler = RssSampler::start(std::time::Duration::from_millis(2));
     let mut samples_ms = Vec::with_capacity(o.reps);
     for _ in 0..o.reps {
         let t0 = Instant::now();
@@ -97,15 +81,12 @@ fn run() -> Result<(), String> {
         samples_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
         std::hint::black_box(&output);
     }
-    let peak = peak_rss_bytes();
+    let peak = perf::process_peak_rss_bytes().or(sampler.peak());
     let delta = before.zip(peak).map(|(a, b)| b.saturating_sub(a) as f64 / (1024.0 * 1024.0));
-    let med = {
-        let mut sorted = samples_ms.clone();
-        sorted.sort_by(f64::total_cmp);
-        sorted[sorted.len() / 2]
-    };
+    // The same nearest-rank p50 that `cargo xtask perf` reports for these samples.
+    let p50 = Summary::of(&samples_ms).map_or(f64::NAN, |s| s.p50);
     println!(
-        "{} × {}×{} ({:.2} MP) RGB, canvas {}×{}, {} levels: {:.1} ms median ({} runs), peak +{}",
+        "{} × {}×{} ({:.2} MP) RGB, canvas {}×{}, {} levels: {:.1} ms p50 ({} runs), peak +{}",
         o.n,
         sw,
         sh,
@@ -113,16 +94,13 @@ fn run() -> Result<(), String> {
         cw,
         ch,
         levels,
-        med,
+        p50,
         o.reps,
         delta.map_or("n/a".to_string(), |m| format!("{m:.0} MiB"))
     );
     if let Some(path) = o.json {
-        let report = json!({
-            "context": {"sources": o.n, "mp_per_source": o.mp, "canvas_width": cw, "canvas_height": ch, "levels": levels},
-            "process_peak_rss_bytes": peak,
-            "rows": [{"name": ROW, "samples_ms": samples_ms, "peak_rss_bytes": peak}]
-        });
+        let context = json!({"sources": o.n, "mp_per_source": o.mp, "canvas_width": cw, "canvas_height": ch, "levels": levels});
+        let report = perf::report("bench_multiband", context, vec![perf::row(ROW, &samples_ms, peak, None)], Some(&sampler));
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
         }
@@ -156,6 +134,8 @@ mod tests {
             parse(&["2", "0.25", "--reps", "3", "--json", "out.json"]).unwrap(),
             Options { n: 2, mp: 0.25, reps: 3, json: Some(PathBuf::from("out.json")) }
         );
+        // The 24-36 MP range AGENTS.md benchmarks at, as before the flags were added.
+        assert_eq!(parse(&["4", "36"]).unwrap().mp, 36.0);
     }
 
     /// Checks invalid counts, non-finite sizes, repetitions, and missing flag values.
@@ -167,9 +147,11 @@ mod tests {
             vec!["2", "0"],
             vec!["2", "NaN"],
             vec!["2", "inf"],
+            vec!["2", "37"],
             vec!["--reps", "0"],
             vec!["--reps", "26"],
             vec!["--json"],
+            vec!["--json", "--reps", "5"],
             vec!["--reps"],
             vec!["--unknown"],
         ] {
