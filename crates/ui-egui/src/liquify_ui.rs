@@ -659,6 +659,13 @@ fn alt_tool(t: LiquifyTool) -> LiquifyTool {
     }
 }
 
+/// Where the brush outline is drawn: under the pointer, except during an Alt-drag of the brush
+/// size (`resize`), when it stays at the drag's anchor and only grows or shrinks, as the brush
+/// tools' Alt-drag does outside Liquify (#7884).
+fn brush_circle_at(resize: Option<(Pos2, f32, f32)>, hover: Option<Pos2>) -> Option<Pos2> {
+    resize.map(|(anchor, ..)| anchor).or(hover)
+}
+
 /// Alt+right-drag, and Control+Alt-drag, change the Liquify brush instead of painting (#4702).
 fn brush_resize_gesture(mods: egui::Modifiers, secondary: bool) -> bool {
     mods.alt && (secondary || mods.ctrl)
@@ -1101,8 +1108,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             let line: Vec<Pos2> = pts.iter().map(|p| to_screen(d, area, *p)).collect();
             clip.add(egui::Shape::line(line, Stroke::new(1.0, color)));
         }
-        // Brush outline (the lasso has none).
-        if let Some(hp) = resp.hover_pos() {
+        // Brush outline (the lasso has none). While Alt-dragging its size it stays where the drag
+        // started, so only its size changes (#7884).
+        if let Some(hp) = brush_circle_at(d.brush_resize, resp.hover_pos()) {
             if d.opts.tool != LiquifyTool::LassoMask {
                 let r = d.opts.size * 0.5 * d.zoom;
                 clip.circle_stroke(hp, r, Stroke::new(1.5, Color32::BLACK));
@@ -1114,10 +1122,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // Mouse → strokes (Space or middle button pans). Alt+right-drag resizes the brush (#4702).
         let (pan, secondary, mods_now) =
             ui.input(|i| (i.key_down(egui::Key::Space) || i.pointer.middle_down(), i.pointer.button_down(egui::PointerButton::Secondary), i.modifiers));
-        let resize = d.brush_resize.is_some() || (resp.drag_started() && brush_resize_gesture(mods_now, secondary));
+        // From the press, not once the drag is recognised a few points later: that first frame
+        // would otherwise start a stroke.
+        let resize = d.brush_resize.is_some() || (resp.is_pointer_button_down_on() && brush_resize_gesture(mods_now, secondary));
         if resize {
+            // Anchored where the button went down, not where the drag was recognised a few
+            // points later, so the outline doesn't jump when the gesture starts.
             if d.brush_resize.is_none()
-                && let Some(p) = resp.interact_pointer_pos()
+                && let Some(p) = ui.input(|i| i.pointer.press_origin()).or_else(|| resp.interact_pointer_pos())
             {
                 d.brush_resize = Some((p, d.opts.size, d.opts.density));
             }
@@ -1242,6 +1254,15 @@ fn draw_mesh(d: &LiquifyDialog, painter: &egui::Painter, area: ERect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_brush_outline_follows_the_pointer_except_while_resizing() {
+        let (hover, anchor) = (pos2(30.0, 40.0), pos2(10.0, 20.0));
+        assert_eq!(brush_circle_at(None, Some(hover)), Some(hover));
+        assert_eq!(brush_circle_at(Some((anchor, 40.0, 50.0)), Some(hover)), Some(anchor));
+        assert_eq!(brush_circle_at(Some((anchor, 40.0, 50.0)), None), Some(anchor));
+        assert_eq!(brush_circle_at(None, None), None);
+    }
 
     #[test]
     fn alt_right_drag_resizes_the_liquify_brush_and_does_not_paint() {
@@ -1617,6 +1638,47 @@ mod tests {
             d.undo();
         }
         assert_eq!(d.redo.len(), REDO_STACK_LIMIT);
+    }
+
+    /// #7884: Alt+right-dragging the brush size in the Liquify dialog keeps the brush where the
+    /// drag started (its outline and the point it would work at) and only changes its size, as the
+    /// brush tools' Alt-drag does outside Liquify.
+    #[test]
+    fn alt_drag_resize_keeps_the_brush_where_it_started() {
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, Default::default());
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        let screen = ERect::from_min_size(pos2(0.0, 0.0), vec2(1400.0, 900.0));
+        let frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>, mods: egui::Modifiers| {
+            let events = std::iter::once(egui::Event::ModifiersChanged(mods)).chain(events).collect();
+            let raw = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            ctx.run_ui(raw, |ui| show(app, ui.ctx())).textures_delta.clear();
+        };
+        let alt = egui::Modifiers::ALT;
+        let none = egui::Modifiers::NONE;
+        frame(&mut app, vec![], none);
+        // A point over the image in the dialog's canvas (120 × 80): the first one on a grid.
+        let p = (1..22)
+            .flat_map(|j| (1..34).map(move |i| pos2(40.0 * i as f32, 40.0 * j as f32)))
+            .find(|&q| {
+                frame(&mut app, vec![egui::Event::PointerMoved(q)], none);
+                let h = app.distort.liquify.as_ref().and_then(|d| d.hover);
+                h.is_some_and(|h| (10.0..60.0).contains(&h[0]) && (20.0..60.0).contains(&h[1]))
+            })
+            .expect("the dialog shows the image");
+        frame(&mut app, vec![egui::Event::PointerMoved(p)], none);
+        let d = app.distort.liquify.as_ref().unwrap();
+        let (start, size0) = (d.hover.expect("the pointer is over the canvas"), d.opts.size);
+        let button = |pressed| egui::Event::PointerButton { pos: p, button: egui::PointerButton::Secondary, pressed, modifiers: alt };
+        frame(&mut app, vec![button(true)], alt);
+        for k in 1..=6 {
+            frame(&mut app, vec![egui::Event::PointerMoved(p + vec2(10.0 * k as f32, 0.0))], alt);
+        }
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert!(d.opts.size > size0, "the drag resized the brush: {} -> {}", size0, d.opts.size);
+        assert_eq!(d.hover, Some(start), "the brush stayed where the drag started");
+        assert!(d.strokes.is_empty(), "and nothing was painted");
     }
 
     #[test]
