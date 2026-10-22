@@ -290,7 +290,7 @@ fn a_colour_book_ink_shows_its_lab_equivalent_or_the_grey_plate() {
     assert_eq!(duo.inks.len(), 2);
     let [r, g, b] = duo.inks[1].color;
     assert!(r < 0.1 && g > 0.4 && b > 0.35, "{:?}", duo.inks[1].color);
-    assert_eq!(duo.psd_raw.as_ref(), Some(&f.color_mode_data), "the block is kept raw");
+    assert_eq!(duo.psd_raw.as_deref(), Some(f.color_mode_data.as_slice()), "the block is kept raw");
 }
 
 #[test]
