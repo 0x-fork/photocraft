@@ -272,6 +272,28 @@ fn outside_stroke_on_raster_layer_does_not_paint_inside_opaque_pixels() {
     assert!(close4(stroke_pixel, [0.0, 0.0, 1.0, 1.0]), "outside stroke must be blue, got: {stroke_pixel:?}");
 }
 
+/// Beneath an opaque pixel the Outside stroke has no share, so a Multiply layer blended as a
+/// group with its interior effects (where the layer's mode meets what lies beneath it inside the
+/// style) multiplies the backdrop there, not the stroke colour (red × blue would be black), for a
+/// raster layer and a filled shape alike.
+#[test]
+fn outside_stroke_under_multiply_layer_leaves_interior_to_backdrop() {
+    let mut pixels = photocraft_raster::Surface::new(PixelFormat::RGBA8);
+    pixels.fill_rect(Rect::new(15, 15, 25, 25), &[1.0, 0.0, 0.0, 1.0]);
+    let layers = [("raster", Layer::new("raster", LayerContent::Raster(pixels))), ("shape", shape(15.0, 25.0, Fill::Solid(Color::rgb(1.0, 0.0, 0.0)), None))];
+    for (what, mut l) in layers {
+        let mut d = doc(40, 40);
+        l.blend = BlendMode::Multiply;
+        l.advanced.blend_interior = true;
+        l.effects.items = vec![stroke(3.0, StrokePosition::Outside, blue())];
+        d.layers.push(l);
+        let center = px(&d, 20, 20);
+        assert!(close4(center, [1.0, 0.0, 0.0, 1.0]), "{what}: interior must be red × white, got: {center:?}");
+        let stroke_pixel = px(&d, 13, 20);
+        assert!(close4(stroke_pixel, [0.0, 0.0, 1.0, 1.0]), "{what}: outside stroke must be blue, got: {stroke_pixel:?}");
+    }
+}
+
 #[test]
 fn outside_stroke_on_zero_fill_raster_layer_keeps_interior_clear() {
     let mut d = Document::new("t", Size::new(40, 40), ColorMode::Rgb, SampleType::U8);
