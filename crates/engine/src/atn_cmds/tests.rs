@@ -1911,3 +1911,58 @@ fn refine_edge_with_brush_strokes_is_not_exported_without_them() {
         assert_eq!(imported.actions[0].steps, vec![("select.refineEdge".to_string(), json!({"radius": 1}))]);
     }
 }
+
+#[test]
+fn radial_blur_off_center_strict_export_refuses_silent_recentering() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 16, "height": 16})).unwrap();
+
+    // Default center (omitted) exports successfully
+    s.actions.list.push(Action::new("DefaultCenter", vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good"}))]));
+    let saved = s.execute("actions.save", json!({"action": "DefaultCenter"})).unwrap();
+    assert_eq!(saved["steps"], 1);
+
+    // Explicit (0.5, 0.5) center also exports successfully
+    s.actions.list.push(Action::new(
+        "ExplicitDefaultCenter",
+        vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "centerX": 0.5, "centerY": 0.5}))],
+    ));
+    let saved_exp = s.execute("actions.save", json!({"action": "ExplicitDefaultCenter"})).unwrap();
+    assert_eq!(saved_exp["steps"], 1);
+
+    // Off-center radial blur cannot be silently recentered in strict export
+    s.actions.list.push(Action::new(
+        "OffCenter",
+        vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "centerX": 0.1, "centerY": 0.2}))],
+    ));
+    let before_actions = s.actions.list.clone();
+    let err = s.execute("actions.save", json!({"action": "OffCenter"}));
+    assert!(err.is_err(), "strict export must reject off-center radial blur rather than silently recentering it");
+    assert_eq!(s.actions.list, before_actions, "actions list must remain unchanged after rejected save");
+
+    // With skipUnsupported: true, off-center radial blur is skipped
+    let skipped = s.execute("actions.save", json!({"action": "OffCenter", "skipUnsupported": true})).unwrap();
+    assert_eq!(skipped["steps"], 0);
+    assert_eq!(skipped["skipped"][0]["id"], "filter.blur.radialBlur");
+
+    // Radial blur targeting a mask must not export as a plain filter that edits pixels
+    s.actions
+        .list
+        .push(Action::new("MaskTarget", vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "target": "mask"}))]));
+    let before_actions = s.actions.list.clone();
+    let err_mask = s.execute("actions.save", json!({"action": "MaskTarget"}));
+    assert!(err_mask.is_err(), "strict export must reject radial blur with non-pixel target");
+    assert_eq!(s.actions.list, before_actions, "actions list must remain unchanged after rejected save");
+
+    let skipped_mask = s.execute("actions.save", json!({"action": "MaskTarget", "skipUnsupported": true})).unwrap();
+    assert_eq!(skipped_mask["steps"], 0);
+    assert_eq!(skipped_mask["skipped"][0]["id"], "filter.blur.radialBlur");
+
+    // Explicit pixels target exports successfully
+    s.actions.list.push(Action::new(
+        "PixelsTarget",
+        vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "target": "pixels"}))],
+    ));
+    let saved_pixels = s.execute("actions.save", json!({"action": "PixelsTarget"})).unwrap();
+    assert_eq!(saved_pixels["steps"], 1);
+}

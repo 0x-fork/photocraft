@@ -3099,6 +3099,32 @@ macro_rules! clipping_event {
     };
 }
 
+const RADIAL_BLUR_FIELDS: &[F] =
+    &[F("Amnt", "amount", Kind::Long), F("BlrM", "method", Kind::Enum("BlrM", RADIAL_METHOD)), F("BlrQ", "quality", Kind::Enum("BlrQ", RADIAL_QUALITY))];
+
+fn radial_blur_from(d: &Descriptor) -> Mapped {
+    match fields_from(d, RADIAL_BLUR_FIELDS) {
+        Some(m) => step("filter.blur.radialBlur", Value::Object(m)),
+        None => Mapped::Unsupported { harmless: false },
+    }
+}
+
+fn radial_blur_to(_: &str, p: &Value) -> Option<Descriptor> {
+    if !pixel_target(p) {
+        return None;
+    }
+    // Photoshop's Radial Blur has no center parameter and always blurs from the center (0.5, 0.5).
+    // An explicit center must match 0.5 exactly; any non-default center cannot be faithfully exported.
+    let is_default_center = |k: &str| match p.get(k) {
+        None | Some(Value::Null) => true,
+        Some(v) => v.as_f64() == Some(0.5),
+    };
+    if !is_default_center("centerX") || !is_default_center("centerY") {
+        return None;
+    }
+    fields_to(p, RADIAL_BLUR_FIELDS, desc("null"))
+}
+
 /// Every Photoshop event PhotoCraft maps. The order matters only for the panel label.
 const EVENTS: &[Event] = &[
     // Filters.
@@ -3148,13 +3174,7 @@ const EVENTS: &[Event] = &[
             F("SmBM", "mode", Kind::Enum("SmBM", SMART_BLUR_MODE))
         ]
     ),
-    ev!(
-        "RdlB",
-        "radialBlur",
-        "Radial Blur",
-        "filter.blur.radialBlur",
-        &[F("Amnt", "amount", Kind::Long), F("BlrM", "method", Kind::Enum("BlrM", RADIAL_METHOD)), F("BlrQ", "quality", Kind::Enum("BlrQ", RADIAL_QUALITY))]
-    ),
+    Event { code: "RdlB", name: "radialBlur", label: "Radial Blur", ids: &["filter.blur.radialBlur"], from: radial_blur_from, to: radial_blur_to },
     ev!("Blr ", "blur", "Blur", "filter.blur.blur", &[]),
     ev!("BlrM", "blurMore", "Blur More", "filter.blur.blurMore", &[]),
     ev!("Shrp", "sharpen", "Sharpen", "filter.sharpen.sharpen", &[]),
