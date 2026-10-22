@@ -1323,19 +1323,8 @@ mod tests {
 
         /// A finger tap at `at`. Events for one phase share a frame (`input_mut`), because `Harness::step` would otherwise run one frame per queued event and drop Touch before the click release (so `second_click` would not see touch).
         fn touch_tap_at(h: &mut Harness<'static, PhotocraftApp>, at: egui::Pos2) {
-            let touch = |phase| egui::Event::Touch {
-                device_id: egui::TouchDeviceId(1),
-                id: egui::TouchId(1),
-                phase,
-                pos: at,
-                force: None,
-            };
-            let button = |pressed| egui::Event::PointerButton {
-                pos: at,
-                button: egui::PointerButton::Primary,
-                pressed,
-                modifiers: egui::Modifiers::NONE,
-            };
+            let touch = |phase| egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(1), phase, pos: at, force: None };
+            let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
             h.input_mut().events.extend([egui::Event::PointerMoved(at), touch(egui::TouchPhase::Start), button(true)]);
             h.step();
             h.input_mut().events.extend([touch(egui::TouchPhase::End), button(false)]);

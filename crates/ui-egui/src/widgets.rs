@@ -1995,19 +1995,8 @@ mod tests {
     /// One primary press+release at `pos`. When `touch`, emit Touch Start/End with the pointer events (as egui-winit does) so [`super::second_click`] uses the touch distance.
     fn pointer_click(ctx: &egui::Context, time: f64, pos: egui::Pos2, touch: bool) -> bool {
         let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 200.0));
-        let button = |pressed| egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        };
-        let touch_ev = |phase| egui::Event::Touch {
-            device_id: egui::TouchDeviceId(1),
-            id: egui::TouchId(1),
-            phase,
-            pos,
-            force: None,
-        };
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let touch_ev = |phase| egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(1), phase, pos, force: None };
         let mut saw = false;
         for (t, mut events) in [
             (time, {
@@ -2025,11 +2014,7 @@ mod tests {
                 v
             }),
         ] {
-            let mut raw = egui::RawInput {
-                time: Some(t),
-                screen_rect: Some(area),
-                ..Default::default()
-            };
+            let mut raw = egui::RawInput { time: Some(t), screen_rect: Some(area), ..Default::default() };
             raw.events.append(&mut events);
             let mut out = ctx.run_ui(raw, |ui| {
                 let r = ui.allocate_rect(area, egui::Sense::click());
@@ -2049,16 +2034,9 @@ mod tests {
         let wide = egui::pos2(50.0 + 48.0, 50.0); // past the old 32 px slop, inside TOUCH_MAX_CLICK_DIST (64)
         for touch in [false, true] {
             let ctx = egui::Context::default();
-            let mut out = ctx.run_ui(
-                egui::RawInput {
-                    time: Some(0.0),
-                    screen_rect: Some(area),
-                    ..Default::default()
-                },
-                |ui| {
-                    ui.allocate_rect(area, egui::Sense::click());
-                },
-            );
+            let mut out = ctx.run_ui(egui::RawInput { time: Some(0.0), screen_rect: Some(area), ..Default::default() }, |ui| {
+                ui.allocate_rect(area, egui::Sense::click());
+            });
             out.textures_delta.clear();
             assert!(!pointer_click(&ctx, 0.1, a, touch), "first click only arms the pair");
             let second = pointer_click(&ctx, 0.25, mild, touch);
@@ -2066,16 +2044,9 @@ mod tests {
         }
         // Touch-only: casual Framework-style drift beyond the previous 32 px budget.
         let ctx = egui::Context::default();
-        let mut out = ctx.run_ui(
-            egui::RawInput {
-                time: Some(0.0),
-                screen_rect: Some(area),
-                ..Default::default()
-            },
-            |ui| {
-                ui.allocate_rect(area, egui::Sense::click());
-            },
-        );
+        let mut out = ctx.run_ui(egui::RawInput { time: Some(0.0), screen_rect: Some(area), ..Default::default() }, |ui| {
+            ui.allocate_rect(area, egui::Sense::click());
+        });
         out.textures_delta.clear();
         assert!(!pointer_click(&ctx, 0.1, a, true));
         assert!(pointer_click(&ctx, 0.25, wide, true), "48 px touch jitter is still a double");
@@ -2087,16 +2058,9 @@ mod tests {
         let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 200.0));
         let p = egui::pos2(40.0, 40.0);
         let ctx = egui::Context::default();
-        let mut out = ctx.run_ui(
-            egui::RawInput {
-                time: Some(0.0),
-                screen_rect: Some(area),
-                ..Default::default()
-            },
-            |ui| {
-                ui.allocate_rect(area, egui::Sense::click());
-            },
-        );
+        let mut out = ctx.run_ui(egui::RawInput { time: Some(0.0), screen_rect: Some(area), ..Default::default() }, |ui| {
+            ui.allocate_rect(area, egui::Sense::click());
+        });
         out.textures_delta.clear();
         assert!(!pointer_click(&ctx, 0.1, p, false));
         assert!(!pointer_click(&ctx, 0.1 + super::DOUBLE_CLICK_S + 0.05, p, false), "past Windows' 0.5 s window");

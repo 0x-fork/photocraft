@@ -781,7 +781,9 @@ fn a_damaged_preset_set_keeps_the_other_sets() {
     });
     s.execute("file.export.presets.save", json!({"name": "Web JPEG", "settings": export})).unwrap();
     let saved = s.presets.to_json(&s);
-    for key in ["gradients", "gradient", "styles", "shapes", "pattern_groups", "recent_documents", "custom_shapes", "layer_defaults", "swatches", "export_presets"] {
+    for key in
+        ["gradients", "gradient", "styles", "shapes", "pattern_groups", "recent_documents", "custom_shapes", "layer_defaults", "swatches", "export_presets"]
+    {
         let mut blob = saved.clone();
         blob[key] = json!("not a preset set");
         let mut next = Session::new();
