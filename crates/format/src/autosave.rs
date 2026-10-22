@@ -189,7 +189,9 @@ pub fn list_recovery(recovery_dir: &Path) -> Vec<RecoveryEntry> {
     };
     for e in rd.flatten() {
         let p = e.path();
-        if p.extension().is_some_and(|x| x == "json")
+        if e.file_type().is_ok_and(|ft| ft.is_file())
+            && p.extension().is_some_and(|x| x == "json")
+            && e.metadata().is_ok_and(|m| m.len() <= (1 << 20))
             && let Ok(bytes) = std::fs::read(&p)
             && let Ok(info) = serde_json::from_slice::<RecoveryInfo>(&bytes)
             && sanitize(&info.key) == info.key
@@ -402,6 +404,9 @@ fn untouched_for(path: &Path, min_age: std::time::Duration, missing_ok: bool) ->
 }
 
 fn remove_entry(dir: &Path, key: &str) -> Result<()> {
+    if sanitize(key) != key {
+        return Err(FormatError::corrupt("recovery entry key contains path components"));
+    }
     let bundle = dir.join(format!("{key}.pcraft"));
     if bundle.exists() {
         std::fs::remove_dir_all(bundle)?;

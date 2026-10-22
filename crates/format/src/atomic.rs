@@ -37,6 +37,9 @@ pub mod meta;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The file-system steps [`atomic_write_with`] performs. [`RealFs`] is the real thing; tests
@@ -86,7 +89,11 @@ impl AtomicFs for RealFs {
         self.write_new_progress(tmp, bytes, &|_| {})
     }
     fn write_new_progress(&self, tmp: &Path, bytes: &[u8], progress: &dyn Fn(f32)) -> io::Result<()> {
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(tmp)?;
+        let mut f = std::fs::OpenOptions::new();
+        f.write(true).create_new(true);
+        #[cfg(unix)]
+        f.mode(0o600);
+        let mut f = f.open(tmp)?;
         let mut written = 0usize;
         for chunk in bytes.chunks(WRITE_CHUNK) {
             f.write_all(chunk)?;
