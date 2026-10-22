@@ -790,15 +790,15 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
-        let v = GuideDrag { vertical: true, index: Some(0), pos: 103.24, press: 50.0 };
+        let v = GuideDrag { vertical: true, index: Some(0), pos: 103.24, press: 50.0, over_ruler: false };
         assert_eq!(guide_drag_readout(&app, v), Some(("X:", "103.2 px".to_owned())));
-        let h = GuideDrag { vertical: false, index: None, pos: 40.0, press: 40.0 };
+        let h = GuideDrag { vertical: false, index: None, pos: 40.0, press: 40.0, over_ruler: false };
         assert_eq!(guide_drag_readout(&app, h), Some(("Y:", "40 px".to_owned())));
         app.run("view.setRulerOrigin", json!({"x": 3.0, "y": 10.0})).unwrap();
         assert_eq!(guide_drag_readout(&app, h), Some(("Y:", "30 px".to_owned())), "from the zero point");
         app.run("view.resetRulerOrigin", json!({})).unwrap();
         app.run("prefs.set", json!({"path": "unitsAndRulers.rulers", "value": "percent"})).unwrap();
-        assert_eq!(guide_drag_readout(&app, GuideDrag { vertical: true, index: None, pos: 103.0, press: 0.0 }).map(|r| r.0), Some("X:"));
+        assert_eq!(guide_drag_readout(&app, GuideDrag { vertical: true, index: None, pos: 103.0, press: 0.0, over_ruler: false }).map(|r| r.0), Some("X:"));
         app.run("prefs.set", json!({"path": "unitsAndRulers.rulers", "value": "pixels"})).unwrap();
 
         app.guide_drag = Some(v);
@@ -1308,7 +1308,7 @@ mod tests {
     }
 
     /// The canvas the guides live on, rulers on, at 100 %.
-    fn canvas_harness(tool: crate::state::Tool) -> egui_kittest::Harness<'static, PhotocraftApp> {
+    fn tool_canvas_harness(tool: crate::state::Tool) -> egui_kittest::Harness<'static, PhotocraftApp> {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
         app.sync_views();
@@ -1343,7 +1343,7 @@ mod tests {
     #[test]
     fn a_guide_dragged_onto_a_ruler_is_deleted_through_the_canvas() {
         for below in [50.0f32, 0.0] {
-            let mut h = canvas_harness(crate::state::Tool::Move);
+            let mut h = tool_canvas_harness(crate::state::Tool::Move);
             h.state_mut().run("view.newGuide", json!({"orientation": "horizontal", "position": 150})).unwrap();
             h.run_steps(1);
             let at = |h: &egui_kittest::Harness<'static, PhotocraftApp>, x: f32, y: f32| {
