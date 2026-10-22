@@ -2647,13 +2647,21 @@ fn shadows_highlights_to(_: &str, p: &Value) -> Option<Descriptor> {
 
 fn image_size_to(_: &str, p: &Value) -> Option<Descriptor> {
     let mut d = desc("null");
-    if let Some(pc) = jnum(p, "percent") {
+    // `resample: "none"` changes the resolution only and the command ignores any size then. The
+    // descriptor has no "none" (it is the absence of `Intr`), so writing the ignored size would
+    // turn the step into a pixel resize on playback (#7189).
+    let resolution_only = jstr(p, "resample") == Some("none");
+    if resolution_only && jnum(p, "resolution").is_none() {
+        // Nothing left to record: the step changes nothing.
+        return None;
+    }
+    if let Some(pc) = jnum(p, "percent").filter(|_| !resolution_only) {
         d = d.with("Wdth", pct(pc)).with("Hght", pct(pc)).with("CnsP", D::Boolean(true));
     }
-    if let Some(w) = jnum(p, "width") {
+    if let Some(w) = jnum(p, "width").filter(|_| !resolution_only) {
         d = d.with("Wdth", px(w));
     }
-    if let Some(h) = jnum(p, "height") {
+    if let Some(h) = jnum(p, "height").filter(|_| !resolution_only) {
         d = d.with("Hght", px(h));
     }
     if let Some(r) = jnum(p, "resolution") {
