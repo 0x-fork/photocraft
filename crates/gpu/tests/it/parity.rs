@@ -1878,6 +1878,24 @@ fn layer_effects_opacity_fill_blend_and_off_canvas() {
         d.layers.push(l);
         fx_check(&mut g, &d, &format!("outside stroke at fill {fill}"));
     }
+    // An Outside stroke has no share beneath fully opaque pixels (#5861): non-Normal layers with
+    // an Outside stroke on a soft blob and a hard square. (Blend Interior Effects as Group, where
+    // that share shows through the layer's mode, is composited on the CPU.)
+    for blend in [BlendMode::Multiply, BlendMode::Screen] {
+        let mut d = fx_doc(80, 80, SampleType::U8);
+        let mut l = blob("ring", d.pixel_format(), 40.0, 40.0, 20.0, [0.9, 0.1, 0.1]);
+        l.effects.items = vec![Effect::Stroke(stroke(4.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.1, 0.2, 0.9))))];
+        l.blend = blend;
+        d.layers.push(l);
+        fx_check(&mut g, &d, &format!("outside stroke under a {blend:?} blob"));
+        let mut d = fx_doc(40, 40, SampleType::U8);
+        let mut l = Layer::raster("square", d.pixel_format());
+        l.surface_mut().unwrap().fill_rect(Rect::new(15, 15, 25, 25), &[1.0, 0.0, 0.0, 1.0]);
+        l.effects.items = vec![Effect::Stroke(stroke(3.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.0, 0.0, 1.0))))];
+        l.blend = blend;
+        d.layers.push(l);
+        fx_check(&mut g, &d, &format!("outside stroke under a {blend:?} square"));
+    }
     // Shapes partly off the canvas (their effects reach back in) and a masked effect layer.
     let mut d = fx_doc(90, 70, SampleType::U8);
     let mut l = blob("edge", d.pixel_format(), 4.0, 66.0, 18.0, [0.9, 0.9, 0.2]);
