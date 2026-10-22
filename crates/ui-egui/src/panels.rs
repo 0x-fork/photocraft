@@ -2464,14 +2464,15 @@ fn color_slider_mode_row(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
 }
 
-/// Hue, Saturation and Brightness sliders for the foreground colour.
+/// Hue, Saturation and Brightness sliders for the colour the panel is editing.
 fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let fg = app.session.tools.foreground;
-    // Keep the last edited HSB while it still gives the foreground: black and greys have no hue or
+    let bg = app.ui.color_panel.background;
+    let c = if bg { app.session.tools.background } else { app.session.tools.foreground };
+    // Keep the last edited HSB while it still gives the colour: black and greys have no hue or
     // saturation of their own, so recomputing them from RGB would reset what was just typed to 0.
-    let key = egui::Id::new("color-picker-hsva");
+    let key = egui::Id::new(("color-picker-hsva", bg));
     let stored: Option<egui::ecolor::Hsva> = ui.data(|d| d.get_temp(key));
-    let hsva0 = stored.filter(|h| srgb_bytes(hsva_srgb(*h)) == srgb_bytes(fg)).unwrap_or_else(|| srgb_hsva(fg));
+    let hsva0 = stored.filter(|h| srgb_bytes(hsva_srgb(*h)) == srgb_bytes(c)).unwrap_or_else(|| srgb_hsva(c));
     let mut h = hsva0.h * 360.0;
     let mut s = hsva0.s * 100.0;
     let mut v = hsva0.v * 100.0;
@@ -2486,11 +2487,15 @@ fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     changed |= widgets::slider_row(ui, tl!("Brightness"), &mut v, 0.0..=100.0, "%", dynamic.then_some(&val_stops)).changed();
     let hsva = egui::ecolor::Hsva::new(h / 360.0, s / 100.0, v / 100.0, 1.0);
     // Only an edit counts: the h/s/v round trip isn't exact, so comparing values would rewrite
-    // the foreground (and recolour selected type) every frame.
+    // the colour (and recolour selected type) every frame.
     if changed {
-        app.session.tools.foreground = hsva_srgb(hsva);
+        if bg {
+            app.session.tools.background = hsva_srgb(hsva);
+        } else {
+            app.session.tools.foreground = hsva_srgb(hsva);
+            crate::apply_color::foreground_changed(app, crate::apply_color::gesture(ui.ctx()));
+        }
         ui.data_mut(|d| d.insert_temp(key, hsva));
-        crate::apply_color::foreground_changed(app, crate::apply_color::gesture(ui.ctx()));
     }
     crate::apply_color::track_focus(ui.ctx());
 }
@@ -2516,7 +2521,7 @@ fn rgb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             app.session.tools.background = c;
         } else {
             app.session.tools.foreground = c;
-            crate::type_tool::foreground_changed(app);
+            crate::apply_color::foreground_changed(app, crate::apply_color::gesture(ui.ctx()));
         }
     }
 }
@@ -4850,6 +4855,92 @@ mod color_tests {
         for label in ["Red", "Green", "Blue"] {
             h.get_by_label(label);
         }
+    }
+
+    /// The Color panel with a document holding one selected black rectangle, the Rectangle tool in
+    /// hand, foreground blue and background red.
+    fn color_panel_with_a_shape(mode: ColorPanelSliderMode, background: bool) -> egui_kittest::Harness<'static, PhotocraftApp> {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
+        app.sync_views();
+        app.run("shape.create", json!({"kind": "rect", "rect": [20, 20, 50, 50], "fill": "#000000"})).unwrap();
+        app.ui.tool = crate::state::Tool::Rectangle;
+        app.session.tools.foreground = [0.0, 0.0, 1.0, 1.0];
+        app.session.tools.background = [1.0, 0.0, 0.0, 1.0];
+        app.ui.color_panel.slider_mode = mode;
+        app.ui.color_panel.background = background;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(300.0, 420.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    color_picker(app, ui);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        h
+    }
+
+    /// Types `text` into the first of the three slider fields under the colour field (Hue or Red).
+    fn type_first_slider(h: &mut egui_kittest::Harness<'static, PhotocraftApp>, text: &str) {
+        use egui_kittest::kittest::Queryable;
+        let n = h.query_all_by_role(egui::accesskit::Role::SpinButton).count();
+        h.query_all_by_role(egui::accesskit::Role::SpinButton).nth(n - 3).unwrap().click();
+        h.run_steps(2);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.run_steps(1);
+        h.event(egui::Event::Text(text.into()));
+        h.run_steps(1);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+    }
+
+    fn shape_fill(app: &PhotocraftApp) -> [u8; 3] {
+        let st = app.session.active().unwrap();
+        let LayerContent::Shape(sh) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("shape layer") };
+        let Some(photocraft_doc::Fill::Solid(c)) = &sh.fill else { panic!("solid fill") };
+        srgb_bytes([c.c[0], c.c[1], c.c[2], 1.0])
+    }
+
+    /// The HSB sliders edit the chip the panel is editing, as the RGB sliders and the field do:
+    /// with the background chip active they change the background, and the selected shape (which
+    /// takes the foreground with a shape tool in hand) keeps its fill. On the foreground chip
+    /// the shape follows.
+    #[test]
+    fn hsb_sliders_edit_the_active_chip_and_only_the_foreground_recolours_shapes() {
+        let mut h = color_panel_with_a_shape(ColorPanelSliderMode::Hsb, true);
+        type_first_slider(&mut h, "120");
+        let app = h.state();
+        assert_eq!(srgb_bytes(app.session.tools.background), [0, 255, 0], "the background takes the hue");
+        assert_eq!(srgb_bytes(app.session.tools.foreground), [0, 0, 255], "the foreground is left alone");
+        assert_eq!(shape_fill(app), [0, 0, 0], "a background edit recolours nothing");
+
+        let mut h = color_panel_with_a_shape(ColorPanelSliderMode::Hsb, false);
+        type_first_slider(&mut h, "120");
+        let app = h.state();
+        assert_eq!(srgb_bytes(app.session.tools.foreground), [0, 255, 0]);
+        assert_eq!(srgb_bytes(app.session.tools.background), [255, 0, 0]);
+        assert_eq!(shape_fill(app), [0, 255, 0], "the selected shape takes the new foreground");
+    }
+
+    /// The RGB sliders recolour the selected shape like the HSB sliders, the field and the
+    /// swatches do (`apply_color`), and only for a foreground edit.
+    #[test]
+    fn rgb_sliders_recolour_the_selected_shape_with_the_foreground() {
+        let mut h = color_panel_with_a_shape(ColorPanelSliderMode::Rgb, false);
+        let steps = h.state().session.active().unwrap().history.entries().len();
+        type_first_slider(&mut h, "255");
+        let app = h.state();
+        assert_eq!(srgb_bytes(app.session.tools.foreground), [255, 0, 255]);
+        assert_eq!(shape_fill(app), [255, 0, 255]);
+        assert_eq!(app.session.active().unwrap().history.entries().len(), steps + 1, "one history step");
+
+        let mut h = color_panel_with_a_shape(ColorPanelSliderMode::Rgb, true);
+        type_first_slider(&mut h, "0");
+        let app = h.state();
+        assert_eq!(srgb_bytes(app.session.tools.background), [0, 0, 0]);
+        assert_eq!(shape_fill(app), [0, 0, 0], "a background edit recolours nothing");
     }
 
     /// The Color panel's hex readout is editable, with or without the leading `#`.

@@ -570,6 +570,9 @@ fn custom_params(f: &Descriptor) -> Option<J> {
     Some(json!({"kernel": kernel?, "scale": scale, "offset": offset}))
 }
 
+/// The settings of Photoshop's Wave, as it writes them (and we write them back).
+const WAVE_KEYS: [&str; 10] = ["Wvtp", "NmbG", "WLMn", "WLMx", "AmMn", "AmMx", "SclH", "SclV", "UndA", "RndS"];
+
 /// Our command and parameters for a known Photoshop filter; `None` when the filter (or one of its
 /// settings) is not modelled. `item` is the whole `filterFX` entry (Pointillize reads its `BckC`,
 /// Tiles its colours).
@@ -579,13 +582,17 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
         ("adaptCorrect" | "Invr", None) => json!({}),
         (c, None) if NO_OPTIONS.contains(&c) => json!({}),
         (_, None) => return None,
-        ("Pnch", Some(f)) => json!({"amount": int(f, "Amnt")?}),
-        ("Twrl", Some(f)) => json!({"angle": int(f, "Angl")?}),
-        ("Rple", Some(f)) => json!({"amount": int(f, "Amnt")?, "size": enum_name(f, "RplS", "RplS", &RIPPLE_SIZE)?}),
-        ("Sphr", Some(f)) => json!({"amount": int(f, "Amnt")?, "mode": enum_name(f, "SphM", "SphM", &SPHERIZE_MODE)?}),
-        ("Plr ", Some(f)) => json!({"mode": enum_name(f, "Cnvr", "Cnvr", &POLAR_MODE)?}),
-        ("ZgZg", Some(f)) => json!({"amount": int(f, "Amnt")?, "ridges": int(f, "NmbR")?, "style": enum_name(f, "ZZTy", "ZZTy", &ZIGZAG_STYLE)?}),
-        ("Wave", Some(f)) => {
+        // Exactly the settings Photoshop writes (and we write back); an extra or repeated one keeps
+        // the filter verbatim rather than lose it on save.
+        ("Pnch", Some(f)) if exact_keys(f, &["Amnt"]) => json!({"amount": int(f, "Amnt")?}),
+        ("Twrl", Some(f)) if exact_keys(f, &["Angl"]) => json!({"angle": int(f, "Angl")?}),
+        ("Rple", Some(f)) if exact_keys(f, &["Amnt", "RplS"]) => json!({"amount": int(f, "Amnt")?, "size": enum_name(f, "RplS", "RplS", &RIPPLE_SIZE)?}),
+        ("Sphr", Some(f)) if exact_keys(f, &["Amnt", "SphM"]) => json!({"amount": int(f, "Amnt")?, "mode": enum_name(f, "SphM", "SphM", &SPHERIZE_MODE)?}),
+        ("Plr ", Some(f)) if exact_keys(f, &["Cnvr"]) => json!({"mode": enum_name(f, "Cnvr", "Cnvr", &POLAR_MODE)?}),
+        ("ZgZg", Some(f)) if exact_keys(f, &["Amnt", "NmbR", "ZZTy"]) => {
+            json!({"amount": int(f, "Amnt")?, "ridges": int(f, "NmbR")?, "style": enum_name(f, "ZZTy", "ZZTy", &ZIGZAG_STYLE)?})
+        }
+        ("Wave", Some(f)) if exact_keys(f, &WAVE_KEYS) => {
             // PhotoCraft's Wave has no Scale: a scaled wave stays verbatim rather than lose it. The
             // same for more generators than the renderer models, which would draw fewer than
             // Photoshop did (and than the file asks for, once its cached pixels are re-rendered).
@@ -2747,6 +2754,31 @@ mod tests {
         let f = filter_from_item(&item);
         assert_eq!(f.command, UNSUPPORTED_FILTER);
         assert_eq!(item_for_filter(&f).unwrap().get("Fltr"), item.get("Fltr"));
+
+        // An extra or repeated setting PhotoCraft doesn't model keeps the filter Photoshop's, unchanged.
+        let mut fltrs: Vec<Descriptor> = PHOTOSHOP_FLTR.iter().map(|(_, _, hex)| Descriptor::from_bytes(&from_hex(hex).unwrap()).unwrap()).collect();
+        let mut wave = unscaled_wave();
+        set(&mut wave, "NmbG", Value::Integer(5));
+        assert_eq!(filter_from_item(&photoshop_fltr_item(wave.clone())).command, "filter.distort.wave", "the plain wave maps");
+        fltrs.push(wave);
+        for ps in fltrs {
+            let name = String::from_utf8_lossy(ps.class_id.as_bytes()).into_owned();
+            let mut repeated = ps.clone();
+            repeated.items.push(ps.items[0].clone());
+            for odd in [ps.clone().with("Xtra", Value::Integer(7)), repeated] {
+                let item = photoshop_fltr_item(odd);
+                let f = filter_from_item(&item);
+                assert_eq!(f.command, UNSUPPORTED_FILTER, "{name}");
+                assert_eq!(item_for_filter(&f).unwrap().get("Fltr"), item.get("Fltr"), "{name}: written back unchanged");
+            }
+        }
+    }
+
+    /// Photoshop's Wave ([`PHOTOSHOP_WAVE`]) at 100% scale both ways.
+    fn unscaled_wave() -> Descriptor {
+        let mut wave = Descriptor::from_bytes(&from_hex(PHOTOSHOP_WAVE).unwrap()).unwrap();
+        set(&mut wave, "SclV", Value::Integer(100));
+        wave
     }
 
     /// An unscaled Wave opens as PhotoCraft's Wave (Triangle, the other settings as stored) up to
