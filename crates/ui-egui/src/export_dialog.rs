@@ -574,6 +574,74 @@ fn estimate_native(doc: &Document, proxy: &Document, f: &Map<String, Value>) -> 
     Some(scaled_estimate(bytes.len(), doc, proxy, f))
 }
 
+/// Exports up to this many pixels get an exact size: the full image encoded as Export will
+/// write it, as Photoshop's Export As reports (#6595). Larger ones keep the proxy estimate, which
+/// reads low for detailed images (a downscaled proxy compresses better).
+#[cfg(not(target_arch = "wasm32"))]
+const EXACT_ESTIMATE_PX: f64 = 40_000_000.0;
+
+/// The exported file's size in bytes, from encoding the full export, or `None` when it is too
+/// large to encode for an estimate or can't be encoded.
+#[cfg(not(target_arch = "wasm32"))]
+fn exact_estimate(doc: &Document, f: &Map<String, Value>) -> Option<u64> {
+    // The size `export_document` will make: exact pixels only in pixel mode, else the scale.
+    let (w, h) = export_pixels(f64::from(doc.size.width), f64::from(doc.size.height), f, None).ok()?;
+    let px = w * h;
+    if !px.is_finite() || px > EXACT_ESTIMATE_PX {
+        return None;
+    }
+    let full = export_document(doc, f, None).ok()?;
+    let bytes = photocraft_io::export(&full, &format!("estimate.{}", s_fmt(f)), &settings(f).io_options()).ok()?.bytes;
+    u64::try_from(bytes.len()).ok()
+}
+
+/// The exact size for `signature`, worked out off the UI thread: `None` until it is ready (the
+/// proxy estimate shows meanwhile), then `Some(None)` when there is no exact size.
+#[cfg(not(target_arch = "wasm32"))]
+fn poll_or_start_exact_estimate(ui: &mut egui::Ui, key: egui::Id, signature: &str, doc: Arc<Document>, fields: &Map<String, Value>) -> Option<Option<u64>> {
+    type Done = Arc<Mutex<Option<Option<u64>>>>;
+    let done_key = key.with("exact-estimate");
+    if let Some((sig, size)) = ui.data(|d| d.get_temp::<(String, Option<u64>)>(done_key))
+        && sig == signature
+    {
+        return Some(size);
+    }
+    let pending_key = key.with("exact-estimate-pending");
+    if let Some((sig, result)) = ui.data(|d| d.get_temp::<(String, Done)>(pending_key)) {
+        if sig == signature {
+            let size = result.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()?;
+            ui.data_mut(|d| {
+                d.remove::<(String, Done)>(pending_key);
+                d.insert_temp(done_key, (sig, size));
+            });
+            return Some(size);
+        }
+        // Settings changed meanwhile: that worker's answer is for other settings.
+        if result.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_none() {
+            return None;
+        }
+    }
+    let result: Done = Arc::new(Mutex::new(None));
+    let shared = result.clone();
+    let ctx = ui.ctx().clone();
+    let fields = fields.clone();
+    let started = std::thread::Builder::new().name("export-estimate".into()).spawn(move || {
+        let size = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let source = source_document_from(doc.clone(), &fields).unwrap_or(doc);
+            exact_estimate(&source, &fields)
+        }))
+        .unwrap_or(None);
+        *shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(size);
+        ctx.request_repaint();
+    });
+    if started.is_ok() {
+        ui.data_mut(|d| d.insert_temp(pending_key, (signature.to_string(), result)));
+        None
+    } else {
+        Some(None)
+    }
+}
+
 fn write_size(f: &mut Map<String, Value>, size: ExportSize, sizing: &str) {
     f.insert("width".into(), json!(size.width));
     f.insert("height".into(), json!(size.height));
@@ -893,7 +961,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                         Some(preview_sync(app, &source, f))
                     };
                     let filter = preview_filter(f);
-                    result.map(|result| cache_preview(ui, key, sig, result, filter))
+                    result.map(|result| cache_preview(ui, key, sig.clone(), result, filter))
                 }
             };
             let side = 300.0;
@@ -910,7 +978,12 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                 ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, tl!("Preview"), egui::FontId::proportional(12.0), t.text_dim);
             }
             ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.0, t.separator), egui::StrokeKind::Outside);
-            let est = preview.as_ref().and_then(|preview| preview.estimate).map_or("—".to_string(), |b| crate::sizing::human_bytes(b as f64));
+            #[cfg(not(target_arch = "wasm32"))]
+            let exact = poll_or_start_exact_estimate(ui, key, &sig, doc.clone(), f).flatten();
+            #[cfg(target_arch = "wasm32")]
+            let exact: Option<u64> = None;
+            let est =
+                exact.or_else(|| preview.as_ref().and_then(|preview| preview.estimate)).map_or("—".to_string(), |b| crate::sizing::human_bytes(b as f64));
             ui.label(egui::RichText::new(format!("{}  ≈ {est}", s_fmt(f).to_uppercase())).color(t.text_dim).size(11.5));
         });
     });
@@ -1318,6 +1391,86 @@ mod tests {
             assert!(out.size.width.max(out.size.height) <= max_side, "proxy respects its longest-side limit");
             assert_eq!(doc, before, "preview leaves the source document unchanged");
         }
+    }
+
+    /// #6595: Export As shows the size the file will have, as Photoshop does. The proxy estimate
+    /// read 36–81 % of it for a detailed image; up to `EXACT_ESTIMATE_PX` the full export is
+    /// encoded off the UI thread instead.
+    #[test]
+    fn the_estimate_is_the_exported_files_size() {
+        let mut doc = Document::with_background(
+            "x",
+            photocraft_doc::Size::new(900, 300),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::WHITE,
+        );
+        let id = doc.layers[0].id;
+        let surf = doc.layer_mut(id).unwrap().surface_mut().unwrap();
+        let mut seed = 12345u32;
+        for y in (0..300).step_by(2) {
+            for x in (0..900).step_by(2) {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let v = (seed >> 24) as f32 / 255.0;
+                surf.fill_rect(photocraft_geom::Rect::new(x, y, x + 2, y + 2), &[v, x as f32 / 900.0, y as f32 / 300.0, 1.0]);
+            }
+        }
+        let doc = Arc::new(doc);
+        let f = Map::from_iter([("format".into(), json!("jpg")), ("scale".into(), json!(100)), ("quality".into(), json!(32))]);
+        let actual = photocraft_io::export(&export_document(&doc, &f, None).unwrap(), "x.jpg", &settings(&f).io_options()).unwrap().bytes.len() as u64;
+        let proxy = preview_proxy(&doc, &f).unwrap();
+        let old = estimate_native(&doc, &proxy, &f).unwrap();
+        assert!((old as f64 / actual as f64 - 1.0).abs() > 0.1, "the proxy estimate was off: {old} vs {actual}");
+
+        let ctx = egui::Context::default();
+        let key = egui::Id::new("exact-estimate-test");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let size = loop {
+            let mut size = None;
+            let mut output = ctx.run_ui(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| size = poll_or_start_exact_estimate(ui, key, "jpg32", doc.clone(), &f));
+            });
+            output.textures_delta.clear();
+            if let Some(size) = size {
+                break size;
+            }
+            assert!(std::time::Instant::now() < deadline, "the exact estimate did not arrive");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert_eq!(size, Some(actual));
+        // Over the limit there is no exact size; the proxy estimate stays.
+        let huge = Map::from_iter([
+            ("format".into(), json!("jpg")),
+            ("sizing".into(), json!("pixels")),
+            ("width".into(), json!(10_000)),
+            ("height".into(), json!(10_000)),
+        ]);
+        assert_eq!(exact_estimate(&doc, &huge), None);
+        // In scale mode the size comes from the scale, as the export's does, not from stale pixels.
+        let big = Arc::new(Document::with_background(
+            "big",
+            photocraft_doc::Size::new(1000, 1000),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::WHITE,
+        ));
+        let stale = Map::from_iter([
+            ("format".into(), json!("png")),
+            ("sizing".into(), json!("scale")),
+            ("scale".into(), json!(1000)),
+            ("width".into(), json!(100)),
+            ("height".into(), json!(100)),
+        ]);
+        assert_eq!(exact_estimate(&big, &stale), None, "10000 × 10000 at 1000 %, over the limit");
+        let small = Map::from_iter([
+            ("format".into(), json!("png")),
+            ("sizing".into(), json!("scale")),
+            ("scale".into(), json!(10)),
+            ("width".into(), json!(9000)),
+            ("height".into(), json!(9000)),
+        ]);
+        let at_10 = photocraft_io::export(&export_document(&big, &small, None).unwrap(), "x.png", &settings(&small).io_options()).unwrap().bytes.len() as u64;
+        assert_eq!(exact_estimate(&big, &small), Some(at_10), "100 × 100 at 10 %, within it");
     }
 
     #[test]
