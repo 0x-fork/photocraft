@@ -517,6 +517,7 @@ fn options_bar_t_icon_scrubs_the_selected_characters_only() {
         dragging: false,
         resize: None,
         preedit: None,
+        document: None,
     });
     let mut h = options_harness(app);
     scrub_size_icon(&mut h, -8.0, Modifiers::NONE);
