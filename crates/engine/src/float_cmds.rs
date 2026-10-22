@@ -77,9 +77,9 @@ impl CutParts {
             // marching ants hug the piece as the drag starts, #7538). A mask has no outline.
             if !mask {
                 let n = with_alpha.channels();
-                let cover: Vec<f32> = piece.read_region(b).chunks_exact(n).filter_map(|p| p.last().copied()).collect();
+                let cover: Vec<f32> = piece.try_read_region(b)?.chunks_exact(n).filter_map(|p| p.last().copied()).collect();
                 let mut o = Surface::new(PixelFormat::new(ColorMode::Grayscale, sel.format().sample, false));
-                o.write_region(b, &cover);
+                o.try_write_region(b, &cover)?;
                 o.prune();
                 outline = Some(o);
             }
