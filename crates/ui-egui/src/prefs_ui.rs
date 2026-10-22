@@ -618,7 +618,7 @@ fn write_prefs(app: &mut PhotocraftApp, ours: &Value) -> Result<(), String> {
     let stored = app.services.load_prefs.as_mut().and_then(|load| load()).and_then(|t| serde_json::from_str::<Value>(&t).ok());
     let text = match (stored, &app.prefs_rt.saved_value) {
         (Some(mut theirs @ Value::Object(_)), Some(base)) => {
-            let base = &without_stale_migration(base, ours, &theirs);
+            let base = &without_stale_migration(base, &theirs);
             merge_changes(base, ours, &mut theirs);
             serde_json::to_string_pretty(&theirs)
         }
@@ -630,14 +630,17 @@ fn write_prefs(app: &mut PhotocraftApp, ours: &Value) -> Result<(), String> {
 
 /// The save base without the shift tool switch migration (#5647) once storage already holds a
 /// version 2 file: another instance wrote it, so its Use Shift Key for Tool Switch is a choice,
-/// not the old default this instance migrated, and must not be overwritten by the migration.
-fn without_stale_migration(base: &Value, ours: &Value, theirs: &Value) -> Value {
+/// not the old default this instance migrated. The base then holds the migrated value (on) instead
+/// of the old file's off, so only a change made here since loading is written over that choice.
+fn without_stale_migration(base: &Value, theirs: &Value) -> Value {
     let mut base = base.clone();
     let new_file = |v: &Value| v.get("version").and_then(Value::as_u64).is_some_and(|v| v >= 2);
     if new_file(theirs) && !new_file(&base) {
         let key = "useShiftKeyForToolSwitch";
-        if let (Some(o), Some(tools)) = (ours.pointer("/tools").and_then(|t| t.get(key)), base.get_mut("tools").and_then(Value::as_object_mut)) {
-            tools.insert(key.into(), o.clone());
+        if let Some(tools) = base.get_mut("tools").and_then(Value::as_object_mut)
+            && tools.get(key) == Some(&Value::Bool(false))
+        {
+            tools.insert(key.into(), Value::Bool(true));
         }
     }
     base
@@ -3426,6 +3429,25 @@ mod tests {
         let v = stored(&store);
         assert_eq!((v["tools"]["useShiftKeyForToolSwitch"].as_bool(), v["performance"]["historyStates"].as_u64()), (Some(false), Some(12)));
         assert_eq!(v["version"], json!(prefs::PREFS_VERSION));
+    }
+
+    #[test]
+    fn turning_the_shift_tool_switch_off_is_saved_over_another_instances_migration() {
+        // Two instances migrate the same version 1 file. B saves version 2 with the migrated "on";
+        // the user then turns the switch off in A, which must be written.
+        let saved = json!({"version": 1, "tools": {"useShiftKeyForToolSwitch": false}});
+        let store = Arc::new(Mutex::new(Some(saved.to_string())));
+        let ctx = egui::Context::default();
+        let (mut a, mut b) = (app_on(&store, Arc::default()), app_on(&store, Arc::default()));
+        tick(&mut a, &ctx);
+        tick(&mut b, &ctx);
+        b.run("prefs.set", json!({"values": {"performance.historyStates": 12}})).unwrap();
+        tick(&mut b, &ctx);
+        assert_eq!(stored(&store)["tools"]["useShiftKeyForToolSwitch"], true);
+        a.run("prefs.set", json!({"values": {"tools.useShiftKeyForToolSwitch": false}})).unwrap();
+        tick(&mut a, &ctx);
+        let v = stored(&store);
+        assert_eq!((v["tools"]["useShiftKeyForToolSwitch"].as_bool(), v["performance"]["historyStates"].as_u64()), (Some(false), Some(12)));
     }
 
     #[test]
