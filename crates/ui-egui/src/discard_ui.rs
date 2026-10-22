@@ -214,7 +214,12 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
     }
     match saved {
         // A Save Document script may have edited the document after it was written: still dirty.
-        Ok(_) => !app.save_options_open() && !app.saving() && index_of(app, doc).is_some_and(|i| !app.session.documents()[i].is_dirty()),
+        // A write the platform can't confirm (a web download) leaves it dirty too, and counts.
+        Ok(_) => {
+            !app.save_options_open()
+                && !app.saving()
+                && index_of(app, doc).is_some_and(|i| app.services.write_unconfirmed || !app.session.documents()[i].is_dirty())
+        }
         // Backing out of the file dialog is the user's choice, not an error.
         Err(e) if e == crate::file_dialog::CANCELLED => false,
         Err(e) => {
@@ -227,12 +232,12 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
 
 /// A completed save may release the close prompt. Choosing a path only starts a layered TIFF
 /// save; TIFF Options calls this after the write, and `jobs_ui` when a background save ends.
-/// Copies and failed writes leave the doc dirty.
+/// Copies and failed writes leave the doc dirty; so does any write when it is unconfirmed.
 pub(crate) fn saved_document(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) {
     // Still the prompt that asked (quitting may have replaced it meanwhile).
     if !app.save_options_open()
         && app.discard.as_ref().and_then(|p| p.docs.first()) == Some(&doc)
-        && index_of(app, doc).is_some_and(|i| !app.session.documents()[i].is_dirty())
+        && index_of(app, doc).is_some_and(|i| app.services.write_unconfirmed || !app.session.documents()[i].is_dirty())
     {
         advance(app, ctx);
     }
@@ -878,6 +883,53 @@ mod tests {
         assert!(h.state().session.documents().is_empty());
     }
 
+    /// Save on closing an untitled document, answered with `kept` while `kept.psd` exists: the
+    /// prompt waits for the question whether to replace it. Cancel brings the prompt back with
+    /// nothing written; Replace saves and closes the document.
+    #[test]
+    fn saving_from_the_prompt_waits_for_the_question_whether_to_replace() {
+        use crate::{FileDialogAnswer, FileDialogReply};
+        use egui_kittest::kittest::Queryable;
+        use std::{cell::RefCell, rc::Rc};
+        let written: Rc<RefCell<Vec<String>>> = Rc::default();
+        let (w, waiting): (_, Rc<RefCell<Option<FileDialogReply>>>) = (written.clone(), Rc::default());
+        let held = waiting.clone();
+        let mut app = app_with_docs(1);
+        make_dirty(&mut app, 0);
+        app.services.export = Some(Box::new(|_: &photocraft_doc::Document, _: &str, _: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new()))));
+        app.services.write = Some(Box::new(move |p: &str, _: &[u8]| {
+            w.borrow_mut().push(p.to_string());
+            Ok(())
+        }));
+        app.services.file_stamp = Some(Box::new(|p: &str| (p == "/pics/kept.psd").then_some(crate::FileStamp { len: 1, modified: None })));
+        app.services.file_dialog = Some(Box::new(move |_, _, reply| *held.borrow_mut() = Some(reply)));
+        let mut h = prompt_for(app, "file.close", egui::os::OperatingSystem::Windows);
+        let save = |h: &mut Prompted| {
+            h.key_press(Key::Y);
+            h.run_steps(3);
+            waiting.borrow_mut().take().expect("the save dialog is open").send(Some(FileDialogAnswer::SaveTo("/pics/kept".into())));
+            h.run_steps(2);
+            h.state().ui.dialogs.iter().find(|d| crate::replace_prompt::owns(&d.fields)).map(|d| d.id).expect("the save asks first")
+        };
+        let id = save(&mut h);
+        assert!(h.state().file_dialog_open());
+        assert!(h.query_by_label("(Y)es").is_none(), "the prompt waits behind the question");
+        assert!(written.borrow().is_empty());
+
+        crate::dialogs::cancel(h.state_mut(), id).unwrap();
+        h.run_steps(2);
+        assert!(written.borrow().is_empty(), "Cancel writes nothing");
+        assert_eq!(docs_left(&h), Some(1));
+        assert_eq!(focused(&h, &["(Y)es", "(N)o", "(C)ancel"]), Some("(Y)es"), "the prompt comes back");
+
+        let id = save(&mut h);
+        crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        h.run_steps(2);
+        assert_eq!(*written.borrow(), ["/pics/kept.psd"]);
+        assert!(h.state().discard.is_none());
+        assert!(h.state().session.documents().is_empty());
+    }
+
     #[test]
     fn saving_from_the_prompt_waits_for_a_background_save_then_closes() {
         use egui_kittest::kittest::Queryable;
@@ -924,11 +976,41 @@ mod tests {
         assert!(h.state().session.documents().is_empty(), "closed once saved");
     }
 
+    /// #6414: on the web a save stays dirty (the download isn't confirmed), and answering Save
+    /// still closes the tab after one write.
+    #[test]
+    fn saving_from_the_prompt_closes_after_an_unconfirmed_write() {
+        use std::{cell::RefCell, rc::Rc};
+        let written: Rc<RefCell<Vec<String>>> = Rc::default();
+        let w = written.clone();
+        let mut app = app_with_docs(1);
+        make_dirty(&mut app, 0);
+        app.session.active_mut().unwrap().path = Some("/pics/kept.psd".into());
+        app.services.write_unconfirmed = true;
+        app.services.export = Some(Box::new(|_: &photocraft_doc::Document, _: &str, _: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new()))));
+        app.services.write = Some(Box::new(move |p: &str, _: &[u8]| {
+            w.borrow_mut().push(p.to_string());
+            Ok(())
+        }));
+        let mut h = prompt_for(app, "file.close", egui::os::OperatingSystem::Windows);
+        h.key_press(Key::Y);
+        h.run_steps(3);
+        assert_eq!(*written.borrow(), ["/pics/kept.psd"]);
+        assert!(h.state().discard.is_none());
+        assert!(h.state().session.documents().is_empty(), "closed after one write");
+    }
+
     #[path = "tiff_tests.rs"]
     mod tiff_tests;
 
     #[path = "targa_tests.rs"]
     mod targa_tests;
+
+    #[path = "dds_tests.rs"]
+    mod dds_tests;
+
+    #[path = "jpeg_tests.rs"]
+    mod jpeg_tests;
 
     /// One frame with the window's close button pressed; the commands the guard sent.
     fn window_close_commands(app: &mut PhotocraftApp) -> Vec<egui::ViewportCommand> {
