@@ -405,6 +405,8 @@ struct LabelScrub {
     max_gap: f32,
     /// Options captions defer interaction until the adjacent field bounds are known.
     option_area: bool,
+    /// An options icon's tooltip, shown by the drag area laid over it (which takes its hover).
+    tip: Option<&'static str>,
     /// Whole steps to move the value (left negative; Shift ×10, Alt a tenth as fast).
     steps: f32,
     started: bool,
@@ -426,12 +428,23 @@ pub fn scrub_label(ui: &Ui, label: &Response) -> Response {
 /// A tool-options caption whose scrub target includes the adjacent field's outer box.
 /// Keep the original label bounds for linking; register the hit area before the numeric editor.
 pub fn scrub_option_label(ui: &Ui, label: &Response) {
+    scrub_option_area(ui, label, None);
+}
+
+/// [`scrub_option_label`] for an icon with tooltip `tip`. The field's drag area is laid over the
+/// icon after it, so egui hovers the area and not the icon: `on_hover_text` on the icon never shows.
+pub fn scrub_option_icon(ui: &Ui, icon: &Response, tip: &'static str) {
+    scrub_option_area(ui, icon, Some(tip));
+}
+
+fn scrub_option_area(ui: &Ui, label: &Response, tip: Option<&'static str>) {
     let scrub = LabelScrub {
         pass: ui.ctx().cumulative_pass_nr(),
         label: label.id.with("pc-option-scrub"),
         rect: label.rect,
         max_gap: 24.0,
         option_area: true,
+        tip,
         steps: 0.0,
         started: false,
         dragging: false,
@@ -487,6 +500,7 @@ fn label_scrub_response(ui: &Ui, resp: &Response, original_rect: Rect, max_gap: 
         rect: original_rect,
         max_gap,
         option_area: false,
+        tip: None,
         steps,
         started: resp.drag_started(),
         dragging: resp.dragged(),
@@ -558,7 +572,12 @@ fn value_field_box(
         // numeric button. It is not focusable; the editor drawn next wins inside its bounds.
         // Preserve a popup field's trailing arrow, and never extend outside the UI clip.
         let hit = Rect::from_min_max(pos2(s.rect.left(), rect.top()), pos2(rect.right() - trailing, rect.bottom())).intersect(ui.clip_rect());
-        let resp = ui.interact(hit, s.label, Sense::CLICK | Sense::DRAG);
+        let mut resp = ui.interact(hit, s.label, Sense::CLICK | Sense::DRAG);
+        if let Some(tip) = s.tip
+            && resp.hover_pos().is_some_and(|p| s.rect.contains(p))
+        {
+            resp = resp.on_hover_text(tip);
+        }
         label_scrub_response(ui, &resp, s.rect, s.max_gap)
     });
     let (dpi, ppi) = ui.data(|d| d.get_temp::<(f64, f64)>(field_resolution_id())).unwrap_or((72.0, 72.0));

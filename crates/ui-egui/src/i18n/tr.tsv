@@ -3928,6 +3928,7 @@ cameraData	Lens	Lens
 	Chisel Hard	Sert Keski
 	Chisel Soft	Yumuşak Keski
 	Open color-less EXR as ACEScg	Renk bilgisi olmayan EXR'yi ACEScg olarak aç
+	Do not append "copy" to filename when saving a copy	Kopya kaydederken dosya adına "copy" ekleme
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Seçili Kılavuzları Düzenle
@@ -4032,3 +4033,8 @@ cameraData	Lens	Lens
 	GPU adapter	GPU bağdaştırıcısı
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Önce açık eylem adımı iletişim kutusunu onaylayın veya iptal edin
+	Pro Medium Gray	Pro Orta Gri
+	Solarized	Solarize
+	Breeze	Esinti
+	Pro Light Gray	Pro Açık Gri
+	Pro Light	Profesyonel Işık

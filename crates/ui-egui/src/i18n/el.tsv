@@ -3914,6 +3914,7 @@ curves	Smooth	Εξομάλυνση
 	Chisel Hard	Σκληρή σμίλευση
 	Chisel Soft	Μαλακή σμίλευση
 	Open color-less EXR as ACEScg	Άνοιγμα EXR χωρίς χρωματική δήλωση ως ACEScg
+	Do not append "copy" to filename when saving a copy	Να μην προστίθεται «copy» στο όνομα αρχείου κατά την αποθήκευση αντιγράφου
 # Export As metadata and profile options
 	EXIF	EXIF
 
@@ -4002,3 +4003,8 @@ curves	Smooth	Εξομάλυνση
 	GPU adapter	Προσαρμογέας GPU
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Επιβεβαιώστε ή ακυρώστε πρώτα το ανοιχτό παράθυρο βήματος της ενέργειας
+	Pro Medium Gray	Pro μεσαίου γκρι
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	Pro ανοιχτού γκρι
+	Pro Light	Φωτεινό Pro

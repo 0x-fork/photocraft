@@ -3915,6 +3915,7 @@ curves	Smooth	Згладити
 	Chisel Hard	Жорстке різьблення
 	Chisel Soft	М'яке різьблення
 	Open color-less EXR as ACEScg	Відкривати EXR без колірного профілю як ACEScg
+	Do not append "copy" to filename when saving a copy	Не додавати «copy» до імені файлу під час збереження копії
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Редагувати вибрані напрямні
@@ -4011,3 +4012,8 @@ curves	Smooth	Згладити
 	GPU adapter	Адаптер GPU
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Спочатку підтвердьте або скасуйте відкритий діалог кроку операції
+	Pro Medium Gray	Середньосіра «Профі»
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	Світло-сіра «Профі»
+	Pro Light	Світла «Профі»

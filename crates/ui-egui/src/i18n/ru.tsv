@@ -1087,6 +1087,7 @@
 
 # Paragraph and character panels
 	Font Size:	Кегль:
+	Font size	Кегль
 	Type:	Текст:
 	Style	Стиль
 	Style: Normal	Стиль: Обычный
@@ -3188,6 +3189,7 @@ curves	Smooth	Сгладить
 	Chisel Hard	Жесткая огранка
 	Chisel Soft	Мягкая огранка
 	Open color-less EXR as ACEScg	Открывать EXR без цветового профиля как ACEScg
+	Do not append "copy" to filename when saving a copy	Не добавлять «copy» к имени файла при сохранении копии
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Изменить выбранные направляющие
@@ -3280,3 +3282,8 @@ curves	Smooth	Сгладить
 	GPU adapter	Адаптер GPU
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Сначала подтвердите или отмените открытый диалог шага операции
+	Pro Medium Gray	Средне-серая Pro
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	Светло-серая Pro
+	Pro Light	Светлая Pro

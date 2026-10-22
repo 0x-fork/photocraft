@@ -906,6 +906,54 @@ mod tests {
         assert_eq!(forms, [2, 0, 1, 1, 2, 2, 2, 2, 1, 2, 2, 1]);
     }
 
+    /// Counted status messages read in Simplified Chinese instead of falling back to English (they were
+    /// missing from the catalog).
+    #[test]
+    fn simplified_chinese_counted_messages_are_translated() {
+        let lang = Lang::from_code("zh-hans").expect("zh-hans registered");
+        assert_eq!(trn(lang, 3, "Played {n} step", "Played {n} steps"), "已播放 3 个步骤");
+        let brushes = trn(lang, 2, "Imported {n} brush from {group}", "Imported {n} brushes from {group}");
+        assert_eq!(fmt(&brushes, &[("group", "水彩")]), "已从 水彩 导入 2 个画笔");
+        assert_eq!(trn(lang, 5, "{n} slice", "{n} slices"), "5 个切片");
+    }
+
+    /// Counted status messages read in Korean instead of falling back to English (they were
+    /// missing from the catalog).
+    #[test]
+    fn korean_counted_messages_are_translated() {
+        let lang = Lang::from_code("ko").expect("ko registered");
+        assert_eq!(trn(lang, 3, "Played {n} step", "Played {n} steps"), "단계 3개를 재생했습니다");
+        let brushes = trn(lang, 2, "Imported {n} brush from {group}", "Imported {n} brushes from {group}");
+        assert_eq!(fmt(&brushes, &[("group", "수채화")]), "수채화에서 브러시 2개를 가져왔습니다");
+        assert_eq!(trn(lang, 5, "{n} slice", "{n} slices"), "분할 영역 5개");
+    }
+
+    /// Counted status messages read in Indonesian instead of falling back to English (they were
+    /// missing from the catalog).
+    #[test]
+    fn indonesian_counted_messages_are_translated() {
+        let lang = Lang::from_code("id").expect("id registered");
+        assert_eq!(trn(lang, 3, "Played {n} step", "Played {n} steps"), "3 langkah diputar");
+        let brushes = trn(lang, 2, "Imported {n} brush from {group}", "Imported {n} brushes from {group}");
+        assert_eq!(fmt(&brushes, &[("group", "Cat Air")]), "2 kuas diimpor dari Cat Air");
+        assert_eq!(trn(lang, 5, "{n} slice", "{n} slices"), "5 slice");
+    }
+
+    /// Counted status messages read in Polish with all three forms instead of falling back to
+    /// English (they were missing from the catalog).
+    #[test]
+    fn polish_counted_messages_use_all_three_forms() {
+        let pl = Lang::from_code("pl").expect("pl registered");
+        let steps = |n| trn(pl, n, "Played {n} step", "Played {n} steps");
+        assert_eq!(
+            [steps(1), steps(3), steps(5), steps(12), steps(22)],
+            ["Odtworzono 1 krok", "Odtworzono 3 kroki", "Odtworzono 5 kroków", "Odtworzono 12 kroków", "Odtworzono 22 kroki"]
+        );
+        let brushes = trn(pl, 2, "Imported {n} brush from {group}", "Imported {n} brushes from {group}");
+        assert_eq!(fmt(&brushes, &[("group", "Akwarele")]), "Zaimportowano 2 pędzle z Akwarele");
+        assert_eq!(trn(pl, 5, "{n} slice", "{n} slices"), "5 plasterków");
+    }
+
     #[test]
     fn czech_plural_rule() {
         let forms: Vec<usize> = [0, 1, 2, 3, 4, 5, 11, 12, 21, 22, 100, u64::MAX].into_iter().map(plural_cs).collect();

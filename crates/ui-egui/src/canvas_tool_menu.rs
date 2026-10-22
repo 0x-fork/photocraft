@@ -888,6 +888,23 @@ fn pen_dialog(app: &mut PhotocraftApp, command: &str, label: &str, name: &str) {
     spec_dialog(app, command, label, spec, fields);
 }
 
+/// The Pen options bar's Make Selection (Path mode, #5703): the canvas menu's Make Selection…
+/// dialog for the path being drawn (committed first, as the menu does) or the active path.
+pub(crate) fn make_selection(app: &mut PhotocraftApp) -> Result<(), String> {
+    let pending = app.ui.pen.as_ref().is_some_and(|p| p.knots.len() >= 2);
+    // Where `pen_commit` puts the path being drawn: a shape layer or the targeted vector mask,
+    // else the Paths panel path it adds to (a selected saved path, or the Work Path), which it
+    // selects so it is the active path.
+    let pending_layer = pending && (app.ui.tool_options.vector_mode == "shape" || crate::vector_ui::targeted_vector_mask(app).is_some());
+    if pending {
+        crate::vector_ui::pen_commit(app, false);
+    }
+    let name = if pending_layer { Some("layer".to_string()) } else { crate::vector_ui::active_path_name(app) }
+        .ok_or_else(|| "No path is available for this action".to_string())?;
+    pen_dialog(app, "path.toSelection", "Make Selection…", &name);
+    Ok(())
+}
+
 fn choose_pen(app: &mut PhotocraftApp, ctx: &Context, menu: &CanvasToolMenu, command: &str) -> Result<(), String> {
     if command == "select.isolateLayers" {
         crate::menus::invoke(app, ctx, command, json!({}))?;
@@ -1670,6 +1687,42 @@ mod tests {
         crate::dialogs::confirm(&mut app, dialog).unwrap();
         assert!(app.session.active().unwrap().doc.work_path.is_some());
         assert!(app.session.active().unwrap().doc.selection.is_some());
+    }
+
+    /// #5703: the Pen options bar's Make Selection (Path mode) opens the same dialog for the path
+    /// being drawn (finished into the Work Path first), and OK selects inside it; with no path at
+    /// all it reports that instead.
+    #[test]
+    fn pen_options_bar_makes_a_selection_from_the_path() {
+        let mut app = app();
+        app.ui.tool = Tool::Pen;
+        assert!(make_selection(&mut app).is_err(), "no path yet");
+        assert!(app.ui.dialogs.is_empty());
+        for (x, y) in [(2.0, 2.0), (20.0, 2.0), (20.0, 20.0)] {
+            crate::vector_ui::pen_down(&mut app, x, y, false);
+            crate::vector_ui::pen_up(&mut app);
+        }
+        make_selection(&mut app).unwrap();
+        let dialog = app.ui.dialogs.last().map(|d| d.id).unwrap();
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        let st = app.session.active().unwrap();
+        assert!(st.doc.work_path.is_some() && st.doc.selection.is_some());
+        // The active (Work) path again, with no pen path in progress.
+        app.run("select.deselect", json!({})).unwrap();
+        make_selection(&mut app).unwrap();
+        let dialog = app.ui.dialogs.last().map(|d| d.id).unwrap();
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        assert!(app.session.active().unwrap().doc.selection.is_some());
+        // Drawn with a saved path selected, the path is added to that one (#4721): the dialog is
+        // for it, not for a Work Path.
+        app.run("path.rename", json!({"name": "work", "to": "Cutout"})).unwrap();
+        app.ui.selected_path = Some("Cutout".into());
+        for (x, y) in [(4.0, 24.0), (12.0, 24.0), (12.0, 30.0)] {
+            crate::vector_ui::pen_down(&mut app, x, y, false);
+            crate::vector_ui::pen_up(&mut app);
+        }
+        make_selection(&mut app).unwrap();
+        assert_eq!(app.ui.dialogs.last().and_then(|d| d.fields.get("name")), Some(&json!("Cutout")));
     }
 
     /// #1056: the Path Selection and Direct Selection tools' right-click opens the path menu for

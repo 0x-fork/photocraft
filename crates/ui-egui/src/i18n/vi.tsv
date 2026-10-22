@@ -3686,6 +3686,7 @@ curves	Smooth	Làm mượt
 	Chisel Hard	Đục cứng
 	Chisel Soft	Đục mềm
 	Open color-less EXR as ACEScg	Mở EXR không khai báo màu sắc dưới dạng ACEScg
+	Do not append "copy" to filename when saving a copy	Không thêm "copy" vào tên tệp khi lưu bản sao
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Sửa đường căn đã chọn
@@ -3793,3 +3794,8 @@ curves	Smooth	Làm mượt
 	GPU adapter	Bộ điều hợp GPU
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Hãy xác nhận hoặc hủy hộp thoại bước hành động đang mở trước
+	Pro Medium Gray	Pro xám vừa
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	Pro xám nhạt
+	Pro Light	Pro sáng

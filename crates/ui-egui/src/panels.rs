@@ -1461,34 +1461,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::vline(ui, 22.0);
                         widgets::checkbox(ui, &mut o.move_show_transform, tl!("Show Transform Controls"));
                         widgets::vline(ui, 22.0);
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        for (icon, tip, cmd) in [
-                            ("panels-top-left", tl!("Align left edges"), "layer.align.leftEdges"),
-                            ("app-window", tl!("Align horizontal centers"), "layer.align.horizontalCenters"),
-                            ("panel-right", tl!("Align right edges"), "layer.align.rightEdges"),
-                        ] {
-                            let on = app.session.is_enabled(cmd);
-                            if ui.add_enabled_ui(on, |ui| icons::button(ui, icon, 24.0, false, tip)).inner.clicked() {
-                                let _ = app.run(cmd, json!({}));
-                            }
-                        }
-                        ui.add_space(6.0);
-                        let more = icons::button(ui, "ellipsis", 24.0, false, tl!("Align and distribute"));
-                        egui::Popup::menu(&more).show(|ui| {
-                            ui.set_min_width(200.0);
-                            let mut section = |ui: &mut egui::Ui, title: &str, prefix: &str| {
-                                ui.label(egui::RichText::new(tl!(&title)).small().color(t.text_dim));
-                                for c in photocraft_engine::command_specs().iter().filter(|c| c.id.starts_with(prefix)) {
-                                    if ui.add_enabled(app.session.is_enabled(c.id), egui::Button::new(tl!(c.label))).clicked() {
-                                        let _ = app.run(c.id, json!({}));
-                                        ui.close();
-                                    }
-                                }
-                            };
-                            section(ui, tl!("Align"), "layer.align.");
-                            ui.separator();
-                            section(ui, tl!("Distribute"), "layer.distribute.");
-                        });
+                        crate::align_bar::options(app, ui);
                     }
                     Tool::RectMarquee | Tool::EllipseMarquee => hint(
                         ui,
@@ -1515,6 +1488,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         // turned on outside the Pro themes.
                         widgets::checkbox(ui, &mut app.ui.tool_options.move_show_transform, tl!("Show Transform Controls"));
                         hint(ui, tl!("Drag to move the active layer"));
+                        widgets::vline(ui, 22.0);
+                        crate::align_bar::options(app, ui);
                     }
                     Tool::Eyedropper => crate::eyedropper_ui::options(app, ui),
                     Tool::Zoom => {
@@ -2781,6 +2756,10 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if let Some(&(last, last_rect)) = drawn.last() {
                 let below = Rect::from_min_max(pos2(last_rect.left(), last_rect.bottom()), pos2(last_rect.right(), ui.clip_rect().bottom()));
                 layer_drop_zone(app, &ctx, ui, below, (last, last_rect), "below", &mut actions);
+                // A click on that empty space deselects every layer, as in Photoshop (#8100).
+                if below.height() > 0.0 && ui.interact(below, ui.id().with("layers-empty-space"), Sense::click()).clicked() && !selection.is_empty() {
+                    actions.push(("select.deselectLayers".into(), json!({})));
+                }
             }
             // Tab / ⇧Tab in a rename: rename the layer below / above next, as in Photoshop. The
             // Background isn't renamed in place (double-clicking it converts it), so it ends there.

@@ -4268,6 +4268,7 @@ shape	Appearance	Izgled
 	Chisel Hard	Tvrdo klesanje
 	Chisel Soft	Meko klesanje
 	Open color-less EXR as ACEScg	Otvori EXR bez podatka o bojama kao ACEScg
+	Do not append "copy" to filename when saving a copy	Ne dodaji „copy“ u ime fajla pri čuvanju kopije
 	Show home recent files	Prikaži nedavne datoteke na početnom ekranu
 
 # View › Guides › right-click a guide
@@ -4373,3 +4374,8 @@ shape	Appearance	Izgled
 	GPU adapter	GPU adapter
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Prvo potvrdite ili otkažite otvoreni dijalog koraka radnje
+	Pro Medium Gray	Pro srednje siva
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	Pro svetlosiva
+	Pro Light	Pro svetla

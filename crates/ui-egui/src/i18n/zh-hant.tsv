@@ -2827,6 +2827,7 @@ curves	Smooth	平滑
 	Chisel Hard	雕刻清晰
 	Chisel Soft	雕刻柔和
 	Open color-less EXR as ACEScg	將無色彩空間資訊的 EXR 以 ACEScg 開啟
+	Do not append "copy" to filename when saving a copy	儲存副本時不在檔名後加上「copy」
 # Export As metadata and profile options
 	Color Profile	色彩描述檔
 	EXIF	EXIF
@@ -2834,6 +2835,7 @@ curves	Smooth	平滑
 # View › Guides › right-click a guide
 	Edit Selected Guides	編輯所選參考線
 	Clear Selected Guides	清除所選參考線
+	Make Selection	建立選取範圍
 	Bicubic Automatic	雙三次 (自動)
 	Bicubic Smoother	雙三次 (較平滑)
 	Bicubic Sharper	雙三次 (較銳利)
@@ -2922,3 +2924,8 @@ curves	Smooth	平滑
 	GPU adapter	GPU 介面卡
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	請先確認或取消開啟中的動作步驟對話框
+	Pro Medium Gray	專業中灰
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	專業淺灰
+	Pro Light	專業淺色

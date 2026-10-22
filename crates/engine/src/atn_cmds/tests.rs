@@ -1758,6 +1758,33 @@ fn transform_selection_keeps_its_interpolation_and_refuses_what_it_cannot_carry(
     }
 }
 
+/// #7540-#7542: Feather, Contract and Smooth (and Expand) with Apply Effect at Canvas Bounds, and
+/// #7543-#7546: a pattern Paint Bucket with a chosen pattern, scale, angle or phase, can't be
+/// written, so strict export refuses them. Their defaults still export and round-trip.
+#[test]
+fn canvas_bound_modify_and_placed_pattern_bucket_refuse_strict_export() {
+    let one = |id: &str, p: Value| Action { name: "Probe".into(), steps: vec![(id.into(), p)], ..Default::default() };
+    for id in ["select.modify.feather", "select.modify.expand", "select.modify.contract", "select.modify.smooth"] {
+        assert!(export("Audit7", &[&one(id, json!({"radius": 2, "applyAtCanvasBounds": true}))], &[], false).is_err(), "{id}");
+        let plain = json!({"radius": 2, "applyAtCanvasBounds": false});
+        let (bytes, _) = export("Audit7", &[&one(id, plain)], &[], false).unwrap_or_else(|e| panic!("{id}: {e}"));
+        assert_eq!(import(&bytes).unwrap().actions[0].steps, vec![(id.to_string(), json!({"radius": 2}))]);
+    }
+    let bucket = |extra: Value| {
+        let mut p = json!({"x": 5, "y": 5, "contents": "pattern", "opacity": 70, "tolerance": 80});
+        if let (Some(p), Some(e)) = (p.as_object_mut(), extra.as_object()) {
+            p.extend(e.clone());
+        }
+        one("paint.bucket", p)
+    };
+    for extra in [json!({"pattern": "AuditPattern"}), json!({"scale": 50}), json!({"angle": 30}), json!({"phase": [3, 5]})] {
+        assert!(export("Audit7", &[&bucket(extra.clone())], &[], false).is_err(), "{extra}");
+    }
+    for extra in [json!({}), json!({"scale": 100, "angle": 0, "phase": [0, 0]})] {
+        assert!(export("Audit7", &[&bucket(extra.clone())], &[], false).is_ok(), "{extra}");
+    }
+}
+
 /// Photoshop's Close has no document target: a Close of a specific document must not be
 /// exported as a plain Close, which would close the active document on playback.
 #[test]

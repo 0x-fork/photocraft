@@ -819,6 +819,22 @@
 	Split Warp Vertically	垂直分割变形
 	Statistics…	统计…
 	Refine Strokes	调整描边
+# Counted status and panel messages
+@plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	已将 {n} 个色板导出到 {file}
+@plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	已从 {file} 导入 {n} 个色板
+@plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	已从 {group} 导入 {n} 个画笔
+@plural	Played {n} step|Played {n} steps	已播放 {n} 个步骤
+@plural	{n} step|{n} steps	{n} 个步骤
+@plural	Saved for Web: {n} file|Saved for Web: {n} files	已存储为 Web 所用格式：{n} 个文件
+@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	已更新 {n} 个在磁盘上更改过的链接智能对象
+@plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	此图层复合记录的 {n} 个图层已被删除。请更新图层复合，或清除警告。
+@plural	{n} plane|{n} planes	{n} 个平面
+@plural	{n} preset|{n} presets	{n} 个预设
+@plural	{n} sample point removed|{n} sample points removed	已移除 {n} 个取样点
+@plural	{n} slice|{n} slices	{n} 个切片
+@plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning}（另有 {n} 条画笔预设警告）
+@plural	{what} with {n} warning|{what} with {n} warnings	{what}，含 {n} 条警告
+
 @plural	{n} item|{n} items	{n} 项
 	Auto	自动
 	(print to the printer)	（输出到打印机）
@@ -2842,6 +2858,7 @@ curves	Smooth	平滑
 	Chisel Hard	雕刻清晰
 	Chisel Soft	雕刻柔和
 	Open color-less EXR as ACEScg	将无色彩空间信息的 EXR 以 ACEScg 打开
+	Do not append "copy" to filename when saving a copy	存储副本时不在文件名后添加“copy”
 # Export As metadata and profile options
 	Color Profile	颜色配置文件
 	EXIF	EXIF
@@ -2849,6 +2866,7 @@ curves	Smooth	平滑
 # View › Guides › right-click a guide
 	Edit Selected Guides	编辑所选参考线
 	Clear Selected Guides	清除所选参考线
+	Make Selection	建立选区
 	Bicubic Automatic	双三次（自动）
 	Bicubic Smoother	双三次（较平滑）
 	Bicubic Sharper	双三次（较锐利）
@@ -2937,3 +2955,8 @@ curves	Smooth	平滑
 	GPU adapter	GPU 适配器
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	请先确认或取消打开的动作步骤对话框
+	Pro Medium Gray	专业中灰
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	专业浅灰
+	Pro Light	专业浅色

@@ -3224,6 +3224,7 @@ curves	Smooth	Glätten
 	Chisel Hard	Meißeln hart
 	Chisel Soft	Meißeln weich
 	Open color-less EXR as ACEScg	Farbangabenloses EXR als ACEScg öffnen
+	Do not append "copy" to filename when saving a copy	Beim Speichern einer Kopie „copy“ nicht an den Dateinamen anhängen
 # Export As metadata and profile options
 	Color Profile	Farbprofil
 	EXIF	EXIF
@@ -3311,3 +3312,8 @@ curves	Smooth	Glätten
 	GPU adapter	GPU-Adapter
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Bestätige oder brich zuerst den offenen Dialog des Aktionsschritts ab
+	Pro Medium Gray	Pro (Mittelgrau)
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	Pro (Hellgrau)
+	Pro Light	Pro (Hell)

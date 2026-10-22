@@ -973,6 +973,17 @@ fn preserves_roundness(p: &Value) -> bool {
     p.get("preserve").and_then(Value::as_str) == Some("roundness")
 }
 
+/// Whether any of the boolean `flags` is on in `p` (present, not null and not `false`).
+fn flag_set(p: &Value, flags: &[&str]) -> bool {
+    flags.iter().any(|f| p.get(*f).is_some_and(|v| !v.is_null() && *v != Value::Bool(false)))
+}
+
+/// Select > Modify with "Apply effect at canvas bounds": the descriptor has no field for it, so such a
+/// step is not exported (it would replay without the option).
+fn applies_at_canvas_bounds(p: &Value) -> bool {
+    flag_set(p, &["applyAtCanvasBounds"])
+}
+
 /// Whether `p` edits the layer's pixels: no `"target"` or `"target":"pixels"`. Photoshop's
 /// descriptor for a plain event has no field for a mask, Quick Mask or channel target, so such
 /// a step can't be exported faithfully.
@@ -2290,6 +2301,14 @@ fn fill_to(id: &str, p: &Value) -> Option<Descriptor> {
         d = d.with("Tlrn", long(jnum(p, "tolerance").unwrap_or(32.0))).with("AntA", D::Boolean(jbool(p, "antiAlias").unwrap_or(true)));
         // `source` is the command's older name for `contents`.
         d = if p.get("contents").or_else(|| p.get("source")).and_then(Value::as_str) == Some("pattern") {
+            // `Pttn` names no pattern and holds no placement: a chosen pattern, a scale, an angle
+            // or a phase would replay with the current pattern at its defaults (#7543, #7544,
+            // #7545, #7546).
+            let num = |k: &str, default: f64| p.get(k).is_some_and(|v| !v.is_null() && v.as_f64() != Some(default));
+            let phase = p.get("phase").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| a.iter().any(|c| c.as_f64() != Some(0.0))));
+            if p.get("pattern").is_some_and(|v| !v.is_null()) || num("scale", 100.0) || num("angle", 0.0) || phase {
+                return None;
+            }
             d.with("Usng", enm("FlCn", "Pttn"))
         } else {
             // An explicit colour overrides the foreground (#7199): it travels as Fill's `Clr `.
@@ -3416,10 +3435,10 @@ const EVENTS: &[Event] = &[
     },
     // Selection.
     ev!("Invs", "inverse", "Inverse", "select.inverse", &[]),
-    ev!("Fthr", "feather", "Feather", "select.modify.feather", &[F("Rds ", "radius", Kind::Px)]),
-    ev!("Expn", "expand", "Expand", "select.modify.expand", &[F("By  ", "radius", Kind::Px)]),
-    ev!("Cntc", "contract", "Contract", "select.modify.contract", &[F("By  ", "radius", Kind::Px)]),
-    ev!("Smth", "smoothness", "Smooth", "select.modify.smooth", &[F("Rds ", "radius", Kind::Px)]),
+    ev!("Fthr", "feather", "Feather", "select.modify.feather", &[F("Rds ", "radius", Kind::Px)], unless applies_at_canvas_bounds),
+    ev!("Expn", "expand", "Expand", "select.modify.expand", &[F("By  ", "radius", Kind::Px)], unless applies_at_canvas_bounds),
+    ev!("Cntc", "contract", "Contract", "select.modify.contract", &[F("By  ", "radius", Kind::Px)], unless applies_at_canvas_bounds),
+    ev!("Smth", "smoothness", "Smooth", "select.modify.smooth", &[F("Rds ", "radius", Kind::Px)], unless applies_at_canvas_bounds),
     ev!("Brdr", "border", "Border", "select.modify.border", &[F("Wdth", "radius", Kind::Px)]),
     ev!("Grow", "grow", "Grow", "select.grow", &[F("Tlrn", "tolerance", Kind::Long)]),
     ev!("Smlr", "similar", "Similar", "select.similar", &[F("Tlrn", "tolerance", Kind::Long)]),

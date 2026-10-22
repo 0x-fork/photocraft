@@ -3976,6 +3976,7 @@ curves	Smooth	Vloeiend maken
 	Chisel Hard	Beitel hard
 	Chisel Soft	Beitel zacht
 	Open color-less EXR as ACEScg	EXR zonder kleurruimte als ACEScg openen
+	Do not append "copy" to filename when saving a copy	Geen "copy" aan de bestandsnaam toevoegen bij het opslaan van een kopie
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Geselecteerde hulplijnen bewerken
@@ -4062,3 +4063,8 @@ curves	Smooth	Vloeiend maken
 	GPU adapter	GPU-adapter
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Bevestig of annuleer eerst het geopende dialoogvenster van de handelingsstap
+	Pro Medium Gray	Pro middelgrijs
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	Pro lichtgrijs
+	Pro Light	Pro licht

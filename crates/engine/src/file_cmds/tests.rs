@@ -92,6 +92,35 @@ fn batch_same_format_saves_camera_raws_as_psd() {
     }
 }
 
+/// Edit › Preferences › Raw Defaults › Resolution sets the ppi a raw opens with, through
+/// File › Open (the background open job) and through opening bytes; other files keep their own.
+#[test]
+fn a_developed_raw_opens_at_the_raw_defaults_resolution() {
+    use photocraft_raw::testgen::{DngSpec, mosaic, scene};
+    let (w, h) = (24, 16);
+    let raw = DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535)).build();
+    let dir = tmp("raw-defaults");
+    let path = join(&dir, "IMG_0002.dng");
+    std::fs::write(&path, &raw).unwrap();
+    let open = |s: &mut Session, path: &str| match s.start_open(path, crate::jobs::OpenSource::Path(path.into())).unwrap() {
+        crate::jobs::Started::Job(id) => {
+            s.wait_job(id).unwrap();
+        }
+        crate::jobs::Started::Done(_) => {}
+    };
+    let mut s = Session::new();
+    open_bytes_as(&mut s, "IMG_0001.dng", &raw, None, None).unwrap();
+    assert_eq!(doc(&s).resolution_dpi, 300.0, "the default");
+    s.execute("prefs.set", json!({"path": "rawDefaults.resolution", "value": 240})).unwrap();
+    open_bytes_as(&mut s, "IMG_0001.dng", &raw, None, None).unwrap();
+    assert_eq!(doc(&s).resolution_dpi, 240.0);
+    open(&mut s, &path);
+    assert_eq!(doc(&s).resolution_dpi, 240.0, "File › Open");
+    let png = png(&dir, "a.png", 4, 4, "#ff0000");
+    open(&mut s, &png);
+    assert_eq!(doc(&s).resolution_dpi, 72.0, "not a raw");
+}
+
 #[test]
 fn revert_reloads_as_one_undoable_step() {
     let dir = tmp("revert");
@@ -1476,4 +1505,43 @@ fn folder_listing_recognises_gzipped_xcf_by_its_double_extension() {
     assert!(super::openable_name("page.PNG"));
     assert!(!super::openable_name("archive.tar.gz"));
     assert!(!super::openable_name("notes.txt"));
+}
+
+/// The Compression tag (259) of a TIFF's first directory.
+fn tiff_compression_tag(b: &[u8]) -> Option<u16> {
+    let le = b.get(..2)? == b"II";
+    let u16_at = |i: usize| b.get(i..i + 2).map(|s| if le { u16::from_le_bytes([s[0], s[1]]) } else { u16::from_be_bytes([s[0], s[1]]) });
+    let u32_at =
+        |i: usize| b.get(i..i + 4).map(|s| if le { u32::from_le_bytes([s[0], s[1], s[2], s[3]]) } else { u32::from_be_bytes([s[0], s[1], s[2], s[3]]) });
+    let ifd = u32_at(4)? as usize;
+    (0..usize::from(u16_at(ifd)?)).map(|k| ifd + 2 + 12 * k).find(|e| u16_at(*e) == Some(259)).and_then(|e| u16_at(e + 8))
+}
+
+/// #5301: `tiffCompression` picks a TIFF's compression (TIFF Options: None, LZW, ZIP); unset,
+/// none. Anything else is refused before anything is written.
+#[test]
+fn save_a_copy_writes_the_tiff_compression_asked_for() {
+    let dir = tmp("tiff-compression");
+    for (params, tag) in
+        [(json!({}), 1), (json!({"tiffCompression": "none"}), 1), (json!({"tiffCompression": "lzw"}), 5), (json!({"tiffCompression": "zip"}), 8)]
+    {
+        let mut s = session(12, 6, 8);
+        let out = join(&dir, "a.tif");
+        let mut p = params.clone();
+        p["path"] = json!(out);
+        s.execute("file.saveACopy", p).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        assert_eq!(tiff_compression_tag(&bytes), Some(tag), "{params}");
+        assert_eq!(photocraft_io::import("a.tif", &bytes).unwrap().document.size, photocraft_geom::Size::new(12, 6));
+    }
+    let mut s = session(8, 8, 8);
+    let state = |s: &Session| s.active().map(|st| (st.revision, st.path.clone(), st.is_dirty()));
+    let before = state(&s);
+    for bad in [json!("jpeg"), json!("LZW"), json!(5), json!(true)] {
+        let out = join(&dir, "bad.tif");
+        let r = s.execute("file.saveACopy", json!({"path": out, "tiffCompression": bad}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{bad}: {r:?}");
+        assert!(!std::path::Path::new(&out).exists(), "{bad}: nothing written");
+        assert_eq!(state(&s), before, "{bad}: the document is as it was");
+    }
 }

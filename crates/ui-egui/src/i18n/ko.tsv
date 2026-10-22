@@ -789,6 +789,22 @@
 	Split Warp Vertically	뒤틀기 세로로 분할
 	Statistics…	통계…
 	Refine Strokes	다듬기 획
+# Counted status and panel messages
+@plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	색상 견본 {n}개를 {file}(으)로 내보냈습니다
+@plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	{file}에서 색상 견본 {n}개를 가져왔습니다
+@plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	{group}에서 브러시 {n}개를 가져왔습니다
+@plural	Played {n} step|Played {n} steps	단계 {n}개를 재생했습니다
+@plural	{n} step|{n} steps	단계 {n}개
+@plural	Saved for Web: {n} file|Saved for Web: {n} files	웹용으로 저장됨: 파일 {n}개
+@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	디스크에서 변경된 연결된 스마트 오브젝트 {n}개를 업데이트했습니다
+@plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	이 레이어 구성 요소에 기록된 레이어 {n}개가 삭제되었습니다. 레이어 구성 요소를 업데이트하거나 경고를 지우세요.
+@plural	{n} plane|{n} planes	평면 {n}개
+@plural	{n} preset|{n} presets	사전 설정 {n}개
+@plural	{n} sample point removed|{n} sample points removed	샘플 지점 {n}개를 제거했습니다
+@plural	{n} slice|{n} slices	분할 영역 {n}개
+@plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (브러시 사전 설정 경고 {n}개 더 있음)
+@plural	{what} with {n} warning|{what} with {n} warnings	{what}: 경고 {n}개
+
 @plural	{n} item|{n} items	항목 {n}개
 	Auto	자동
 	(print to the printer)	(프린터로 인쇄)
@@ -3400,6 +3416,7 @@ curves	Smooth	매끄럽게
 	Chisel Hard	단단하게 조각
 	Chisel Soft	부드럽게 조각
 	Open color-less EXR as ACEScg	색 공간 정보 없는 EXR을 ACEScg로 열기
+	Do not append "copy" to filename when saving a copy	사본 저장 시 파일 이름에 "copy"를 붙이지 않음
 # Export As metadata and profile options
 	Color Profile	색상 프로필
 	EXIF	EXIF
@@ -3407,6 +3424,7 @@ curves	Smooth	매끄럽게
 # View › Guides › right-click a guide
 	Edit Selected Guides	선택한 안내선 편집
 	Clear Selected Guides	선택한 안내선 지우기
+	Make Selection	선택 영역 만들기
 	Bicubic Automatic	쌍입방 자동
 	Bicubic Smoother	쌍입방 더 부드럽게
 	Bicubic Sharper	쌍입방 더 선명하게
@@ -3492,3 +3510,8 @@ curves	Smooth	매끄럽게
 	GPU adapter	GPU 어댑터
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	먼저 열려 있는 액션 단계 대화 상자를 확인하거나 취소하세요
+	Pro Medium Gray	프로 중간 회색
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	프로 밝은 회색
+	Pro Light	프로 밝게

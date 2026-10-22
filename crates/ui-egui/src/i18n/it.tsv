@@ -4179,6 +4179,7 @@ navigator	Zoom	Zoom
 	Chisel Hard	Cesello duro
 	Chisel Soft	Cesello morbido
 	Open color-less EXR as ACEScg	Apri gli EXR senza spazio colore come ACEScg
+	Do not append "copy" to filename when saving a copy	Non aggiungere "copy" al nome del file quando si salva una copia
 
 # Color management, Liquify, glyph group, warp and Camera Raw labels the Serbian, Vietnamese and Japanese catalogs added
 	Adobe-rgb-compat	Adobe RGB (compatibile)
@@ -4419,3 +4420,8 @@ shape	Appearance	Aspetto
 	GPU adapter	Adattatore GPU
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Conferma o annulla prima la finestra di dialogo aperta del passo dell’azione
+	Pro Medium Gray	Pro grigio medio
+	Solarized	Solarized
+	Breeze	Breeze
+	Pro Light Gray	Pro grigio chiaro
+	Pro Light	Pro chiaro
