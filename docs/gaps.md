@@ -277,6 +277,10 @@ what an agent can't finish alone.
   as tofu (#1408, #1693).
 - **Evidence (2026-10-11):** Czech dynamic UI wrappers, hardware labels and composed messages
   translate at display sites; engine errors remain English. This does not close G13.
+- **Evidence (2026-10-15):** Russian gained the 1,229 dynamic labels the other catalogs already
+  had (filter and adjustment parameters, Camera Raw, lighting, History/Layers/paths menus,
+  metadata, System Info, status templates, dialogs), with a terminology note
+  ([localization-ru](localization-ru.md)); engine errors remain English. This does not close G13.
 - **Detail:** [`localization-parity.md`](localization-parity.md).
 - **Estimate:** 80–140 h. **Human:** native-speaker review of every catalog (none is recorded).
 
@@ -293,6 +297,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-18 | minor | G13: Russian gained the 1,229 dynamic UI labels other catalogs already had (filter and adjustment parameters, Camera Raw, lighting, History/Layers/paths menus, metadata, System Info, status templates, dialogs); engine messages and native review remain open |
 | 2026-10-15 | minor | G1 / #5972 A1: render only provably constant-RGB `GdFl` noise fills; variable noise synthesis remains open |
 | 2026-10-18 | minor | G9: with no selection, Copy takes fill and adjustment layers whole and Paste recreates them (#2344); UI-217-23 stays partial (a single pixel layer copies its pixels only); estimate unchanged |
 | 2026-10-15 | minor | G2: a cancelled 24 MP Gaussian Blur job stops within 44 ms max (P25, budget 200 ms; was about 400 ms; local runs, baseline not re-run), the uncancelled job on a locked-transparency layer about 40% faster; #6205 |
