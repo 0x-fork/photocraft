@@ -4027,6 +4027,12 @@ cameraRaw	Yellow	Sárga
 	The layer or its mask changed. Drag the mask onto the Trash again.	A réteg vagy a maszkja megváltozott. Húzd újra a maszkot a Kukába.
 	Transform On Drop	Átalakítás elengedéskor
 	Vanishing Point is not active	Az Enyészpont nem aktív
+	Load Contours…	Kontúrok betöltése…
+	Replace Contours…	Kontúrok cseréje…
+	Save Contours…	Kontúrok mentése…
+	Delete Contour	Kontúr törlése
+	Loaded contours from {file}	Kontúrok betöltve: {file}
+	Saved contours to {file}	Kontúrok mentve: {file}
 # Edit › Content-Aware Fill workspace
 	Excluded Area	Kizárt terület
 	Fill Settings	Kitöltési beállítások
