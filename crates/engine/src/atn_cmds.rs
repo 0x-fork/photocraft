@@ -2668,6 +2668,16 @@ fn shadows_highlights_to(_: &str, p: &Value) -> Option<Descriptor> {
 }
 
 fn image_size_to(_: &str, p: &Value) -> Option<Descriptor> {
+    // Resolution only with Resample on imports as keep-print-size; a command without it cannot be told apart.
+    if jnum(p, "resolution").is_some()
+        && jnum(p, "width").is_none()
+        && jnum(p, "height").is_none()
+        && jnum(p, "percent").is_none()
+        && jstr(p, "resample").is_some_and(|r| r != "none")
+        && jbool(p, "keepPrintSize") != Some(true)
+    {
+        return None;
+    }
     let mut d = desc("null");
     if let Some(pc) = jnum(p, "percent") {
         d = d.with("Wdth", pct(pc)).with("Hght", pct(pc)).with("CnsP", D::Boolean(true));
