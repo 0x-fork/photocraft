@@ -76,7 +76,8 @@ pub struct PlaceParams {
 pub struct ReplaceSmartObjectParams {
     /// Path beneath the configured automation read root: relative (forward slashes) or absolute.
     pub path: String,
-    /// Document index from `session_list` (default: the active document).
+    /// Headless mode only: document index from `session_list` (default: the active document).
+    /// Bridge mode rejects `index`.
     #[serde(default)]
     pub index: Option<usize>,
     /// The Smart Object layer: an id or a name (default: the active layer).
@@ -667,6 +668,11 @@ impl PhotocraftMcp {
         let (path, index) = (p.path, p.index);
         if let Some(r) = self.headless_op(move |h| h.replace_smart_object(index, &path, &opts)).await {
             return to_result(r);
+        }
+        // The app's command runs on its active document: an `index` it cannot honour is refused
+        // rather than dropped, or another document's contents would be replaced.
+        if index.is_some() {
+            return Ok(fail("`index` is only supported in headless mode; in bridge mode select the document in the app first"));
         }
         self.run_command("layer.smartObjects.replaceContents".into(), bridge_params, true).await
     }

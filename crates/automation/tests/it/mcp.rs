@@ -1074,6 +1074,26 @@ async fn bridge_previews_reject_document_indices() {
     assert_eq!(schema.get("additionalProperties"), Some(&json!(false)));
 }
 
+/// Bridge mode runs Replace Contents on the app's active document, so an `index` is refused
+/// before anything reaches the app rather than dropped (it would replace another document's
+/// contents); without one the command is forwarded as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn bridge_replace_smart_object_rejects_a_document_index() {
+    let (addr, app) = fake_app().await;
+    let client = connect(PhotocraftMcp::bridge(&addr, CONTROL_TOKEN).unwrap()).await;
+    let refused = call(&client, "doc_replace_smart_object", json!({"path": "new.png", "index": 1})).await;
+    assert_eq!(refused.is_error, Some(true), "{}", text(&refused));
+    assert!(text(&refused).contains("index"), "{}", text(&refused));
+    let forwarded = call(&client, "doc_replace_smart_object", json!({"path": "new.png", "layer": 7})).await;
+    assert_ne!(forwarded.is_error, Some(true), "{}", text(&forwarded));
+    client.cancel().await.unwrap();
+    let seen = tokio::time::timeout(std::time::Duration::from_secs(5), app).await.unwrap().unwrap();
+    let executed: Vec<&Value> = seen.iter().filter(|request| request["method"] == "engine.execute").collect();
+    assert_eq!(executed.len(), 1, "the indexed call must not reach the app: {seen:?}");
+    assert_eq!(executed[0]["params"]["command"], "layer.smartObjects.replaceContents");
+    assert_eq!(executed[0]["params"]["params"], json!({"path": "new.png", "layer": 7}));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn headless_previews_preserve_document_indices() {
     let client = connect(PhotocraftMcp::headless()).await;
