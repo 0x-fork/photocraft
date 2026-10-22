@@ -28,7 +28,8 @@ pub(crate) fn alt_flipped(tool: Tool, alt: bool) -> Tool {
 pub(crate) fn clone_params(app: &PhotocraftApp) -> Option<Value> {
     let o = &app.ui.tool_options;
     // The options bar's Mode is the tool's own brush's.
-    let mut p = json!({"aligned": o.clone_aligned, "sampleLayer": o.clone_sample, "mode": app.session.tools.brush.mode.label()});
+    let mode = crate::blend_keys::brush_tool_mode(app.ui.tool, app.session.tools.brush.mode);
+    let mut p = json!({"aligned": o.clone_aligned, "sampleLayer": o.clone_sample, "mode": mode.label()});
     if app.ui.tool == Tool::CloneStamp {
         p["wrap"] = json!(app.ui.view.pattern_preview);
         p["opacity"] = json!(app.session.tools.brush.opacity * 100.0);
@@ -804,6 +805,22 @@ mod tests {
         assert_eq!(id, "paint.cloneStamp");
         assert_eq!(params["opacity"], 50.0);
         assert_eq!(params["flow"], 50.0);
+    }
+
+    /// A Healing Brush whose brush holds a mode outside its menu (Overlay, restored with the tool
+    /// active, so no tool switch sees it) heals in Normal; the Clone Stamp keeps Overlay.
+    #[test]
+    fn healing_brush_heals_in_normal_with_a_mode_outside_its_menu() {
+        for (tool, want) in [(Tool::Healing, "Normal"), (Tool::CloneStamp, "Overlay")] {
+            let mut app = app();
+            app.ui.tool = tool;
+            crate::paint_mouse::sync_tool_brush(&mut app);
+            app.session.tools.brush.mode = photocraft_color::BlendMode::Overlay;
+            app.ui.clone_source = Some([10.0, 10.0]);
+            drag(&mut app, tool);
+            let (_, params) = app.session.journal.last().unwrap();
+            assert_eq!(params["mode"], want, "{tool:?}");
+        }
     }
 
     /// The options bar's Mode (each tool's own brush's) reaches the stamps', the History Brush's

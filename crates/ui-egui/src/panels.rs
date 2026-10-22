@@ -1029,7 +1029,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     // Mode is the tool's own brush's, kept per tool like its size.
                     if let Some(modes) = crate::blend_keys::tool_modes(tool) {
                         opt_label(ui, tl!("Mode"));
-                        if let Some(Some(m)) = tool_mode_dropdown(ui, "retouch-mode", &modes, Some(brush.mode)) {
+                        if let Some(Some(m)) = tool_mode_dropdown(ui, "retouch-mode", &modes, Some(crate::blend_keys::brush_tool_mode(tool, brush.mode))) {
                             brush.mode = m;
                         }
                     }
@@ -4466,9 +4466,6 @@ fn brush_tip(p: &egui::Painter, c: egui::Pos2, rad: f32, hardness: f32, color: C
     }
 }
 
-/// The Brush's or Pencil's Mode dropdown: the blend modes, with Photoshop's painting-only Clear
-/// after Dissolve (#3439). Clear erases with the brush (`clear`); it shows while chosen, or while
-/// `~` is held (`held`). The wheel over it steps the mode, as over the Layers panel's (#2061).
 /// A painting tool's Mode dropdown over `modes` (`None` is Clear); the wheel over it steps the
 /// mode. Returns the mode picked this frame.
 fn tool_mode_dropdown(ui: &mut egui::Ui, id: &str, modes: &[Option<BlendMode>], current: Option<BlendMode>) -> Option<Option<BlendMode>> {
@@ -4478,6 +4475,9 @@ fn tool_mode_dropdown(ui: &mut egui::Ui, id: &str, modes: &[Option<BlendMode>], 
     chosen.last().copied()
 }
 
+/// The Brush's or Pencil's Mode dropdown: the blend modes, with Photoshop's painting-only Clear
+/// after Dissolve (#3439). Clear erases with the brush (`clear`); it shows while chosen, or while
+/// `~` is held (`held`). The wheel over it steps the mode, as over the Layers panel's (#2061).
 fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::BrushSettings, clear: &mut bool, held: bool) {
     let mut opts: Vec<(Option<BlendMode>, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (Some(*m), m.label())).collect();
     let at = opts.iter().position(|o| o.0 == Some(BlendMode::Dissolve)).map_or(opts.len(), |i| i + 1);

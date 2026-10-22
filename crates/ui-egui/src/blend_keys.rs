@@ -120,6 +120,13 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
 pub const HEALING_MODES: [BlendMode; 7] =
     [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen, BlendMode::Darken, BlendMode::Lighten, BlendMode::Color, BlendMode::Luminosity];
 
+/// The mode a brush-based tool paints with: its brush's, or Normal for a Healing Brush whose brush
+/// holds a mode its short menu lacks (the Brush's Overlay remembered from before it had a menu, a
+/// preset with tool settings, `tools.setBrush`). The stroke, the dropdown and the keys share it.
+pub fn brush_tool_mode(tool: Tool, mode: BlendMode) -> BlendMode {
+    if tool == Tool::Healing && !HEALING_MODES.contains(&mode) { BlendMode::Normal } else { mode }
+}
+
 /// A painting tool's options-bar Mode menu in order, `None` being Clear (after Dissolve, on the
 /// tools Photoshop offers it on). `None` for a tool without a blend mode control.
 pub fn tool_modes(tool: Tool) -> Option<Vec<Option<BlendMode>>> {
@@ -153,7 +160,10 @@ fn target(tool: Tool) -> Target {
     }
     match tool {
         Tool::SpotHealing | Tool::ColorReplacement | Tool::Blur | Tool::Sharpen | Tool::Smudge => Target::Nothing,
-        // No blend mode of their own (the Erasers, Dodge, Sponge…): the layer's, as in Photoshop.
+        // Photoshop's ⇧⌥S/M/H pick the Dodge and Burn Range and ⇧⌥D/S the Sponge's mode: never
+        // the layer's.
+        Tool::Dodge | Tool::Burn | Tool::Sponge => Target::Nothing,
+        // No blend mode of their own (the Erasers, the Mixer Brush…): the layer's, as in Photoshop.
         _ => Target::Layers,
     }
 }
@@ -169,7 +179,7 @@ pub fn tool_mode(app: &mut PhotocraftApp) -> Option<BlendMode> {
         Tool::Gradient => Some(o.gradient_blend_mode),
         _ => {
             crate::paint_mouse::sync_tool_brush(app);
-            Some(app.session.tools.brush.mode)
+            Some(brush_tool_mode(app.ui.tool, app.session.tools.brush.mode))
         }
     }
 }
@@ -618,6 +628,19 @@ mod tests {
         assert_eq!(layer_blend(&a), BlendMode::Normal);
     }
 
+    /// A Healing Brush whose brush holds Overlay (outside its menu) counts as Normal for the keys,
+    /// as for its stroke: ⇧+ steps on to Multiply.
+    #[test]
+    fn healing_brush_with_a_mode_outside_its_menu_steps_from_normal() {
+        let ctx = egui::Context::default();
+        let mut a = app(Tool::Healing);
+        crate::paint_mouse::sync_tool_brush(&mut a);
+        a.session.tools.brush.mode = BlendMode::Overlay;
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Normal));
+        key_press(&mut a, &ctx, 1);
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Multiply));
+    }
+
     /// The Paint Bucket has its own Mode, Clear included.
     #[test]
     fn paint_bucket_takes_the_keys_with_clear() {
@@ -633,20 +656,33 @@ mod tests {
         assert_eq!(layer_blend(&a), BlendMode::Normal);
     }
 
-    /// Tools without a blend mode of their own (the Erasers, Dodge, the Mixer Brush) pass the keys
-    /// to the selected layers, as Photoshop does.
+    /// Tools without a blend mode of their own (the Erasers, the Mixer Brush) pass the keys to the
+    /// selected layers, as Photoshop does.
     #[test]
     fn tools_without_a_blend_mode_set_the_layer() {
         let ctx = egui::Context::default();
-        for (tool, key, mode) in [
-            (Tool::Eraser, Key::M, BlendMode::Multiply),
-            (Tool::MagicEraser, Key::S, BlendMode::Screen),
-            (Tool::Dodge, Key::O, BlendMode::Overlay),
-            (Tool::MixerBrush, Key::E, BlendMode::Difference),
-        ] {
+        for (tool, key, mode) in
+            [(Tool::Eraser, Key::M, BlendMode::Multiply), (Tool::MagicEraser, Key::S, BlendMode::Screen), (Tool::MixerBrush, Key::E, BlendMode::Difference)]
+        {
             let mut a = app(tool);
             alt_shift(&mut a, &ctx, key, key);
             assert_eq!(layer_blend(&a), mode, "{tool:?}");
+            assert_eq!(a.ui.tool, tool);
+        }
+    }
+
+    /// Dodge, Burn and Sponge use ⇧⌥S/M/H and ⇧⌥D/S for their own Range and mode in Photoshop, so
+    /// neither the letters nor ⇧+ change the layer's blend mode.
+    #[test]
+    fn dodge_burn_and_sponge_leave_the_layer_alone() {
+        let ctx = egui::Context::default();
+        for tool in [Tool::Dodge, Tool::Burn, Tool::Sponge] {
+            let mut a = app(tool);
+            for k in [Key::S, Key::M, Key::H, Key::D] {
+                alt_shift(&mut a, &ctx, k, k);
+            }
+            key_press(&mut a, &ctx, 1);
+            assert_eq!(layer_blend(&a), BlendMode::Normal, "{tool:?}");
             assert_eq!(a.ui.tool, tool);
         }
     }
