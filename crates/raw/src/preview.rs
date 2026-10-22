@@ -120,8 +120,9 @@ pub struct DecodedPreview {
 /// DNG PreviewColorSpace (DNG Specification 1.7).
 const PREVIEW_COLOR_SPACE: u16 = 50970;
 
-/// The largest JPEG XL-compressed RGB preview of a DNG, decoded within `limits`. `None` when the
-/// file has none, or it doesn't decode (always in the browser build, which has no JPEG XL decoder).
+/// The largest JPEG XL-compressed RGB preview of a DNG that decodes within `limits`: larger ones
+/// that don't (over the limits, or damaged) give way to the next. `None` when none decodes
+/// (always in the browser build, which has no JPEG XL decoder).
 pub fn embedded_jxl_preview(bytes: &[u8], limits: &Limits) -> Option<DecodedPreview> {
     let t = Tiff::new(bytes)?;
     let ifd0 = t.ifd_at(t.first_ifd, 0)?;
@@ -129,13 +130,14 @@ pub fn embedded_jxl_preview(bytes: &[u8], limits: &Limits) -> Option<DecodedPrev
         return None;
     }
     let area = |i: &crate::tiff::Ifd| u64::from(t.tag_uint(i, tag::IMAGE_WIDTH).unwrap_or(0)) * u64::from(t.tag_uint(i, tag::IMAGE_LENGTH).unwrap_or(0));
-    let ifd = t
+    let mut previews: Vec<_> = t
         .all_ifds()
         .into_iter()
         .filter(|i| t.tag_uint(i, tag::NEW_SUBFILE_TYPE) == Some(1))
         .filter(|i| t.tag_uint(i, tag::COMPRESSION) == Some(JPEG_XL) && t.tag_uint(i, tag::SAMPLES_PER_PIXEL) == Some(3))
-        .max_by_key(area)?;
-    let plane = read_plane(&t, &ifd, limits, JpegLayout::Flat).ok()?;
+        .collect();
+    previews.sort_by_key(|i| std::cmp::Reverse(area(i)));
+    let (ifd, plane) = previews.into_iter().find_map(|i| read_plane(&t, &i, limits, JpegLayout::Flat).ok().map(|p| (i, p)))?;
     let color_space = match t.tag_uint(&ifd, PREVIEW_COLOR_SPACE).or_else(|| t.tag_uint(&ifd0, PREVIEW_COLOR_SPACE)) {
         Some(2) => Some(PreviewColorSpace::Srgb),
         Some(3) => Some(PreviewColorSpace::AdobeRgb),

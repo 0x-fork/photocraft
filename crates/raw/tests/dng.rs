@@ -736,6 +736,50 @@ fn floating_point_raw_data_that_isnt_jpeg_xl_is_unsupported() {
     }
 }
 
+/// Floating-point samples are read into four bytes each before they become 16-bit: the limits
+/// are charged for that buffer, not for the two-byte result.
+#[test]
+fn floating_point_jpeg_xl_is_charged_four_bytes_a_sample() {
+    let (w, h) = (24, 16);
+    let bytes = float_jxl_dng(&noise(w * h * 3, 16), w, h, None).build();
+    let limits = Limits { max_alloc: (w * h * 3 * 2) as u64, ..Limits::default() };
+    match decode(&bytes, &limits) {
+        Err(RawError::LimitExceeded(_)) => {}
+        other => panic!("expected the limits to refuse the f32 buffer, got {other:?}"),
+    }
+}
+
+/// When the largest JPEG XL preview doesn't decode, the next largest is used.
+#[test]
+fn a_jpeg_xl_preview_that_does_not_decode_gives_way_to_a_smaller_one() {
+    use photocraft_raw::testgen::TiffBuilder;
+    let mut t = TiffBuilder::default();
+    let preview = |t: &mut TiffBuilder, w: usize, h: usize, stream: Vec<u8>| {
+        let len = stream.len() as u32;
+        let strip = t.blob(stream);
+        t.ifd(vec![
+            (254, Val::Long(vec![1])),
+            (256, Val::Long(vec![w as u32])),
+            (257, Val::Long(vec![h as u32])),
+            (258, Val::Short(vec![8, 8, 8])),
+            (259, Val::Short(vec![52546])),
+            (262, Val::Short(vec![2])),
+            (273, Val::Blobs(vec![strip])),
+            (277, Val::Short(vec![3])),
+            (278, Val::Long(vec![h as u32])),
+            (279, Val::Long(vec![len])),
+        ])
+    };
+    let small = noise(20 * 15 * 3, 8);
+    let damaged = preview(&mut t, 40, 30, vec![0xFF, 0x0A, 0, 0, 0, 0, 0, 0]);
+    let valid = preview(&mut t, 20, 15, jxl(&small, 20, 15, 3, 8));
+    let ifd0 = t.ifd(vec![(254, Val::Long(vec![1])), (330, Val::Ifds(vec![damaged, valid])), (50706, Val::Byte(vec![1, 7, 0, 0]))]);
+    t.chain = vec![ifd0];
+    let p = embedded_jxl_preview(&t.build(), &Limits::default()).expect("the 20×15 preview");
+    assert_eq!((p.width, p.height, p.bits), (20, 15, 8));
+    assert_eq!(p.rgb, small);
+}
+
 #[test]
 fn jpeg_xl_mismatches_are_errors() {
     let (w, h) = (16, 8);

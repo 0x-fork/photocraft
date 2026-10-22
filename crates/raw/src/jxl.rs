@@ -27,7 +27,9 @@ pub(crate) fn decode(_src: &[u8], _w: usize, _h: usize, _samples: usize, _bits: 
 /// samples (SampleFormat 3) come back multiplied by `float_scale`, clipped to 0..=65535.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn decode(src: &[u8], w: usize, h: usize, samples: usize, bits: u32, float_scale: Option<f32>, limits: &Limits) -> Result<Vec<u16>> {
-    limits.check(w as u64, h as u64, samples as u64 * 2)?;
+    // Floating-point samples are read into an f32 buffer first: four bytes a sample, not two.
+    let sample_bytes = if float_scale.is_some() { 4 } else { 2 };
+    limits.check(w as u64, h as u64, samples as u64 * sample_bytes)?;
     // jxl-oxide decodes into f32/i32 planes: allow a few times the output size, and never more
     // than the caller's per-buffer limit.
     let budget = (w as u64).saturating_mul(h as u64).saturating_mul(samples as u64).saturating_mul(16).min(limits.max_alloc);
