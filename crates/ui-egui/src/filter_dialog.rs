@@ -121,8 +121,8 @@ pub fn parse_spec(spec: &str) -> Vec<Param> {
             Kind::Grid(n)
         } else if let Some((range, default)) = v.split_once('=').map(|(a, b)| (a, b.trim())).or(Some((v, ""))) {
             if let Some((lo, hi)) = range.split_once("..") {
-                let min = lo.trim().parse().unwrap_or(0.0);
-                let max = hi.trim().parse().unwrap_or(100.0);
+                let min = leading_number(lo).unwrap_or(0.0);
+                let max = leading_number(hi).unwrap_or(100.0);
                 let default = default.parse().unwrap_or(min);
                 Kind::Range { min, max, default }
             } else {
@@ -134,6 +134,17 @@ pub fn parse_spec(spec: &str) -> Vec<Param> {
         out.push(Param { key, kind });
     }
     out
+}
+
+/// The number a range bound starts with, ignoring a unit or marker after it: `5000 px?` → 5000,
+/// `1000 %` → 1000. A bound that is not a number at all is `None`.
+fn leading_number(bound: &str) -> Option<f32> {
+    let b = bound.trim();
+    if let Ok(v) = b.parse() {
+        return Some(v);
+    }
+    let end = b.find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+'))).unwrap_or(b.len());
+    b.get(..end)?.parse().ok()
 }
 
 /// The inside of the spec's leading `{…}` object. Notes after it, like `→ {…}` results or
@@ -1243,6 +1254,28 @@ impl FilterPreviewKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_unit_after_a_range_bound_does_not_reset_the_range_to_its_fallback() {
+        // #7598: `0.5..5000 px?` fell back to a maximum of 100, so the Mixer Brush's Size slider
+        // (and every range documented with a px or % suffix) topped out at 100.
+        let range = |spec: &str| match parse_spec(spec).into_iter().next().map(|p| p.kind) {
+            Some(Kind::Range { min, max, default }) => (min, max, default),
+            other => panic!("{spec}: {other:?}"),
+        };
+        assert_eq!(range(r#"{"size":0.5..5000 px?}"#), (0.5, 5000.0, 0.5));
+        assert_eq!(range(r#"{"scale":1..1000 %=100}"#), (1.0, 1000.0, 100.0));
+        assert_eq!(range(r#"{"tolerance":0.5..10 px=2}"#), (0.5, 10.0, 2.0));
+        assert_eq!(range(r#"{"angle":-180..180}"#), (-180.0, 180.0, -180.0));
+        assert_eq!(range(r#"{"radius":0.1..1000=1}"#), (0.1, 1000.0, 1.0));
+        assert_eq!(range(r#"{"gain":1e-3..2e2}"#), (0.001, 200.0, 0.001));
+        // A bound that is no number at all still takes the old fallback rather than failing.
+        assert_eq!(range(r#"{"x":0..many}"#), (0.0, 100.0, 0.0));
+        // The documented specs of the real commands read their full ranges.
+        let spec = photocraft_engine::commands::find("paint.pencil").expect("paint.pencil is registered");
+        let size = parse_spec(spec.params).into_iter().find(|p| p.key == "size");
+        assert!(matches!(size.map(|p| p.kind), Some(Kind::Range { max, .. }) if max == 5000.0));
+    }
 
     #[test]
     fn color_settings_working_spaces_list_installed_profiles_of_their_space() {
