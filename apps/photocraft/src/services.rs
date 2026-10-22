@@ -576,6 +576,26 @@ fn clipboard_image<C>(
     Ok(text(clipboard)?.and_then(|text| image_from_svg_text(&text)))
 }
 
+/// One OS clipboard read as [`clipboard_image`] takes it: no content in the format asked for is
+/// `None`, and any other failure, such as a busy clipboard or a broken pipe on Wayland, is the
+/// read's error.
+fn clipboard_read<T>(read: Result<T, arboard::Error>) -> Result<Option<T>, String> {
+    match read {
+        Ok(value) => Ok(Some(value)),
+        Err(arboard::Error::ContentNotAvailable) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Clipboard text as [`clipboard_image`] takes it: like [`clipboard_read`], except that text that
+/// isn't UTF-8 is `None`, like other text that isn't SVG markup.
+fn clipboard_text(read: Result<String, arboard::Error>) -> Result<Option<String>, String> {
+    match read {
+        Err(arboard::Error::ConversionFailure) => Ok(None),
+        read => clipboard_read(read),
+    }
+}
+
 /// The shell command that starts this install under XWayland, where winit delivers file drops
 /// (winit 0.30 has none on Wayland, #386). A Flatpak gets the X11 socket only without the Wayland
 /// one, an AppImage relaunches by its own path, and anything else is `photocraft` on the PATH.
@@ -688,11 +708,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                 };
                 clipboard_image(
                     cb,
-                    |cb| match cb.get().file_list() {
-                        Ok(paths) => Ok(Some(paths)),
-                        Err(error @ arboard::Error::ClipboardOccupied) => Err(error.to_string()),
-                        Err(_) => Ok(None),
-                    },
+                    |cb| clipboard_read(cb.get().file_list()),
                     |cb| match cb.get_image() {
                         Ok(img) => Ok(Some((img.width as u32, img.height as u32, img.bytes.into_owned()))),
                         Err(error) => {
@@ -706,11 +722,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                             }
                         }
                     },
-                    |cb| match cb.get_text() {
-                        Ok(text) => Ok(Some(text)),
-                        Err(error @ arboard::Error::ClipboardOccupied) => Err(error.to_string()),
-                        Err(_) => Ok(None),
-                    },
+                    |cb| clipboard_text(cb.get_text()),
                 )
             })
         }),
@@ -1516,6 +1528,28 @@ mod tests {
         assert!(!text_read, "the text isn't read after a failed read");
         let got = clipboard_image(&mut (), |_| Ok(None), |_| Ok(None), |_| busy());
         assert_eq!(got, Err("the clipboard is busy".to_string()), "the text's error");
+    }
+
+    /// Only a clipboard with nothing in the format asked for reads as nothing to paste. A read
+    /// that fails in any other way, such as a broken pipe on Wayland, is the paste's error, for
+    /// the copied files and the text alike. Text that isn't UTF-8 reads as no SVG markup.
+    #[test]
+    fn only_missing_content_reads_as_nothing_to_paste() {
+        use arboard::Error;
+        let failures = || [Error::ClipboardOccupied, Error::ClipboardNotSupported, Error::Unknown { description: "broken pipe".to_string() }];
+        assert_eq!(clipboard_read(Ok::<_, Error>(vec![PathBuf::from("a.png")])), Ok(Some(vec![PathBuf::from("a.png")])));
+        assert_eq!(clipboard_read::<Vec<PathBuf>>(Err(Error::ContentNotAvailable)), Ok(None));
+        for error in failures().into_iter().chain([Error::ConversionFailure]) {
+            let message = error.to_string();
+            assert_eq!(clipboard_read::<Vec<PathBuf>>(Err(error)), Err(message.clone()), "{message}");
+        }
+        assert_eq!(clipboard_text(Ok("words".to_string())), Ok(Some("words".to_string())));
+        assert_eq!(clipboard_text(Err(Error::ContentNotAvailable)), Ok(None));
+        assert_eq!(clipboard_text(Err(Error::ConversionFailure)), Ok(None), "text that isn't UTF-8");
+        for error in failures() {
+            let message = error.to_string();
+            assert_eq!(clipboard_text(Err(error)), Err(message.clone()), "{message}");
+        }
     }
 
     /// Edit › Paste with SVG markup as the clipboard's only content adds a new layer that holds the
