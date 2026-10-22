@@ -19,6 +19,24 @@ fn edit_endpoint(stop: Option<&mut (f32, Color)>, params: &Value, key: &str) {
     }
 }
 
+/// `params` without a `from`/`to` hex string that only repeats the gradient's current end as the
+/// dialog shows it (8-bit): confirming the dialog unchanged must not quantize a baked or
+/// imported curve's exact ends (as `edit_endpoint` guards the recorded source).
+fn without_unchanged_ends(gradient: &Gradient, params: &Value) -> Value {
+    let mut params = params.clone();
+    for (key, end) in [("from", gradient.stops.first()), ("to", gradient.stops.last())] {
+        let shown = |c: &Color| {
+            let [r, g, b, _] = c.to_rgba8();
+            [r, g, b]
+        };
+        let same = params.get(key).is_some_and(Value::is_string) && end.zip(color_of(&params, key)).is_some_and(|(end, color)| shown(&end.1) == shown(&color));
+        if same && let Some(object) = params.as_object_mut() {
+            object.remove(key);
+        }
+    }
+    params
+}
+
 /// Edits recorded source stops, initializing legacy curves from their end colours.
 pub(super) fn overlay(gradient: &mut Gradient, interpolation: &mut Option<GradientInterpolation>, params: &Value) {
     // Reset to Default restores the factory's unbaked interpolation too.
@@ -26,12 +44,12 @@ pub(super) fn overlay(gradient: &mut Gradient, interpolation: &mut Option<Gradie
         if let Some(source) = interpolation.take() {
             gradient.stops = source.stops;
         }
-        overlay_gradient(gradient, params);
+        overlay_gradient(gradient, &without_unchanged_ends(gradient, params));
         return;
     }
     let requested = params.get("method").and_then(Value::as_str).filter(|name| photocraft_io::GradientMethod::from_name(name).is_some());
     if interpolation.is_none() && requested.is_none() {
-        overlay_gradient(gradient, params);
+        overlay_gradient(gradient, &without_unchanged_ends(gradient, params));
         return;
     }
     let previous = interpolation.clone();
