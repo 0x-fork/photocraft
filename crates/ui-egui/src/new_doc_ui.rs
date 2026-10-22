@@ -231,6 +231,33 @@ pub fn apply_preset(f: &mut Map<String, Value>, p: &Preset, units: &UnitsAndRule
     f.insert("__unit".into(), json!(unit));
 }
 
+/// The colour mode of the dialog's `mode` value.
+fn color_mode_of(mode: &str) -> Option<photocraft_color::ColorMode> {
+    use photocraft_color::ColorMode;
+    match mode {
+        "rgb" => Some(ColorMode::Rgb),
+        "gray" | "grayscale" => Some(ColorMode::Grayscale),
+        "cmyk" => Some(ColorMode::Cmyk),
+        "lab" => Some(ColorMode::Lab),
+        _ => None,
+    }
+}
+
+/// The Color Profile menu for a document of colour `space` (#321): the working space (shown with
+/// its profile's description), then the built-in and installed profiles of that space, as
+/// `file.new`'s `profile` values (an id or a path) with their labels.
+fn profile_options(
+    space: Option<photocraft_cms::ColorSpace>,
+    working: &str,
+    installed: &[photocraft_engine::installed_profiles::InstalledProfile],
+) -> Vec<(String, String)> {
+    let mut v = vec![("working".to_string(), crate::i18n::fmt(tl!("Working: {working}"), &[("working", working)]))];
+    let Some(space) = space else { return v };
+    v.extend(photocraft_cms::Builtin::ALL.iter().filter(|b| b.profile().color_space == space).map(|b| (b.id().to_string(), b.description().to_string())));
+    v.extend(installed.iter().filter(|i| i.is_destination() && i.color_space == space).map(|i| (i.path.clone(), i.description.clone())));
+    v
+}
+
 /// Fields `file.new` takes (drops the dialog's `__` UI keys).
 pub fn command_params(f: &Map<String, Value>) -> Value {
     Value::Object(f.iter().filter(|(k, _)| !k.starts_with("__")).map(|(k, v)| (k.clone(), v.clone())).collect())
@@ -285,6 +312,31 @@ fn page_icon(ui: &egui::Ui, r: Rect, w: u32, h: u32, t: &Tokens) {
     ui.painter().rect_stroke(page, 1.0, Stroke::new(1.2, t.text_dim), StrokeKind::Inside);
 }
 
+/// The Background Contents menu's entry for a colour of the user's own ([`body`]).
+const CUSTOM: &str = "custom";
+/// Side of the Background Contents colour swatch.
+const SWATCH: f32 = 22.0;
+
+/// The colour the new document's background starts with: white, black, the captured or current
+/// toolbox background colour, or a custom `"#rrggbb"`; `None` for Transparent.
+fn background_rgb(app: &crate::PhotocraftApp, f: &Map<String, Value>) -> Option<[f32; 3]> {
+    let bg = get_s(f, "background", "white");
+    match bg.as_str() {
+        "transparent" => None,
+        "black" => Some([0.0; 3]),
+        "backgroundColor" => Some(
+            f.get("backgroundColor")
+                .and_then(Value::as_array)
+                .and_then(|a| Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32, a.get(2)?.as_f64()? as f32]))
+                .unwrap_or_else(|| {
+                    let b = app.session.tools.background;
+                    [b[0], b[1], b[2]]
+                }),
+        ),
+        hex => Some(crate::color_picker_ui::parse_hex(hex).unwrap_or([1.0; 3])),
+    }
+}
+
 /// Restore a snapshot without replacing the new document's name or its clipboard offer.
 pub fn apply_saved_preset(f: &mut Map<String, Value>, preset: &photocraft_engine::document_preset_cmds::DocumentPreset) {
     apply_settings(f, &preset.settings);
@@ -294,6 +346,8 @@ pub fn apply_saved_preset(f: &mut Map<String, Value>, preset: &photocraft_engine
 /// Restore every setting of a saved or recent document (all but its name).
 pub fn apply_settings(f: &mut Map<String, Value>, settings: &DocumentSettings) {
     f.remove("backgroundColor");
+    // A preset without a Color Profile is on the working space, whatever was picked before.
+    f.remove("profile");
     if let Some(params) = settings.command_params().as_object() {
         f.extend(params.clone());
     }
@@ -608,7 +662,7 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
             small_label(ui, tl!("Width"));
             ui.horizontal(|ui| {
                 let mut w = shown_size(f, "width", 1920.0, &unit, ppi);
-                if widgets::value_field_units(ui, &mut w, 0.01..=300_000.0, 110.0, widgets::unit_decimals(&unit), units).changed() {
+                if widgets::value_field_units(ui, &mut w, 0.0..=300_000.0, 110.0, widgets::unit_decimals(&unit), units).changed() {
                     set_size(f, "width", w, &unit, ppi);
                 }
                 let opts: Vec<(String, &str)> = UNITS.iter().map(|u| (u.0.to_string(), u.1)).collect();
@@ -620,7 +674,7 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
             small_label(ui, tl!("Height"));
             ui.horizontal(|ui| {
                 let mut h = shown_size(f, "height", 1080.0, &unit, ppi);
-                if widgets::value_field_units(ui, &mut h, 0.01..=300_000.0, 110.0, widgets::unit_decimals(&unit), units).changed() {
+                if widgets::value_field_units(ui, &mut h, 0.0..=300_000.0, 110.0, widgets::unit_decimals(&unit), units).changed() {
                     set_size(f, "height", h, &unit, ppi);
                 }
                 ui.add_space(6.0);
@@ -670,6 +724,8 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                     110.0,
                 ) {
                     f.insert("mode".into(), json!(mode));
+                    // A profile of the old mode's colour space doesn't suit the new one.
+                    f.remove("profile");
                     f.remove("__savedPreset");
                 }
                 let mut depth = f.get("depth").and_then(Value::as_u64).unwrap_or(8);
@@ -680,20 +736,84 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                 }
             });
             ui.add_space(4.0);
+            // Photoshop's Advanced Options › Color Profile (#321): the working space by default,
+            // or another profile of the mode's colour space, built in or installed in the system.
+            small_label(ui, tl!("Color Profile"));
+            {
+                let mode = get_s(f, "mode", "rgb");
+                let space = color_mode_of(&mode).map(photocraft_engine::color_cmds::mode_space);
+                let working = color_mode_of(&mode).map(|m| app.session.color.working(m).description.clone()).unwrap_or_default();
+                let installed = photocraft_engine::installed_profiles::installed();
+                let opts = profile_options(space, &working, &installed);
+                let mut profile = get_s(f, "profile", "working");
+                if !opts.iter().any(|(v, _)| *v == profile) {
+                    // Not a profile of this mode (or no longer installed): Create must not send it.
+                    profile = "working".into();
+                    f.remove("profile");
+                }
+                let shown: Vec<(String, &str)> = opts.iter().map(|(v, l)| (v.clone(), l.as_str())).collect();
+                if widgets::dropdown(ui, "nd-profile", &mut profile, &shown, 240.0) {
+                    if profile == "working" {
+                        f.remove("profile");
+                    } else {
+                        f.insert("profile".into(), json!(profile));
+                    }
+                    f.remove("__savedPreset");
+                }
+            }
+            ui.add_space(4.0);
             small_label(ui, tl!("Background Contents"));
-            let mut bg = get_s(f, "background", "white");
+            // A custom colour is kept as its "#rrggbb", which `file.new` takes as is (#4789).
+            let current = get_s(f, "background", "white");
+            let mut bg = if crate::color_picker_ui::parse_hex(&current).is_some() { CUSTOM.to_string() } else { current.clone() };
             let opts = [
                 ("white".to_string(), tl!("White")),
                 ("black".to_string(), tl!("Black")),
                 ("backgroundColor".to_string(), tl!("Background Color")),
                 ("transparent".to_string(), tl!("Transparent")),
+                (CUSTOM.to_string(), tl!("Custom…")),
             ];
-            if widgets::dropdown(ui, "nd-bg", &mut bg, &opts, 240.0) {
-                f.insert("background".into(), json!(bg));
-                f.remove("__savedPreset");
-                // A fresh choice of Background Color uses today's toolbox colour. Selecting a
-                // saved preset instead restores the colour captured when it was saved.
+            let shown = background_rgb(app, f);
+            let mut pick = false;
+            ui.horizontal(|ui| {
+                if widgets::dropdown(ui, "nd-bg", &mut bg, &opts, 240.0 - SWATCH - 6.0) {
+                    if bg == CUSTOM {
+                        // Custom… opens the Color Picker on the colour shown so far.
+                        pick = true;
+                    } else {
+                        f.insert("background".into(), json!(bg));
+                    }
+                    f.remove("__savedPreset");
+                    // A fresh choice of Background Color uses today's toolbox colour. Selecting a
+                    // saved preset instead restores the colour captured when it was saved.
+                    f.remove("backgroundColor");
+                }
+                // Photoshop's swatch beside the menu: the colour the canvas starts with; a click
+                // opens the Color Picker, as Custom… does.
+                let (r, resp) = ui.allocate_exact_size(vec2(SWATCH, SWATCH), Sense::click());
+                match shown {
+                    Some(c) => {
+                        ui.painter().rect_filled(
+                            r,
+                            2.0,
+                            egui::Color32::from_rgb((c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8, (c[2] * 255.0).round() as u8),
+                        );
+                    }
+                    None => widgets::checker(ui.painter(), r, 4.0),
+                }
+                ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, Tokens::get(ui.ctx()).field_border), StrokeKind::Inside);
+                let resp = resp.on_hover_text(tl!("Custom background color")).on_hover_cursor(egui::CursorIcon::PointingHand);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Custom background color")));
+                if resp.clicked() {
+                    pick = true;
+                    f.remove("__savedPreset");
+                }
+            });
+            if pick {
+                let start = shown.unwrap_or([1.0; 3]);
+                f.insert("background".into(), json!(crate::color_picker_ui::hex(start)));
                 f.remove("backgroundColor");
+                crate::color_picker_ui::request_field(f, "background", &crate::color_picker_ui::title_for(tl!("Background Contents")));
             }
             save_preset(app, ui, f);
         });
@@ -704,6 +824,55 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #321: New Document offers the working space and the other profiles of the mode's space.
+    #[test]
+    fn color_profile_menu_lists_the_profiles_of_the_modes_space() {
+        use photocraft_cms::{Builtin, ColorSpace, ProfileClass};
+        use photocraft_engine::installed_profiles::InstalledProfile;
+        let installed = [
+            InstalledProfile { path: "press.icc".into(), description: "Press".into(), class: ProfileClass::Output, color_space: ColorSpace::Cmyk },
+            InstalledProfile { path: "panel.icc".into(), description: "Panel".into(), class: ProfileClass::Display, color_space: ColorSpace::Rgb },
+        ];
+        let values = |mode: &str| {
+            profile_options(color_mode_of(mode).map(photocraft_engine::color_cmds::mode_space), "sRGB", &installed)
+                .into_iter()
+                .map(|(v, _)| v)
+                .collect::<Vec<_>>()
+        };
+        let rgb = values("rgb");
+        assert_eq!(rgb[0], "working");
+        assert!(rgb.contains(&Builtin::AdobeRgbCompat.id().to_string()) && rgb.contains(&"panel.icc".to_string()));
+        assert!(!rgb.contains(&Builtin::CoatedCmyk.id().to_string()) && !rgb.contains(&"press.icc".to_string()));
+        let cmyk = values("cmyk");
+        assert!(cmyk.contains(&"press.icc".to_string()) && !cmyk.contains(&Builtin::Srgb.id().to_string()));
+        assert!(profile_options(None, "sRGB", &installed).len() == 1, "an unknown mode offers only the working space");
+        // Every entry is one `file.new` takes for that mode.
+        for mode in ["rgb", "gray", "cmyk", "lab"] {
+            for v in values(mode).into_iter().filter(|v| !v.ends_with(".icc")) {
+                let mut s = photocraft_engine::Session::new();
+                s.execute("file.new", json!({"width": 2, "height": 2, "mode": mode, "profile": v})).unwrap_or_else(|e| panic!("{mode} {v}: {e}"));
+            }
+        }
+    }
+
+    /// A saved preset replaces the Color Profile picked before: its own, or the working space.
+    #[test]
+    fn applying_a_preset_replaces_the_picked_profile() {
+        let mut s = photocraft_engine::Session::new();
+        let base = json!({"width": 8, "height": 8, "mode": "cmyk", "unit": "px"});
+        s.execute("document.presets.save", json!({"name": "Plain", "settings": base})).unwrap();
+        let mut press = base.clone();
+        press["profile"] = json!("coated-cmyk");
+        s.execute("document.presets.save", json!({"name": "Press", "settings": press})).unwrap();
+        let mut f = Map::new();
+        f.insert("profile".into(), json!(photocraft_cms::Builtin::AdobeRgbCompat.id()));
+        apply_saved_preset(&mut f, &s.presets.documents[0]);
+        assert!(!f.contains_key("profile"), "{f:?}");
+        assert!(s.execute("file.new", command_params(&f)).is_ok());
+        apply_saved_preset(&mut f, &s.presets.documents[1]);
+        assert_eq!(f["profile"], "coated-cmyk");
+    }
 
     #[test]
     fn units_round_trip_through_pixels() {
@@ -731,6 +900,30 @@ mod tests {
         set_size(&mut f, "width", 300_000.0, "mm", 72.0);
         assert_eq!(command_params(&f)["width"], json!(300_000));
         assert_eq!(shown_size(&f, "width", 1920.0, "mm", 72.0), to_unit(300_000.0, "mm", 72.0));
+    }
+
+    /// #5661: 1 px at 300 ppi is 0.0033 in. Showing it in inches clamped the field to 0.01 in and
+    /// turned the width into 3 px without an edit.
+    #[test]
+    fn tiny_size_in_inches_is_not_changed_by_showing_it() {
+        use egui_kittest::Harness;
+        let app = crate::PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut f = crate::state::UiState::new_document_fields();
+        for (k, v) in [("width", json!(1)), ("height", json!(1)), ("resolution", json!(300.0)), ("__unit", json!("in"))] {
+            f.insert(k.into(), v);
+        }
+        let mut h = Harness::builder().with_size(vec2(1200.0, 800.0)).build_ui_state(
+            |ui, (app, f): &mut (crate::PhotocraftApp, Map<String, Value>)| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    body(app, ui, f);
+                }
+            },
+            (app, f),
+        );
+        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(3);
+        let p = command_params(&h.state().1);
+        assert_eq!((p["width"].as_u64(), p["height"].as_u64()), (Some(1), Some(1)));
     }
 
     /// #1147: the Orientation buttons swap the typed values too: 841 x 1189 mm becomes 1189 x 841.
@@ -857,6 +1050,7 @@ mod tests {
             depth: 8,
             background: "white".into(),
             background_color: None,
+            profile: None,
             unit: "px".into(),
             resolution_unit: "in".into(),
         };
@@ -975,6 +1169,48 @@ mod tests {
             h.state_mut().ui.open_dialog(DialogKind::NewDocument, UiState::new_document_fields());
             h.run_steps(3);
             h
+        }
+
+        /// #4789: the swatch beside Background Contents (and Custom…) opens the Color Picker; its
+        /// colour becomes the new document's background (kept as its "#rrggbb").
+        #[test]
+        fn a_custom_background_color_is_picked_and_used() {
+            let mut h = harness_with_store(&Arc::new(Mutex::new(None)));
+            let nd = h.state().ui.dialogs[0].id;
+            assert!(h.query_by_label("Custom background color").is_some());
+            h.get_by_label("Custom background color").click();
+            h.run_steps(3);
+            let picker = h
+                .state()
+                .ui
+                .dialogs
+                .iter()
+                .find(|d| d.fields.get("__dialog").and_then(serde_json::Value::as_u64) == Some(nd))
+                .map(|d| d.id)
+                .expect("the Color Picker opens over the dialog");
+            h.state_mut().ui.dialog_mut(picker).unwrap().fields.insert("color".into(), serde_json::json!("#336699"));
+            crate::dialogs::confirm(h.state_mut(), picker).unwrap();
+            h.run_steps(3);
+            let bg = h.state().ui.dialogs.iter().find(|d| d.id == nd).unwrap().fields["background"].clone();
+            assert_eq!(bg, "#336699");
+            crate::dialogs::confirm(h.state_mut(), nd).unwrap();
+            let doc = &h.state().session.active().unwrap().doc;
+            let px = photocraft_compose::flatten(doc).px[0];
+            assert!((px[0] * 255.0 - 51.0).abs() < 1.0 && (px[1] * 255.0 - 102.0).abs() < 1.0 && (px[2] * 255.0 - 153.0).abs() < 1.0, "{px:?}");
+        }
+
+        /// #4789: the swatch shows what each Background Contents choice paints, Background Color included.
+        #[test]
+        fn the_swatch_shows_each_background_choice() {
+            let mut h = harness_with_store(&Arc::new(Mutex::new(None)));
+            h.state_mut().run("tools.setColors", serde_json::json!({"foreground": "#000000", "background": "#336699"})).unwrap();
+            let rgb = |bg: &str| super::super::background_rgb(h.state(), serde_json::json!({ "background": bg }).as_object().unwrap());
+            assert_eq!(rgb("white"), Some([1.0; 3]));
+            assert_eq!(rgb("black"), Some([0.0; 3]));
+            assert_eq!(rgb("transparent"), None);
+            assert_eq!(rgb("#ff0000"), Some([1.0, 0.0, 0.0]));
+            let c = rgb("backgroundColor").expect("Background Color shows the toolbox colour");
+            assert!((c[0] * 255.0 - 51.0).abs() < 1.0 && (c[1] * 255.0 - 102.0).abs() < 1.0 && (c[2] * 255.0 - 153.0).abs() < 1.0, "{c:?}");
         }
 
         fn name_preset(h: &mut Harness<'static, PhotocraftApp>, name: &str) {

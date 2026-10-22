@@ -163,6 +163,10 @@ pub(crate) fn read_manifest(src: &dyn ByteSource, opts: &LoadOptions) -> Result<
     let layers = take_array(&mut v, "/document/layers");
     let mut m: Manifest = serde_json::from_value(v)?;
     m.document.layers = layers_from_json(layers)?;
+    // A number past f32's range decodes as infinity, which no save could write back (#6862).
+    if let Err(crate::finite::Problem::NonFinite { path }) = crate::finite::check(&m) {
+        return Err(FormatError::corrupt(format!("`{path}` is out of range")));
+    }
     Ok(m)
 }
 
@@ -300,19 +304,24 @@ pub struct SaveStats {
     pub manifest_bytes: usize,
 }
 
+type BlobHashCache = HashMap<usize, (Weak<Vec<u8>>, Hash)>;
+type TileHashCache = HashMap<(usize, SampleType), (Weak<Tile>, Hash)>;
+
 #[derive(Default)]
 struct Collect<'c> {
     tiles: BTreeMap<Hash, (Arc<Tile>, SampleType)>,
     blobs: BTreeMap<Hash, Arc<Vec<u8>>>,
-    hash_cache: Option<&'c mut HashMap<usize, (Weak<Tile>, Hash)>>,
+    hash_cache: Option<&'c mut TileHashCache>,
+    blob_hash_cache: Option<&'c mut BlobHashCache>,
 }
 
 impl Sink for Collect<'_> {
+    /// Reuses hashes by allocation and sample byte order without upgrading weak references.
     fn tile(&mut self, format: PixelFormat, tile: &Arc<Tile>) -> Hash {
-        let key = Arc::as_ptr(tile) as usize;
+        let key = (Arc::as_ptr(tile) as usize, format.sample);
         if let Some(cache) = self.hash_cache.as_deref_mut()
             && let Some((w, h)) = cache.get(&key)
-            && w.upgrade().is_some_and(|t| Arc::ptr_eq(&t, tile))
+            && std::ptr::eq(w.as_ptr(), Arc::as_ptr(tile))
         {
             let h = h.clone();
             self.tiles.entry(h.clone()).or_insert_with(|| (tile.clone(), format.sample));
@@ -326,8 +335,21 @@ impl Sink for Collect<'_> {
         h
     }
 
+    /// Reuses hashes for the same allocation without upgrading weak references.
     fn blob(&mut self, data: &Arc<Vec<u8>>) -> Hash {
+        let key = Arc::as_ptr(data) as usize;
+        if let Some(cache) = self.blob_hash_cache.as_deref_mut()
+            && let Some((w, h)) = cache.get(&key)
+            && std::ptr::eq(w.as_ptr(), Arc::as_ptr(data))
+        {
+            let h = h.clone();
+            self.blobs.entry(h.clone()).or_insert_with(|| data.clone());
+            return h;
+        }
         let h = hash_bytes(data);
+        if let Some(cache) = self.blob_hash_cache.as_deref_mut() {
+            cache.insert(key, (Arc::downgrade(data), h.clone()));
+        }
         self.blobs.entry(h.clone()).or_insert_with(|| data.clone());
         h
     }
@@ -361,16 +383,25 @@ pub const DEFAULT_REVERIFY_BUDGET: u64 = 16 * 1024 * 1024;
 /// [`Self::set_reverify_budget`]). Over enough saves every object is read again, and a damaged
 /// one is rewritten.
 pub struct PcraftWriter {
-    hash_cache: HashMap<usize, (Weak<Tile>, Hash)>,
+    hash_cache: TileHashCache,
+    blob_hash_cache: BlobHashCache,
     /// Compressed objects by bundle path (ZIP mode).
     compressed: HashMap<String, Arc<Vec<u8>>>,
+    compressed_budget: usize,
     verified_directory: Option<DirectoryVerificationCache>,
     reverify_budget: u64,
 }
 
 impl Default for PcraftWriter {
     fn default() -> Self {
-        Self { hash_cache: HashMap::new(), compressed: HashMap::new(), verified_directory: None, reverify_budget: DEFAULT_REVERIFY_BUDGET }
+        Self {
+            hash_cache: HashMap::new(),
+            blob_hash_cache: HashMap::new(),
+            compressed: HashMap::new(),
+            compressed_budget: usize::MAX,
+            verified_directory: None,
+            reverify_budget: DEFAULT_REVERIFY_BUDGET,
+        }
     }
 }
 
@@ -570,10 +601,82 @@ fn write_bundle_file(root: &Path, path: &Path, data: &[u8]) -> Result<()> {
     result
 }
 
-fn remove_bundle_file(root: &Path, path: &Path) -> Result<()> {
+/// Keep the existing leaf/path validation and pin the actual unlink to opened
+/// directory handles on Unix. This closes the check-then-remove path-swap gap.
+fn remove_bundle_file(root: &Path, path: &Path, gc: &BundleGc) -> Result<()> {
     validate_bundle_file(root, path)?;
-    std::fs::remove_file(path)?;
-    Ok(())
+    let relative = path.strip_prefix(root).map_err(|_| unsafe_bundle_entry(path))?;
+    gc.remove(relative)
+}
+
+#[cfg(unix)]
+struct BundleGc {
+    root: rustix::fd::OwnedFd,
+    tiles: rustix::fd::OwnedFd,
+    blobs: rustix::fd::OwnedFd,
+    composite: rustix::fd::OwnedFd,
+}
+
+#[cfg(unix)]
+fn gc_directory_flags() -> rustix::fs::OFlags {
+    use rustix::fs::OFlags;
+
+    // GC needs directory traversal, not permission to read a directory listing.
+    // Both modes retain a descriptor for the directory opened here, so a later
+    // pathname replacement cannot redirect descriptor-relative cleanup.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let access = OFlags::PATH;
+    #[cfg(target_vendor = "apple")]
+    let access = OFlags::from_bits_retain(libc::O_SEARCH.cast_unsigned());
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    let access = OFlags::RDONLY;
+    access | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
+#[cfg(unix)]
+impl BundleGc {
+    fn new(root: &Path) -> Result<Self> {
+        use rustix::fs::{Mode, open, openat};
+
+        let flags = gc_directory_flags();
+        let root = open(root, flags, Mode::empty()).map_err(std::io::Error::from)?;
+        let tiles = openat(&root, "tiles", flags, Mode::empty()).map_err(std::io::Error::from)?;
+        let blobs = openat(&root, "blobs", flags, Mode::empty()).map_err(std::io::Error::from)?;
+        let composite = openat(&root, "composite", flags, Mode::empty()).map_err(std::io::Error::from)?;
+        Ok(Self { root, tiles, blobs, composite })
+    }
+
+    fn remove(&self, relative: &Path) -> Result<()> {
+        let relative = relative.to_str().ok_or_else(|| unsafe_bundle_entry(relative))?;
+        let (handle, name) = match relative {
+            THUMB => (&self.root, THUMB),
+            COMPOSITE => (&self.composite, "preview.png"),
+            _ => match relative.split_once('/') {
+                Some(("tiles", name)) if name.strip_suffix(".zst").is_some_and(is_valid_hash) => (&self.tiles, name),
+                Some(("blobs", name)) if name.strip_suffix(".zst").is_some_and(is_valid_hash) => (&self.blobs, name),
+                _ => return Err(FormatError::Unsupported(format!("invalid bundle cleanup target: {relative}"))),
+            },
+        };
+        rustix::fs::unlinkat(handle, name, rustix::fs::AtFlags::empty()).map_err(std::io::Error::from)?;
+        Ok(())
+    }
+}
+
+#[cfg(not(unix))]
+struct BundleGc {
+    root: PathBuf,
+}
+
+#[cfg(not(unix))]
+impl BundleGc {
+    fn new(root: &Path) -> Result<Self> {
+        Ok(Self { root: root.to_path_buf() })
+    }
+
+    fn remove(&self, relative: &Path) -> Result<()> {
+        std::fs::remove_file(self.root.join(relative))?;
+        Ok(())
+    }
 }
 
 fn existing_object_is_valid(path: &Path, object: &Object, what: &str) -> Result<(bool, Option<FileSignature>)> {
@@ -653,10 +756,18 @@ impl PcraftWriter {
         self.reverify_budget = bytes;
     }
 
+    /// Cap compressed payload capacity retained between ZIP saves. Clears the previous payload
+    /// cache; tile hashes remain reusable. The default is unbounded; `0` retains no payloads.
+    pub fn set_compressed_cache_budget(&mut self, bytes: usize) {
+        self.compressed_budget = bytes;
+        self.compressed.clear();
+    }
+
     fn prepare(&mut self, doc: &Document, opts: &SaveOptions) -> Result<Prepared> {
         self.hash_cache.retain(|_, (w, _)| w.strong_count() > 0);
+        self.blob_hash_cache.retain(|_, (w, _)| w.strong_count() > 0);
         convert::check_nesting(&doc.layers)?;
-        let mut c = Collect { hash_cache: Some(&mut self.hash_cache), ..Default::default() };
+        let mut c = Collect { hash_cache: Some(&mut self.hash_cache), blob_hash_cache: Some(&mut self.blob_hash_cache), ..Default::default() };
         let document = convert::doc_m(doc, &mut c);
         let mut previews = Vec::new();
         if let Some(t) = &opts.thumbnail {
@@ -701,27 +812,31 @@ impl PcraftWriter {
             z.add(name, data)?;
         }
         let mut next = HashMap::with_capacity(p.objects.len());
+        let mut cached_bytes = 0usize;
         // New objects are compressed on all cores first (zstd dominates a full save).
         let todo: Vec<(&String, &Object)> = p.objects.iter().filter(|(path, _)| !self.compressed.contains_key(*path)).collect();
         let mut fresh: HashMap<&String, Arc<Vec<u8>>> = par_compress(&todo)?.into_iter().collect();
         for (path, obj) in &p.objects {
-            let data = match self.compressed.get(path) {
-                Some(d) => {
+            let (key, data) = match self.compressed.remove_entry(path) {
+                Some((key, data)) => {
                     if matches!(obj, Object::Tile(..)) {
                         stats.tiles_reused += 1;
                     }
-                    d.clone()
+                    (Some(key), data)
                 }
                 None => {
                     match obj {
                         Object::Tile(..) => stats.tiles_written += 1,
                         Object::Blob(_) => stats.blobs_written += 1,
                     }
-                    fresh.remove(path).unwrap_or_else(|| Arc::new(obj.compressed()))
+                    (None, fresh.remove(path).unwrap_or_else(|| Arc::new(obj.compressed())))
                 }
             };
             z.add(path, &data)?;
-            next.insert(path.clone(), data);
+            if data.capacity() <= self.compressed_budget.saturating_sub(cached_bytes) {
+                cached_bytes += data.capacity();
+                next.insert(key.unwrap_or_else(|| path.clone()), data);
+            }
         }
         self.compressed = next;
         Ok((z.finish()?, stats))
@@ -802,23 +917,23 @@ impl PcraftWriter {
         for (name, data) in &p.previews {
             write_bundle_file(dir, &dir.join(name), data)?;
         }
+        // Pin all GC directories before removing stale previews or objects.
+        // Unix cleanup then stays within these directories even if a pathname is swapped.
+        let gc = BundleGc::new(dir)?;
+        write_bundle_file(dir, &dir.join(MANIFEST), &p.manifest)?;
+        // Omitted previews belong to the previous manifest until the new one commits.
+        // After commit, a locked leftover is only housekeeping, just like unused objects.
         for stale in [THUMB, COMPOSITE] {
             if !p.previews.iter().any(|(n, _)| *n == stale) {
-                let path = dir.join(stale);
-                validate_bundle_file(dir, &path)?;
-                match remove_bundle_file(dir, &path) {
-                    Err(FormatError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    other => other?,
-                }
+                let _ = remove_bundle_file(dir, &dir.join(stale), &gc);
             }
         }
-        write_bundle_file(dir, &dir.join(MANIFEST), &p.manifest)?;
         // The manifest is committed: the save has succeeded. Removing objects it no longer
         // references is best-effort housekeeping (a vanished or locked file must not turn a
         // complete save into a reported failure); a leftover is retried on the next save.
         for path in existing {
             if !p.objects.contains_key(&path) {
-                if remove_bundle_file(dir, &dir.join(&path)).is_ok() {
+                if remove_bundle_file(dir, &dir.join(&path), &gc).is_ok() {
                     stats.objects_removed += 1;
                 }
                 if let Some(cache) = &mut self.verified_directory {
@@ -866,6 +981,107 @@ impl PcraftWriter {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn tile_hash_cache_keeps_sample_byte_order_in_its_identity() {
+    let mut cache = HashMap::new();
+    let mut surface = photocraft_raster::Surface::new(PixelFormat::RGBA8);
+    surface.write_pixel(0, 0, &[0.1, 0.2, 0.3, 1.0]);
+    let tile = surface.tile(photocraft_geom::TileCoord::new(0, 0)).unwrap();
+    let mut collect = Collect { hash_cache: Some(&mut cache), ..Default::default() };
+    for sample in [SampleType::U8, SampleType::U16] {
+        let format = if sample == SampleType::U8 { PixelFormat::RGBA8 } else { PixelFormat::new(photocraft_color::ColorMode::Grayscale, sample, true) };
+        assert_eq!(collect.tile(format, tile), hash_bytes(&tile_le(tile, sample)));
+    }
+    drop(collect);
+    assert_eq!(cache.len(), 2);
+}
+
+#[cfg(test)]
+#[test]
+fn blob_hash_cache_tracks_arc_identity_without_retaining_payloads() {
+    let mut cache = HashMap::new();
+    let original = Arc::new(vec![1, 2, 3]);
+    let weak = Arc::downgrade(&original);
+    let mut collect = Collect { blob_hash_cache: Some(&mut cache), ..Default::default() };
+    let hash = collect.blob(&original);
+    assert_eq!(collect.blob(&original), hash);
+    let mut edited = original.clone();
+    Arc::make_mut(&mut edited)[0] = 7;
+    assert_eq!(collect.blob(&edited), hash_bytes(&[7, 2, 3]));
+    assert_ne!(collect.blob(&edited), hash);
+    drop(collect);
+    assert_eq!(cache.len(), 2);
+    drop(original);
+    assert!(weak.upgrade().is_none());
+}
+
+#[cfg(test)]
+#[test]
+fn compressed_cache_budget_limits_retained_capacity_without_changing_bytes() {
+    use photocraft_doc::{Layer, LayerContent};
+    use photocraft_geom::Size;
+    use photocraft_raster::Surface;
+
+    let mut doc = Document::new("cache", Size::new(257, 1), photocraft_color::ColorMode::Rgb, SampleType::U8);
+    let mut surface = Surface::new(doc.pixel_format());
+    surface.write_pixel(0, 0, &[0.2, 0.4, 0.6, 1.0]);
+    surface.write_pixel(256, 0, &[0.6, 0.4, 0.2, 1.0]);
+    doc.layers.push(Layer::new("pixels", LayerContent::Raster(surface)));
+    let mut writer = PcraftWriter::new();
+    let (expected, _) = writer.save_zip(&doc, &SaveOptions::default()).unwrap();
+    let key = writer.compressed.keys().next().unwrap().clone();
+    let key_allocation = writer.compressed.get_key_value(&key).unwrap().0.as_ptr();
+    assert_eq!(writer.save_zip(&doc, &SaveOptions::default()).unwrap().0, expected);
+    assert_eq!(writer.compressed.get_key_value(&key).unwrap().0.as_ptr(), key_allocation);
+    let budget = writer.compressed.values().map(|v| v.capacity()).min().unwrap();
+    writer.set_compressed_cache_budget(budget);
+    assert!(writer.compressed.is_empty());
+    let (bytes, _) = writer.save_zip(&doc, &SaveOptions::default()).unwrap();
+    assert_eq!(bytes, expected);
+    assert!(writer.compressed.values().map(|v| v.capacity()).sum::<usize>() <= budget);
+    assert!(!writer.compressed.is_empty());
+    let retained = writer.compressed.len();
+    let (bytes, stats) = writer.save_zip(&doc, &SaveOptions::default()).unwrap();
+    assert_eq!(bytes, expected);
+    assert_eq!(stats.tiles_reused, retained);
+    writer.set_compressed_cache_budget(0);
+    let (bytes, stats) = writer.save_zip(&doc, &SaveOptions::default()).unwrap();
+    assert_eq!(bytes, expected);
+    assert_eq!(stats.tiles_reused, 0);
+    assert!(writer.compressed.is_empty());
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn gc_pinned_directory_handles_resist_subdirectory_swap() {
+    use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!("pcraft-gc-swap-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let bundle = root.join("project.pcraft");
+    let outside = root.join("outside");
+    for sub in ["tiles", "blobs", "composite"] {
+        std::fs::create_dir_all(bundle.join(sub)).unwrap();
+    }
+    std::fs::create_dir(&outside).unwrap();
+    let filename = format!("{}.zst", "c".repeat(64));
+    std::fs::write(bundle.join("tiles").join(&filename), b"stale bundle file").unwrap();
+    std::fs::write(outside.join(&filename), b"outside file must survive").unwrap();
+
+    let gc = BundleGc::new(&bundle).unwrap();
+    std::fs::rename(bundle.join("tiles"), bundle.join("old-tiles")).unwrap();
+    symlink(&outside, bundle.join("tiles")).unwrap();
+
+    // Exercise the descriptor-relative unlink directly: the public save path
+    // also validates the leaf, but that check itself cannot prevent a later swap.
+    gc.remove(Path::new(&format!("tiles/{filename}"))).unwrap();
+    assert!(!bundle.join("old-tiles").join(&filename).exists());
+    assert_eq!(std::fs::read(outside.join(&filename)).unwrap(), b"outside file must survive");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn list_objects(dir: &Path) -> Result<HashSet<String>> {
     let mut out = HashSet::new();
     for sub in ["tiles", "blobs"] {
@@ -878,7 +1094,7 @@ fn list_objects(dir: &Path) -> Result<HashSet<String>> {
         for e in rd {
             let e = e?;
             let name = e.file_name().to_string_lossy().into_owned();
-            if name.ends_with(".zst") {
+            if name.strip_suffix(".zst").is_some_and(is_valid_hash) {
                 let path = e.path();
                 match std::fs::symlink_metadata(&path) {
                     Ok(metadata) if metadata.file_type().is_symlink() => return Err(unsafe_bundle_entry(&path)),

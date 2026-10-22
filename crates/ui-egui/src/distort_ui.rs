@@ -22,22 +22,27 @@ use crate::canvas::{ToolEvent, ViewXform};
 #[derive(Default)]
 pub struct Distort {
     pub liquify: Option<crate::liquify_ui::LiquifyDialog>,
+    /// Edit › Content-Aware Fill… (caf_ui).
+    pub caf: Option<crate::caf_ui::CafWorkspace>,
     pub puppet: Option<crate::puppet_ui::PuppetSession>,
     pub perspective: Option<crate::perspective_ui::PerspSession>,
     pub vanishing: Option<crate::vp_ui::VpSession>,
     /// Filter Gallery dialog (gallery_ui).
     pub gallery: Option<crate::gallery_ui::GalleryDialog>,
+    /// The document the open sessions belong to, noted by [`drop_foreign`] on the first frame they are open.
+    owner: Option<photocraft_doc::DocId>,
 }
 
 impl Distort {
     pub fn active(&self) -> bool {
-        self.liquify.is_some() || self.puppet.is_some() || self.perspective.is_some() || self.vanishing.is_some()
+        self.liquify.is_some() || self.caf.is_some() || self.puppet.is_some() || self.perspective.is_some() || self.vanishing.is_some()
     }
 
     /// Short description for `ui.inspect`.
     pub fn describe(&self) -> Value {
         json!({
             "liquify": self.liquify.as_ref().map(|d| d.describe()),
+            "contentAwareFill": self.caf.as_ref().map(|d| d.describe()),
             "puppet": self.puppet.as_ref().map(|p| p.describe()),
             "perspective": self.perspective.as_ref().map(|p| p.describe()),
             "vanishingPoint": self.vanishing.as_ref().map(|v| v.describe()),
@@ -109,6 +114,9 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
         "filter.filterGallery" if ui.is_some() && app.distort.gallery.is_some() => Some(crate::gallery_ui::control(app, ui.unwrap_or(&Value::Null))),
         "filter.liquify" if empty => Some(crate::liquify_ui::open(app, ctx).map(|_| json!({"liquify": app.distort.describe()["liquify"]}))),
         "filter.liquify" if ui.is_some() && app.distort.liquify.is_some() => Some(crate::liquify_ui::control(app, ui.unwrap_or(&Value::Null))),
+        "edit.contentAwareFill" if ui.is_some() && app.distort.caf.is_some() => Some(crate::caf_ui::control(app, ui.unwrap_or(&Value::Null))),
+        // `ui` addresses the workspace: closed, that is an error, not a fill with the defaults.
+        "edit.contentAwareFill" if ui.is_some() => Some(Err("Content-Aware Fill is not open".into())),
         "edit.puppetWarp" | "layer.smartObjects.puppetWarp" if empty => {
             Some(crate::puppet_ui::begin(app, ctx, id).map(|_| json!({"puppet": app.distort.describe()["puppet"]})))
         }
@@ -129,6 +137,10 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
 
 /// Pointer events (document coordinates) while a mode is active. True when consumed.
 pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) -> bool {
+    if app.distort.caf.is_some() {
+        crate::caf_ui::pointer(app, ev, mods);
+        return true;
+    }
     if app.distort.liquify.is_some() {
         crate::liquify_ui::pointer(app, ev, mods);
         return true;
@@ -159,6 +171,14 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
             let _ = crate::gallery_ui::commit(app);
         } else if esc(ctx) {
             app.distort.gallery = None;
+        }
+        return true;
+    }
+    if app.distort.caf.is_some() {
+        if enter(ctx) {
+            crate::caf_ui::commit(app);
+        } else if esc(ctx) {
+            crate::caf_ui::cancel(app);
         }
         return true;
     }
@@ -236,8 +256,32 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     false
 }
 
-/// Full-window dialogs (Liquify, Filter Gallery).
+/// Drops the open sessions once the active document is not the one they were started on (closed, or another one
+/// opened or switched to). Without this, Puppet Warp's preview of the old document replaced the new document's canvas (#5092).
+pub fn drop_foreign(app: &mut PhotocraftApp) {
+    let current = app.session.active().map(|s| s.doc.id);
+    if !app.distort.active() && app.distort.gallery.is_none() {
+        app.distort.owner = None;
+    } else if app.distort.owner.is_none() {
+        app.distort.owner = current;
+    } else if app.distort.owner != current {
+        app.distort.liquify = None;
+        // Stops its background preview too; what Apply wrote stays, as with Cancel.
+        crate::caf_ui::cancel(app);
+        app.distort.puppet = None;
+        app.distort.perspective = None;
+        app.distort.vanishing = None;
+        app.distort.gallery = None;
+        app.distort.owner = None;
+    }
+}
+
+/// Full-window dialogs (Liquify, Content-Aware Fill, Filter Gallery).
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    drop_foreign(app);
+    if app.distort.caf.is_some() {
+        crate::caf_ui::show(app, ctx);
+    }
     if app.distort.gallery.is_some() {
         crate::gallery_ui::show(app, ctx);
     }
