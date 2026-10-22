@@ -64,22 +64,30 @@ fn cpu_texture_opacity_follows_full_and_partial_uploads() {
 
 type Harness = egui_kittest::Harness<'static, PhotocraftApp>;
 
-fn harness(size: [u32; 2], background: &str) -> Harness {
-    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu().build_eframe(|cc| {
+/// The CPU-canvas fixture on the offscreen software adapter, or `None` when this machine has no
+/// graphics adapter. Only creating the renderer may be skipped: a failing fixture command or a
+/// panic in the first frames must fail the test, not pass it as "no adapter".
+fn harness(size: [u32; 2], background: &str) -> Option<Harness> {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    // app.gpu remains None: compose on the CPU, use the harness's software window adapter.
+    app.run("file.new", json!({"width": size[0], "height": size[1], "background": background})).unwrap();
+    app.run("select.rect", json!({"x": size[0] / 2, "y": size[1] / 2, "width": size[0] / 10, "height": size[1] / 10})).unwrap();
+    app.run("edit.fill", json!({"color": "#2050d0"})).unwrap();
+    app.run("select.deselect", json!({})).unwrap();
+    // `wgpu()` creates the render state and panics when no adapter is found.
+    let builder = std::panic::catch_unwind(|| {
+        egui_kittest::Harness::<PhotocraftApp>::builder().with_size(egui::vec2(1440.0, 900.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu()
+    })
+    .ok()?;
+    let mut h = builder.build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
-        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         if let Some(rs) = &cc.wgpu_render_state {
             app.perf.gpu_info.set_adapter(&rs.adapter.get_info());
         }
-        // app.gpu remains None: compose on the CPU, use the harness's software window adapter.
-        app.run("file.new", json!({"width": size[0], "height": size[1], "background": background})).unwrap();
-        app.run("select.rect", json!({"x": size[0] / 2, "y": size[1] / 2, "width": size[0] / 10, "height": size[1] / 10})).unwrap();
-        app.run("edit.fill", json!({"color": "#2050d0"})).unwrap();
-        app.run("select.deselect", json!({})).unwrap();
         app
     });
     h.run_steps(12);
-    h
+    Some(h)
 }
 
 fn assert_fixture(h: &Harness, background: &str) {
@@ -103,12 +111,18 @@ fn reference_frame(h: &mut Harness) {
 }
 
 #[test]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
+fn fixture_failures_are_not_skipped_as_a_missing_adapter() {
+    // An invalid fixture document must fail on any machine, with or without a graphics adapter.
+    let _ = harness([0, 0], "white");
+}
+
+#[test]
 fn omitting_an_occluded_checker_preserves_cpu_canvas_pixels() {
-    let Ok(mut h) = std::panic::catch_unwind(|| harness([320, 240], "white")) else {
+    let Some(mut h) = harness([320, 240], "white") else {
         eprintln!("skipping: no offscreen graphics adapter");
         return;
     };
-    // Fixture failures must fail the test, outside the missing-adapter skip above.
     assert_fixture(&h, "white");
     eprintln!("CPU pixel comparison adapter: {}", serde_json::to_string(&h.state().perf.gpu_info).unwrap());
     for (rotation, flip, pattern) in
@@ -145,7 +159,7 @@ fn omitting_an_occluded_checker_preserves_cpu_canvas_pixels() {
 
 #[test]
 fn pattern_preview_keeps_the_legacy_checker_for_every_copy() {
-    let Ok(mut h) = std::panic::catch_unwind(|| harness([320, 240], "white")) else {
+    let Some(mut h) = harness([320, 240], "white") else {
         eprintln!("skipping: no offscreen graphics adapter");
         return;
     };
@@ -188,7 +202,7 @@ fn cpu_canvas_background_benchmark() {
     let mut results = Vec::new();
     let output = std::env::var_os("PHOTOCRAFT_CPU_BENCH_OUTPUT").map(std::path::PathBuf::from);
     for background in ["white", "transparent"] {
-        let mut h = harness([6000, 4000], background);
+        let mut h = harness([6000, 4000], background).expect("an offscreen graphics adapter");
         assert_fixture(&h, background);
         let v = &mut h.state_mut().ui.views[0];
         v.zoom = 1.0;
