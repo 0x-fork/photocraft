@@ -561,6 +561,12 @@ fn shell_word(s: &str) -> String {
     if s.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-+:,@".contains(&b)) { s.to_string() } else { format!("'{}'", s.replace('\'', r"'\''")) }
 }
 
+/// The release-check transport, or `None` inside Flatpak: the sandbox has no network (see the
+/// manifest's finish-args) and `flatpak update` owns updates there.
+fn update_transport(flatpak_id: Option<&std::ffi::OsStr>) -> Option<photocraft_engine::updates_cmds::CheckFn> {
+    flatpak_id.is_none().then(crate::updates::service)
+}
+
 pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) -> Services {
     let clip: Rc<RefCell<Option<arboard::Clipboard>>> = Rc::default();
     let clip_unreadable: Rc<Cell<bool>> = Rc::default();
@@ -625,6 +631,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         inbox: None,
         open_url: Some(Box::new(|url: &str| open::that(url).map_err(|e| e.to_string()))),
         beep: Some(platform_beep),
+        check_updates: update_transport(std::env::var_os("FLATPAK_ID").as_deref()),
         clipboard_set_image: Some({
             let clip = clip.clone();
             guarded_clipboard_set(move |w: u32, h: u32, px: &[u8]| {
@@ -902,6 +909,12 @@ mod tests {
             open_filters().into_iter().find(|(name, _)| *name == "Photoshop").map(|(_, exts)| exts),
             Some(vec!["psd".to_string(), "psb".to_string(), "psdt".to_string()])
         );
+    }
+
+    #[test]
+    fn flatpak_builds_have_no_update_transport() {
+        assert!(update_transport(Some(std::ffi::OsStr::new("ai.storyteller.photocraft"))).is_none());
+        assert!(update_transport(None).is_some());
     }
 
     #[test]

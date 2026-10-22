@@ -3244,6 +3244,19 @@ curves	Smooth	Haluskan
 	Sent to {printer}	Dikirim ke {printer}
 	set in Print Settings…	diatur di Pengaturan Cetak…
 	ICO is limited to 256 × 256 pixels	ICO dibatasi hingga 256 × 256 piksel
+# PhotoCraft release checks.
+	Check for Updates…	Periksa Pembaruan…
+	PhotoCraft Updates	Pembaruan PhotoCraft
+	Checking for updates…	Memeriksa pembaruan…
+	Open the release page to choose an installer for your system.	Buka halaman rilis untuk memilih penginstal bagi sistem Anda.
+	Open Download Page	Buka Halaman Unduhan
+	PhotoCraft is up to date.	PhotoCraft sudah versi terbaru.
+	Could not check for updates.	Tidak dapat memeriksa pembaruan.
+	Updates have not been checked yet.	Pembaruan belum diperiksa.
+	Check Again	Periksa Lagi
+	Automatically Check for Updates	Periksa Pembaruan Secara Otomatis
+	Installed version: {version}	Versi terpasang: {version}
+	PhotoCraft {version} is available.	PhotoCraft {version} tersedia.
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Melukis dari status sumber panel Riwayat
 	Sets the source for the history brush	Menetapkan sumber untuk kuas riwayat

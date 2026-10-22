@@ -2846,6 +2846,19 @@ curves	Smooth	平滑
 	Sent to {printer}	已傳送至 {printer}
 	set in Print Settings…	在列印設定中設定…
 	ICO is limited to 256 × 256 pixels	ICO 最大為 256 × 256 像素
+# PhotoCraft release checks.
+	Check for Updates…	檢查更新…
+	PhotoCraft Updates	PhotoCraft 更新
+	Checking for updates…	正在檢查更新…
+	Open the release page to choose an installer for your system.	開啟發佈頁，選擇適合您系統的安裝程式。
+	Open Download Page	開啟下載頁面
+	PhotoCraft is up to date.	PhotoCraft 已是最新版本。
+	Could not check for updates.	無法檢查更新。
+	Updates have not been checked yet.	尚未檢查更新。
+	Check Again	重新檢查
+	Automatically Check for Updates	自動檢查更新
+	Installed version: {version}	已安裝版本：{version}
+	PhotoCraft {version} is available.	PhotoCraft {version} 已發佈。
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	從步驟記錄面板的來源狀態繪畫
 	Sets the source for the history brush	設定步驟記錄筆刷的來源

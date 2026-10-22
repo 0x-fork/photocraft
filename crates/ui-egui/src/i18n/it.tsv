@@ -4198,6 +4198,19 @@ navigator	Zoom	Zoom
 	Sent to {printer}	Inviato a {printer}
 	set in Print Settings…	impostato nelle impostazioni di stampa…
 	ICO is limited to 256 × 256 pixels	ICO è limitato a 256 × 256 pixel
+# PhotoCraft release checks.
+	Check for Updates…	Cerca aggiornamenti…
+	PhotoCraft Updates	Aggiornamenti di PhotoCraft
+	Checking for updates…	Ricerca aggiornamenti…
+	Open the release page to choose an installer for your system.	Apri la pagina della versione per scegliere un programma di installazione per il tuo sistema.
+	Open Download Page	Apri pagina di download
+	PhotoCraft is up to date.	PhotoCraft è aggiornato.
+	Could not check for updates.	Impossibile cercare aggiornamenti.
+	Updates have not been checked yet.	Gli aggiornamenti non sono ancora stati verificati.
+	Check Again	Controlla di nuovo
+	Automatically Check for Updates	Cerca automaticamente aggiornamenti
+	Installed version: {version}	Versione installata: {version}
+	PhotoCraft {version} is available.	PhotoCraft {version} è disponibile.
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Dipinge dallo stato di origine del pannello Cronologia
 	Sets the source for the history brush	Imposta l'origine del pennello storia

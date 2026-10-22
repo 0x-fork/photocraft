@@ -3948,6 +3948,18 @@ cameraData	Lens	Lens
 	Shadow Mode	Gölge Modu
 	Shadow Color	Gölge Rengi
 	Shadow Opacity	Gölge Opaklığı
+	Check for Updates…	Güncellemeleri Denetle…
+	PhotoCraft Updates	PhotoCraft Güncellemeleri
+	Checking for updates…	Güncellemeler denetleniyor…
+	Open the release page to choose an installer for your system.	Sisteminize uygun yükleyiciyi seçmek için sürüm sayfasını açın.
+	Open Download Page	İndirme Sayfasını Aç
+	PhotoCraft is up to date.	PhotoCraft güncel.
+	Could not check for updates.	Güncellemeler denetlenemedi.
+	Updates have not been checked yet.	Güncellemeler henüz denetlenmedi.
+	Check Again	Yeniden Denetle
+	Automatically Check for Updates	Güncellemeleri Otomatik Denetle
+	Installed version: {version}	Yüklü sürüm: {version}
+	PhotoCraft {version} is available.	PhotoCraft {version} kullanılabilir.
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Gömülü profili kullanın ({profile})
 	Convert to the working space ({profile})	Çalışma alanına dönüştürün ({profile})
