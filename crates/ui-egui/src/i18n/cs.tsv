@@ -2376,11 +2376,11 @@ cameraRaw	Color	Barvy
 	Apply At Canvas Bounds	Použít efekt na hranicích plátna
 
 # Shared screen eyedropper and text Color Picker (#1128).
-	Color Picker (Text Color)	Výběr barvy (Barva textu)
+	Color Picker (Text Color)	Výběr barvy (barva textu)
 	Color Picker ({name})	Výběr barvy ({name})
-	Color Picker (Fill Color)	Výběr barvy (Barva výplně)
+	Color Picker (Fill Color)	Výběr barvy (barva výplně)
 	Fill color	Barva výplně
-	Color Picker (Stroke Color)	Výběr barvy (Barva tahu)
+	Color Picker (Stroke Color)	Výběr barvy (barva tahu)
 	Stroke color	Barva tahu
 	Pick screen color	Vybrat barvu obrazovky
 	Sample a pixel anywhere on the screen	Vzorkovat pixel kdekoli na obrazovce
@@ -2532,7 +2532,7 @@ fontWeight	Italic	Kurzíva
 	Match Canvas	Podle plátna
 	Auto Adjust Opacity	Automaticky upravit krytí
 	Crop Shield color	Barva stínění oříznutí
-	Color Picker (Crop Shield Color)	Výběr barvy (Barva stínění oříznutí)
+	Color Picker (Crop Shield Color)	Výběr barvy (barva stínění oříznutí)
 	From Center	Ze středu
 	Link radii	Propojit poloměry
 	Star Ratio:	Poměr hvězdy:
@@ -2649,7 +2649,7 @@ cameraData	Lens	Objektiv
 	Search settings…	Hledat nastavení…
 	No matching settings	Žádná odpovídající nastavení
 # Edit › Content-Aware Fill workspace
-	Sampling Brush Tool	Nástroj Štětec vzorkování
+	Sampling Brush Tool	Nástroj štětec vzorkování
 	Sampling Area Overlay	Překrytí oblasti vzorkování
 	Show Sampling Area	Zobrazit oblast vzorkování
 	Indicates	Označuje
@@ -3816,7 +3816,7 @@ navigator	Zoom	Zvětšení
 	Use the embedded profile ({profile})	Použít vložený profil ({profile})
 	Convert to the working space ({profile})	Převést do pracovního prostoru barev ({profile})
 	Remember this choice for future images	Zapamatovat si tuto volbu pro další obrázky
-	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Dotaz znovu zapnete volbou Ask On Mismatch v nabídce Úpravy › Nastavení barev.
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Dotaz znovu zapnete volbou „Ptát se při nesouladu profilů“ v nabídce Úpravy › Nastavení barev.
 	Button Mode	Režim tlačítka
 	Button Mode On	Režim tlačítka zapnutý
 
@@ -3891,6 +3891,138 @@ navigator	Zoom	Zvětšení
 	Increase Brush Size	Zvětšit velikost štětce
 	Decrease Brush Hardness	Snížit tvrdost štětce
 	Increase Brush Hardness	Zvýšit tvrdost štětce
+
+# Labels the UI looks up through a variable (tool, glyph-group, Liquify and warp names, command
+# parameters and choices humanized from their keys, history steps and contextual
+# Camera Raw / layer labels) that other catalogs already covered. Translated the same way as
+# above, from the plain meaning of the English label.
+	Export As: {name}	Exportovat jako: {name}
+	Tool	Nástroj
+	Arc Lower	Oblouk dole
+	Arc Upper	Oblouk nahoře
+	Arrows	Šipky
+	Basic Latin	Základní latinka
+	Bloat	Nafouknout
+	Burn	Ztmavení
+	Checkerboard	Šachovnice
+	Clone Stamp	Klonovací razítko
+	Color Sampler Tool	Nástroj vzorkovač barev
+	Currency	Měnové symboly
+	Cyrillic	Cyrilice
+	Decrease Type Size	Zmenšit velikost písma
+	Decrease Type Size by 10	Zmenšit velikost písma o 10
+	Delete Snapshot	Odstranit snímek
+	Detect Faces	Rozpoznat obličeje
+	Dodge	Zesvětlení
+	Erase with Brush or Pencil (hold)	Mazat štětcem nebo tužkou (při podržení klávesy)
+	Fill with Background Color	Vyplnit barvou pozadí
+	Fill with Background Color, Preserve Transparency	Vyplnit barvou pozadí, zachovat průhlednost
+	Fill with Foreground Color	Vyplnit barvou popředí
+	Fill with Foreground Color, Preserve Transparency	Vyplnit barvou popředí, zachovat průhlednost
+	Forward Warp	Deformovat tažením
+	Freeze Lasso	Laso zmrazení
+	Freeze Mask	Zmrazit oblast
+	Greek	Řecké písmo
+	Hand Tool (hold)	Nástroj ruka (při podržení klávesy)
+	History Brush	Štětec historie
+	Increase Type Size	Zvětšit velikost písma
+	Increase Type Size by 10	Zvětšit velikost písma o 10
+	Kerning: Metrics, Optical or a value in 1/1000 em (Alt+←/→ at the caret)	Kerning: zvolte „Metrické“, „Optické“ nebo hodnotu v 1/1000 em (Alt+←/→ v místě textového kurzoru)
+	Latin 1	Latinka 1
+	Latin Extended-A	Rozšířená latinka A
+	Latin Extended-B	Rozšířená latinka B
+	Lock Transparent Pixels	Zamknout průhledné pixely
+	Make Selection from Path	Vytvořit výběr z cesty
+	Mask None	Zrušit maskování
+	Math Symbols	Matematické symboly
+	New Snapshot	Vytvořit snímek
+	Numbers	Čísla
+	Pattern Fill…	Výplň vzorkem…
+	Pick Color From Image	Vybrat barvu z obrazu
+	Proof Setup…	Nastavení nátisku…
+	Pucker	Stáhnout
+	Push Left	Tlačit doleva
+	Reconstruct All	Rekonstruovat vše
+	Save Path	Uložit cestu
+	Sponge	Houba
+	Target Channel 3	Zacílit na kanál 3
+	Target Channel 4	Zacílit na kanál 4
+	Target Channel 5	Zacílit na kanál 5
+	Target Channel 6	Zacílit na kanál 6
+	Target Channel 7	Zacílit na kanál 7
+	Target Channel 8	Zacílit na kanál 8
+	Target Channel 9	Zacílit na kanál 9
+	Target Composite Channel	Zacílit na složený kanál
+	Temporary	Dočasné
+	Thaw Mask	Rozmrazit oblast
+	Toggle Layer Mask Overlay	Přepnout překryv masky vrstvy
+	Twirl Clockwise	Zvířit doprava
+	Twirl Counterclockwise	Zvířit doleva
+	Warming Filter (85)	Oteplovací filtr (85)
+	Zoom In (hold, drag to scrub)	Přiblížit (při podržení klávesy, tažením plynule měníte zvětšení)
+	Zoom Out (hold)	Oddálit (při podržení klávesy)
+	blue	modrá
+	gray	šedá
+	green	zelená
+	none	žádná
+	orange	oranžová
+	red	červená
+	violet	fialová
+	yellow	žlutá
+	Adobe-rgb-compat	Kompatibilní s Adobe RGB (1998)
+	Any	Bez omezení
+	Ask On Mismatch	Ptát se při nesouladu profilů
+	Ask On Missing	Ptát se při chybějícím profilu
+	Ask On Paste	Ptát se při vkládání
+	Author Title	Pracovní pozice autora
+	Based On	Podle
+	Blend Text Gamma	Gama prolnutí textu
+	Case Sensitive	Rozlišovat velikost písmen
+	Ccw	Proti směru hodinových ručiček
+	Change Find	Změnit a najít další
+	Cmyk	CMYK
+	Coated-cmyk	CMYK pro křídový papír
+	Convert	Převést
+	Copyright Url	URL informací o autorských právech
+	Cw	Po směru hodinových ručiček
+	Display-p3	Display P3
+	Dont Enlarge	Nezvětšovat
+	Forward	Vpřed
+	Horizontal Distortion	Vodorovné zkreslení
+	Intent	Záměr převodu
+	Linear-srgb	Lineární sRGB
+	Mask Channel	Kanál masky
+	Monitor Profile	Profil monitoru
+	Nearest	Nejbližší soused
+	Policy Cmyk	Zásady správy barev pro CMYK
+	Policy Gray	Zásady správy barev pro šedou
+	Policy Rgb	Zásady správy barev pro RGB
+	Prophoto-compat	Kompatibilní s ProPhoto
+	R G B	RGB
+	Rec2020	Rec. 2020
+	Sgray	sGray (tónová křivka sRGB)
+	Simulate Paper	Simulovat papír
+	Source Channel	Zdrojový kanál
+	Source Invert	Invertovat zdroj
+	Source1 Channel	Kanál zdroje 1
+	Source1 Invert	Invertovat zdroj 1
+	Source2 Channel	Kanál zdroje 2
+	Source2 Invert	Invertovat zdroj 2
+	Title	Název
+	Vertical Distortion	Svislé zkreslení
+	Whole Word	Celé slovo
+	Working Cmyk	Pracovní CMYK
+	Working Gray	Pracovní šedá
+	Working Rgb	Pracovní RGB
+	Working-cmyk	Pracovní CMYK
+	Warming Filter (LBA)	Oteplovací filtr (LBA)
+	Warming Filter (81)	Oteplovací filtr (81)
+	Cooling Filter (80)	Ochlazovací filtr (80)
+	Cooling Filter (LBB)	Ochlazovací filtr (LBB)
+	Cooling Filter (82)	Ochlazovací filtr (82)
+layers	Fill	Krytí výplně
+layers	Fill:	Krytí výplně:
+cameraRaw	Dehaze	Odstranění oparu
 	Memory Usage	Využití paměti
 	Per-document RAM limit (MB)	Limit RAM na dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Nainstalovaná RAM: {ram} MB; tento limit: {percent}%
