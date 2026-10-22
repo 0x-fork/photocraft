@@ -489,3 +489,34 @@ cameraRaw	Whites	व्हाइट्स
 	Whites	व्हाइट्स
 cameraRaw	Yellow	पीला
 	Yellow	पीला
+
+# Coverage-test keys (English until translated)
+	Black Point Compensation	Black Point Compensation
+	Apply At Canvas Bounds	Apply At Canvas Bounds
+	Convert to Shape…	Convert to Shape…
+	Decontaminate	Decontaminate
+	New Document	New Document
+	New Document With Mask	New Document With Mask
+	New Layer	New Layer
+	New Layer With Mask	New Layer With Mask
+	Output	Output
+	Refine Edge…	Refine Edge…
+	Refine Strokes	Refine Strokes
+	Selection	Selection
+	Shift Edge	Shift Edge
+	Smart Radius	Smart Radius
+	Smooth	Smooth
+	Tolerance	Tolerance
+	Decrease Brush Size	Decrease Brush Size
+	Increase Brush Size	Increase Brush Size
+	Decrease Brush Hardness	Decrease Brush Hardness
+	Increase Brush Hardness	Increase Brush Hardness
+	Previous Brush	Previous Brush
+	Next Brush	Next Brush
+	First Brush	First Brush
+	Last Brush	Last Brush
+	Current Brush Load	Current Brush Load
+	Load Brush	Load Brush
+	Clean Brush	Clean Brush
+	Load the brush after each stroke	Load the brush after each stroke
+	Clean the brush after each stroke	Clean the brush after each stroke

@@ -4114,3 +4114,6 @@ cameraRaw	Dehaze	Odstranění oparu
 	Left-to-right paragraph direction	Směr odstavce zleva doprava
 	Right-to-left paragraph direction	Směr odstavce zprava doleva
 	Not rendered: this adjustment ({key}) is kept as imported.	Nevykresleno: tato úprava ({key}) je ponechána tak, jak byla importována.
+
+# Print preview image (#8236)
+	Print preview image	Print preview image

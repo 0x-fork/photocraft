@@ -4078,3 +4078,6 @@ curves	Smooth	Згладити
 	Left-to-right paragraph direction	Напрямок абзацу зліва направо
 	Right-to-left paragraph direction	Напрямок абзацу справа наліво
 	Not rendered: this adjustment ({key}) is kept as imported.	Не відображається: це коригування ({key}) збережено як було імпортовано.
+
+# Print preview image (#8236)
+	Print preview image	Print preview image

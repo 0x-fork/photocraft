@@ -4331,3 +4331,6 @@ navigator	Zoom	Zoom
 	Left-to-right paragraph direction	Dirección de párrafo de izquierda a derecha
 	Right-to-left paragraph direction	Dirección de párrafo de derecha a izquierda
 	Not rendered: this adjustment ({key}) is kept as imported.	No se renderiza: este ajuste ({key}) se conserva tal como se importó.
+
+# Print preview image (#8236)
+	Print preview image	Print preview image

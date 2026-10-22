@@ -2992,3 +2992,6 @@ curves	Smooth	平滑
 	Left-to-right paragraph direction	由左至右的段落方向
 	Right-to-left paragraph direction	由右至左的段落方向
 	Not rendered: this adjustment ({key}) is kept as imported.	未算繪：此調整（{key}）依匯入時的原樣保留。
+
+# Print preview image (#8236)
+	Print preview image	Print preview image

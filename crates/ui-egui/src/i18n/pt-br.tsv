@@ -4308,3 +4308,6 @@ layerLabel	No Color	Sem cor
 	Left-to-right paragraph direction	Direção do parágrafo da esquerda para a direita
 	Right-to-left paragraph direction	Direção do parágrafo da direita para a esquerda
 	Not rendered: this adjustment ({key}) is kept as imported.	Não renderizado: este ajuste ({key}) é mantido como foi importado.
+
+# Print preview image (#8236)
+	Print preview image	Print preview image

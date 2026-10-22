@@ -4047,3 +4047,6 @@ curves	Smooth	スムーズ
 	Left-to-right paragraph direction	左から右への段落方向
 	Right-to-left paragraph direction	右から左への段落方向
 	Not rendered: this adjustment ({key}) is kept as imported.	レンダリングされません: この調整（{key}）はインポートされたまま保持されます。
+
+# Print preview image (#8236)
+	Print preview image	Print preview image

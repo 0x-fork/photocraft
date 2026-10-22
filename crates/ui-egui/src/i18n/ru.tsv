@@ -4574,3 +4574,6 @@ shape	Appearance	Оформление
 	Left-to-right paragraph direction	Направление абзаца слева направо
 	Right-to-left paragraph direction	Направление абзаца справа налево
 	Not rendered: this adjustment ({key}) is kept as imported.	Не отображается: эта коррекция ({key}) сохранена как при импорте.
+
+# Print preview image (#8236)
+	Print preview image	Print preview image

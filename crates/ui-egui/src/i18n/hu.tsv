@@ -4286,3 +4286,6 @@ cameraRaw	Yellow	Sárga
 	Left-to-right paragraph direction	Balról jobbra irányuló bekezdés
 	Right-to-left paragraph direction	Jobbról balra irányuló bekezdés
 	Not rendered: this adjustment ({key}) is kept as imported.	Nem jelenik meg: ez a korrekció ({key}) importált állapotában marad.
+
+# Print preview image (#8236)
+	Print preview image	Print preview image
