@@ -3528,6 +3528,29 @@ fn lab_adjustment_results_are_whole_samples() {
     }
 }
 
+// a and b round too, after the opacity mix: Curves taking a 140 to 151.4 at 50% opacity gives
+// 145.7, stored as 146 (rounding before the mix would leave 145.5, truncating 145). 8 bits only: read back through
+// display RGB, a is not exact enough to tell 1/32768 steps apart.
+#[test]
+fn lab_adjustment_results_round_a_and_b_after_the_opacity_mix() {
+    let pts = |v: &[(f32, f32)]| v.iter().map(|&(input, output)| CurvePoint { input, output }).collect::<Vec<_>>();
+    let adj = Adjustment::Curves {
+        master: Vec::new(),
+        per_channel: [Vec::new(), pts(&[(0.0, 0.0), (140.0 / 255.0, 151.4 / 255.0), (1.0, 1.0)]), Vec::new()],
+        space: ToneSpace::Lab,
+        black: Vec::new(),
+        pencil: false,
+    };
+    let mut doc = lab_stack([0.5, 140.0 / 255.0, 0.5], SampleType::U8, vec![adj]);
+    if let Some(l) = doc.layers.last_mut() {
+        l.opacity = 0.5;
+    }
+    assert!(native_lab::LabStack::new(&doc).is_some_and(|s| s.adjusts()), "the native path");
+    let p = px(&doc, 1, 1);
+    let a = photocraft_color::convert::srgb_to_lab([p[0], p[1], p[2]])[1] + 128.0;
+    assert!((a - 146.0).abs() < 0.02, "a {a} is not 146");
+}
+
 // Flattening a Lab document keeps its stored values, out-of-gamut colours included (the RGB
 // compositor clipped them on the way through display RGB).
 #[test]
