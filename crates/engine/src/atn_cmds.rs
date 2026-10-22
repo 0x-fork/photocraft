@@ -13,7 +13,9 @@
 //! work; tool selections and other steps with no document effect are imported switched off.
 //!
 //! Layer references by name (`select` of layer "Shadow") become `{"layer": "Shadow"}`, which
-//! `commands::layer_param` resolves in whatever document the action plays on (#219).
+//! `commands::layer_param` resolves in whatever document the action plays on (#219). A switch
+//! to another open document (`select` of `Dcmn` by offset) becomes `document.activate
+//! {"offset"}`, the tab that many places from the active one (#7103).
 
 use photocraft_psd::atn::{self, AtnAction, AtnEvent, AtnFile, AtnItem};
 use photocraft_psd::descriptor::{Class, Descriptor, Id, ReferenceItem, UnicodeString, Value as D};
@@ -590,6 +592,9 @@ fn curves_to(p: &Value) -> Option<Descriptor> {
     Some(desc("Crvs").with("presetKind", enm("presetKindType", "presetKindCustom")).with("Adjs", D::List(entries)))
 }
 
+/// The hue key of a Hue/Saturation adjustment (`Hst2`): Photoshop's `H   ` (#8302).
+const HUE_KEY: &str = "H   ";
+
 const HUE_RANGES: [&str; 6] = ["reds", "yellows", "greens", "cyans", "blues", "magentas"];
 
 fn hue_sat_from(d: &Descriptor) -> Option<Value> {
@@ -600,8 +605,11 @@ fn hue_sat_from(d: &Descriptor) -> Option<Value> {
     for e in get_list(d, "Adjs").unwrap_or(&[]) {
         let D::Descriptor(e) = e else { return None };
         let mut m = Map::new();
-        for (key, param) in [("Hue ", "hue"), ("Strt", "saturation"), ("Lght", "lightness")] {
-            if let Some(v) = get_num(e, key) {
+        // Photoshop's hue key is `H   ` (stringID "hue", #8302); PhotoCraft wrote `Hue ` before,
+        // so its own older files still read.
+        let hue = get_num(e, HUE_KEY).or_else(|| get_num(e, "Hue "));
+        for (param, v) in [("hue", hue), ("saturation", get_num(e, "Strt")), ("lightness", get_num(e, "Lght"))] {
+            if let Some(v) = v {
                 m.insert(param.into(), v.into());
             }
         }
@@ -631,7 +639,7 @@ fn hue_entry(p: &Value, range: Option<(usize, &Value)>) -> Option<Descriptor> {
             }
         }
     }
-    for (key, param) in [("Hue ", "hue"), ("Strt", "saturation"), ("Lght", "lightness")] {
+    for (key, param) in [(HUE_KEY, "hue"), ("Strt", "saturation"), ("Lght", "lightness")] {
         e = e.with(key, long(jnum(p, param).unwrap_or(0.0)));
     }
     Some(e)
@@ -856,7 +864,8 @@ fn gradient_map_to(p: &Value) -> Option<Descriptor> {
     Some(d)
 }
 
-/// An adjustment: its Photoshop class (also the direct event's code), the command suffix (`image.adjustments.<suffix>`, `layer.newAdjustmentLayer.<suffix>`), and
+/// An adjustment: its Photoshop class (usually also the direct event's code; Black & White and
+/// Photo Filter run by name), the command suffix (`image.adjustments.<suffix>`, `layer.newAdjustmentLayer.<suffix>`), and
 /// the converters between the adjustment descriptor and the command params.
 struct Adjustment {
     class: &'static str,
@@ -1672,6 +1681,8 @@ fn select_from(d: &Descriptor) -> Mapped {
             match get_enum(d, "selectionModifier").as_deref() {
                 Some("addToSelection") => p["mode"] = json!("add"),
                 Some("removeFromSelection") => p["mode"] = json!("remove"),
+                // Shift-click: select everything between the active layer and this one.
+                Some("addToSelectionContinuous") => p["mode"] = json!("range"),
                 _ => {}
             }
             step("layer.select", p)
@@ -1706,6 +1717,9 @@ fn select_from(d: &Descriptor) -> Mapped {
             Some(id) => none(id),
             None => Mapped::Unsupported { harmless: false },
         },
+        // Switching to another open document: its offset from the active one, -1 for the previous
+        // tab and 1 for the next (a template action copies from one and pastes into the other, #7103).
+        (Some("Dcmn"), Target::Offset(o)) => step("document.activate", json!({"offset": o})),
         _ => Mapped::Unsupported { harmless: false },
     }
 }
@@ -1727,6 +1741,7 @@ fn select_to(id: &str, p: &Value) -> Option<Descriptor> {
                 None | Some("replace") => {}
                 Some("add") => d = d.with("selectionModifier", enm("selectionModifierType", "addToSelection")),
                 Some("remove") => d = d.with("selectionModifier", enm("selectionModifierType", "removeFromSelection")),
+                Some("range") => d = d.with("selectionModifier", enm("selectionModifierType", "addToSelectionContinuous")),
                 Some(_) => return None,
             }
             d.with("MkVs", D::Boolean(false))
@@ -1747,6 +1762,11 @@ fn select_to(id: &str, p: &Value) -> Option<Descriptor> {
         "layer.addBelowToSelection" => desc("null").with("null", ord("Bckw")).with("selectionModifier", enm("selectionModifierType", "addToSelection")),
         "layer.selectTop" => desc("null").with("null", ord("Frnt")),
         "layer.selectBottom" => desc("null").with("null", ord("Back")),
+        // An absolute tab index has no Photoshop equivalent; an offset is what Photoshop records.
+        "document.activate" if p.get("document").is_none_or(Value::is_null) => {
+            let offset = i32::try_from(p.get("offset")?.as_i64()?).ok()?;
+            desc("null").with("null", D::Reference(vec![ReferenceItem::Offset { class: class("Dcmn"), offset }]))
+        }
         _ => {
             let item = lookup_back(MENU_ITEMS, id)?;
             desc("null").with("null", D::Reference(vec![ReferenceItem::Enumerated { class: class("Mn  "), type_id: code("MnIt"), value: code(item) }]))
@@ -2270,6 +2290,11 @@ fn duplicate_from(d: &Descriptor) -> Mapped {
 fn duplicate_to(id: &str, p: &Value) -> Option<Descriptor> {
     // Duplicate into a new document is a `Mk` (handled above); let it fall through.
     if id == "layer.duplicate" && jstr(p, "document") == Some("new") {
+        return None;
+    }
+    // Photoshop's Duplicate has no in-place flag: a plain one would place the artboard copy beside
+    // the original on playback.
+    if id == "layer.duplicate" && jbool(p, "inPlace") == Some(true) {
         return None;
     }
     let mut d = match id {
@@ -2806,13 +2831,21 @@ fn image_size_to(_: &str, p: &Value) -> Option<Descriptor> {
         return None;
     }
     let mut d = desc("null");
-    if let Some(pc) = jnum(p, "percent") {
+    // `resample: "none"` changes the resolution only and the command ignores any size then. The
+    // descriptor has no "none" (it is the absence of `Intr`), so writing the ignored size would
+    // turn the step into a pixel resize on playback (#7189).
+    let resolution_only = jstr(p, "resample") == Some("none");
+    if resolution_only && jnum(p, "resolution").is_none() {
+        // Nothing left to record: the step changes nothing.
+        return None;
+    }
+    if let Some(pc) = jnum(p, "percent").filter(|_| !resolution_only) {
         d = d.with("Wdth", pct(pc)).with("Hght", pct(pc)).with("CnsP", D::Boolean(true));
     }
-    if let Some(w) = jnum(p, "width") {
+    if let Some(w) = jnum(p, "width").filter(|_| !resolution_only) {
         d = d.with("Wdth", px(w));
     }
-    if let Some(h) = jnum(p, "height") {
+    if let Some(h) = jnum(p, "height").filter(|_| !resolution_only) {
         d = d.with("Hght", px(h));
     }
     if let Some(r) = jnum(p, "resolution") {
@@ -2851,6 +2884,11 @@ fn crop_from(d: &Descriptor) -> Mapped {
 }
 
 fn crop_to(_: &str, p: &Value) -> Option<Descriptor> {
+    // The W x H x Resolution output options have no field here: refuse rather than export a plain
+    // rectangle crop that keeps the old size and resolution on replay.
+    if ["targetWidth", "targetHeight", "resolution"].iter().any(|k| p.get(k).is_some_and(|v| !v.is_null())) {
+        return None;
+    }
     let mut d = desc("null");
     if let (Some(x), Some(y), Some(w), Some(h)) = (jnum(p, "x"), jnum(p, "y"), jnum(p, "width"), jnum(p, "height")) {
         d = d.with("To  ", D::Descriptor(desc("Rctn").with("Top ", px(y)).with("Left", px(x)).with("Btom", px(y + h)).with("Rght", px(x + w))));
@@ -3314,7 +3352,8 @@ const EVENTS: &[Event] = &[
     adjustment_event!("ClrB", "ClrB", "colorBalance", "Color Balance"),
     adjustment_event!("Vbrn", "Vbrn", "vibrance", "Vibrance"),
     adjustment_event!("Exps", "Exps", "exposure", "Exposure"),
-    adjustment_event!("PhtF", "PhtF", "photoFilter", "Photo Filter"),
+    // Photoshop runs Photo Filter by name only: `PhtF` is the class, not an event (#8301).
+    adjustment_event!("", "PhtF", "photoFilter", "Photo Filter"),
     adjustment_event!("", "BlnW", "blackAndWhite", "Black & White", "image.adjustments.blackWhite"),
     adjustment_event!("ChnM", "ChnM", "channelMixer", "Channel Mixer"),
     adjustment_event!("GdMp", "GdMp", "gradientMapEvent", "Gradient Map", "image.adjustments.gradientMap"),
@@ -3469,6 +3508,7 @@ const EVENTS: &[Event] = &[
             "view.actualPixels",
             "view.zoomIn",
             "view.zoomOut",
+            "document.activate",
         ],
         from: select_from,
         to: select_to,
@@ -3638,7 +3678,8 @@ const EVENTS: &[Event] = &[
 /// these codes fails ("the command is not currently available"), and `Fltn` is the
 /// `flatness` property, not the flatten event. Import keeps accepting them so actions saved
 /// before still load; export never writes them.
-const LEGACY_CODES: &[(&str, &str)] = &[("BoxB", "boxblur"), ("SrfB", "surfaceBlur"), ("Fltn", "flattenImage"), ("BlnW", "blackAndWhite")];
+const LEGACY_CODES: &[(&str, &str)] =
+    &[("BoxB", "boxblur"), ("SrfB", "surfaceBlur"), ("Fltn", "flattenImage"), ("BlnW", "blackAndWhite"), ("PhtF", "photoFilter")];
 
 fn event_for(item: &AtnEvent) -> Option<&'static Event> {
     let id = item.id();
@@ -3782,6 +3823,29 @@ fn export_item(id: &str, params: &Value, set: &str) -> Option<AtnItem> {
     Some(AtnItem { event, dictionary: e.label.as_bytes().to_vec(), descriptor: Some(descriptor), ..Default::default() })
 }
 
+/// Photoshop applies only the rename when a Set mixes it with opacity or blend mode (#8304).
+/// Write each layer property separately, renaming last so named references still resolve.
+fn export_items(id: &str, params: &Value, set: &str) -> Option<Vec<AtnItem>> {
+    let item = export_item(id, params, set)?;
+    if id != "layer.setProps" {
+        return Some(vec![item]);
+    }
+    let descriptor = item.descriptor.as_ref()?;
+    let properties = get_obj(descriptor, "T   ")?;
+    if properties.items.len() <= 1 {
+        return Some(vec![item]);
+    }
+    let target = descriptor.get("null")?;
+    let mut items = Vec::with_capacity(properties.items.len());
+    for (key, value) in properties.items.iter().filter(|(k, _)| !k.is("Nm  ")).chain(properties.items.iter().filter(|(k, _)| k.is("Nm  "))) {
+        let mut property = properties.clone();
+        property.items = vec![(key.clone(), value.clone())];
+        let descriptor = desc("null").with("null", target.clone()).with("T   ", D::Descriptor(property));
+        items.push(AtnItem { descriptor: Some(descriptor), ..item.clone() });
+    }
+    Some(items)
+}
+
 /// An action's key as a shortcut string: `F5`, with Photoshop's Shift and Command options
 /// `Shift+F5`, `Cmd+F5` or `Cmd+Shift+F5` (#7646).
 pub fn function_key_name(key: u16, shift: bool, command: bool) -> String {
@@ -3822,7 +3886,7 @@ pub fn export(
             (out.function_key, out.shift, out.command) = (n, shift, command);
         }
         for (i, (id, params)) in a.steps.iter().enumerate() {
-            let Some(mut item) = export_item(id, params, set) else {
+            let Some(items) = export_items(id, params, set) else {
                 if skip_unsupported {
                     skipped.push(Skipped { action: a.name.clone(), step: i, id: id.clone() });
                     continue;
@@ -3837,10 +3901,12 @@ pub fn export(
                     a.name
                 ));
             };
-            item.enabled = a.step_enabled(i);
-            item.with_dialog = a.dialogs.contains(&i);
-            item.dialog_options = if item.with_dialog { 2 } else { 0 };
-            out.items.push(item);
+            for mut item in items {
+                item.enabled = a.step_enabled(i);
+                item.with_dialog = a.dialogs.contains(&i);
+                item.dialog_options = if item.with_dialog { 2 } else { 0 };
+                out.items.push(item);
+            }
         }
         file.actions.push(out);
     }
@@ -4059,3 +4125,6 @@ pub fn specs() -> Vec<CommandSpec> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod layer_props_tests;

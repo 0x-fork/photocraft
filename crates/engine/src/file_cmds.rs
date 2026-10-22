@@ -1281,12 +1281,21 @@ pub(crate) fn list_images_tree(dir: &str, _skip: &str, _cmd: &str) -> Result<Vec
 /// (`"same"` keeps the input's extension). Errors per file are collected, not fatal.
 pub(crate) fn process_files(inputs: &[String], output: &str, format: &str, save: SaveOpts, suffix: &str, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
     let inputs: Vec<BatchInput> = inputs.iter().map(|path| BatchInput { path: path.clone(), rel_dir: String::new() }).collect();
-    process_tree(&inputs, output, format, save, suffix, f)
+    process_tree(&inputs, output, format, save, suffix, &|s, _| f(s).map(|()| false))
 }
 
 /// [`process_files`] for inputs from subfolders: each result goes to its input's relative folder
-/// under `output` (created as needed), so `a/x.png` and `b/x.png` don't collide.
-pub(crate) fn process_tree(inputs: &[BatchInput], output: &str, format: &str, save: SaveOpts, suffix: &str, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+/// under `output` (created as needed), so `a/x.png` and `b/x.png` don't collide. `f` gets the
+/// output path and returns `true` when it wrote the result there itself (Batch writes what a
+/// recorded save marked); otherwise the active document is saved after it.
+pub(crate) fn process_tree(
+    inputs: &[BatchInput],
+    output: &str,
+    format: &str,
+    save: SaveOpts,
+    suffix: &str,
+    f: &dyn Fn(&mut Session, &str) -> Result<bool>,
+) -> Value {
     let outputs = inputs.iter().map(|BatchInput { path, rel_dir }| {
         let ext = if format == "same" { same_format(path) } else { format.trim_start_matches('.').to_ascii_lowercase() };
         (path.as_str(), join(&join(output, rel_dir), &format!("{}{suffix}.{ext}", stem(path))))
@@ -1319,7 +1328,7 @@ fn same_format_takes_the_file_names_extension() {
     assert_eq!(same_format("/in/.hidden"), "png");
 }
 
-fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session, &str) -> Result<bool>) -> Value {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
@@ -1330,9 +1339,10 @@ fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, sav
             let mut scratch = Session::new();
             let doc = import(&file_name(path), &bytes)?;
             scratch.add_document(doc, Some(path.to_string()));
-            f(&mut scratch)?;
-            let d = scratch.active().ok_or(EngineError::NoDocument)?;
-            save_doc(&d.doc, &out, save)?;
+            if !f(&mut scratch, &out)? {
+                let d = scratch.active().ok_or(EngineError::NoDocument)?;
+                save_doc(&d.doc, &out, save)?;
+            }
             Ok(())
         })();
         match r {
@@ -1367,15 +1377,26 @@ impl OutputClaims {
     }
 }
 
+/// A recorded Save, Save As or Save a Copy, which marks the result Batch writes to its destination
+/// (Photoshop's "Override Action 'Save As' Commands").
+pub(crate) fn batch_save_point(id: &str) -> bool {
+    matches!(id, "file.save" | "file.saveAs" | "file.saveACopy")
+}
+
+/// Whether Batch and droplets keep a recorded step: save points mark the result, while other
+/// shell-only saves and view steps (zoom, fit) don't change the output (#2752).
+pub(crate) fn batch_keeps_step(id: &str) -> bool {
+    (batch_save_point(id) || !crate::actions_cmds::shell_save_command(id)) && !crate::actions_cmds::shell_view_command(id)
+}
+
 fn batch(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.automate.batch";
     let mut steps =
         parse_steps(p.get("steps").or_else(|| p.get("action")).ok_or_else(|| EngineError::BadParams { cmd: cmd.into(), msg: "missing \"steps\"".into() })?)?;
     // Each result goes to the destination folder, which overrides the action's recorded Save /
-    // Save As steps (Photoshop's "Override Action 'Save As' Commands"). Recorded view steps
-    // (zoom, fit) don't change the output, so they are skipped (#2752).
-    steps.retain(|(id, _)| !crate::actions_cmds::shell_save_command(id) && !crate::actions_cmds::shell_view_command(id) && id != "file.export.quickExport");
-    if let Some((id, _)) = steps.iter().find(|(id, _)| crate::commands::find(id).is_none()) {
+    // Save As steps: they only mark the result.
+    steps.retain(|(id, _)| batch_keeps_step(id) && id != "file.export.quickExport");
+    if let Some((id, _)) = steps.iter().find(|(id, _)| !batch_save_point(id) && crate::commands::find(id).is_none()) {
         return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("unknown command `{id}` in the action") });
     }
     let output = str_param(p, "output", cmd)?.to_string();
@@ -1398,16 +1419,32 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
     let actions = crate::actions_cmds::ActionState { list, playing: s.actions.playing, playback_stack: s.actions.playback_stack.clone(), ..Default::default() };
     let names = batch_naming::plan(&inputs, &output, &format, p)?;
     let save = SaveOpts::from_params(s, p, cmd)?;
-    let run = |scratch: &mut Session| {
+    let run = |scratch: &mut Session, out: &str| {
         scratch.actions = actions.clone();
+        // The document as the last recorded save found it, written once the action has run so a
+        // failing step still writes nothing.
+        let mut saved: Option<Arc<Document>> = None;
         for (id, params) in &steps {
+            if batch_save_point(id) {
+                saved = Some(scratch.active().ok_or(EngineError::NoDocument)?.doc.clone());
+                continue;
+            }
             let r = scratch.execute(id, params.clone())?;
             // A failed step inside a called action makes this file an error, not a saved result.
             if let Some(error) = crate::actions_cmds::nested_failure(id, &r) {
                 return Err(EngineError::Other(error));
             }
         }
-        Ok(())
+        // While the saved document is still open the steps after the save reach the result too
+        // (#3058), so it is saved after the action as usual. Closed after its save, or with another
+        // document left active, it is written as the save found it.
+        match saved {
+            Some(doc) if scratch.active().is_none_or(|d| d.doc.id != doc.id) => {
+                save_doc(&doc, out, save)?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     };
     let r = match names {
         Some(names) => process_outputs(inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
@@ -1426,14 +1463,14 @@ fn image_processor(s: &mut Session, p: &Value) -> Result<Value> {
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_tree(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch| {
+    let r = process_tree(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch, _| {
         if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
             scratch.execute("image.mode.rgb", json!({}))?;
         }
         if let Some(fp) = &fit {
             fit_image(scratch, fp)?;
         }
-        Ok(())
+        Ok(false)
     });
     Ok(r)
 }
@@ -1925,7 +1962,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"includeSubfolders":bool=false (a folder input also takes the images in its subfolders, up to 32 levels and 100000 files; each result keeps its subfolder under output),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"jpegFormat":"baseline|optimized|progressive"?,"naming":string? (blank keeps source names; {name}, {serial} padded to 3 digits, {date} as YYYY-MM-DD UTC; extension added automatically),"startingSerial":1..4294967295=1 (input position, including failed inputs),"tiffLayers":bool=false,"tiffCompression":"none|lzw|zip"?,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"ddsCompression":"none|bc1|bc2|bc3"="none" (DDS: uncompressed, or block compression; BC1 keeps alpha on or off),"ddsMipmaps":bool=false (DDS: also write the full mip chain),"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action; a Save, Save As or Save a Copy step marks the document written to output, in this command's format and options: as the save found it if it was closed or another document is active at the end, else as the action leaves it; with no such step, the active document at the end),"input":folder|[paths],"includeSubfolders":bool=false (a folder input also takes the images in its subfolders, up to 32 levels and 100000 files; each result keeps its subfolder under output),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"jpegFormat":"baseline|optimized|progressive"?,"naming":string? (blank keeps source names; {name}, {serial} padded to 3 digits, {date} as YYYY-MM-DD UTC; extension added automatically),"startingSerial":1..4294967295=1 (input position, including failed inputs),"tiffLayers":bool=false,"tiffCompression":"none|lzw|zip"?,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"ddsCompression":"none|bc1|bc2|bc3"="none" (DDS: uncompressed, or block compression; BC1 keeps alpha on or off),"ddsMipmaps":bool=false (DDS: also write the full mip chain),"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),

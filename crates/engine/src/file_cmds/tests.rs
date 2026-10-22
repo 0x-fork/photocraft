@@ -1587,6 +1587,83 @@ fn batch_naming_rejects_outputs_that_replace_inputs_before_processing() {
     assert_eq!(std::fs::read(&second).unwrap(), before[1]);
 }
 
+/// Batch takes the result at the action's recorded Save, Save As or Save a Copy, as Photoshop's
+/// "Override Action 'Save As' Commands" does: a document closed after its save is written as the
+/// save found it. The usual "…, Save As, Close" ending failed on every file: the Save was dropped,
+/// and nothing was left open to save after the action.
+#[test]
+fn batch_saves_at_the_recorded_save_so_a_close_after_it_keeps_the_result() {
+    let dir = tmp("batch-save-close");
+    let red = png(&dir, "red.png", 8, 8, "#ff0000");
+    let saved = |out: &str| photocraft_io::import("red.png", &std::fs::read(join(out, "red.png")).unwrap()).unwrap().document;
+    let mut s = Session::new();
+    let out = join(&dir, "close");
+    let steps = json!([["image.adjustments.invert", {}], ["file.saveAs", {}], ["file.close", {}]]);
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    assert_eq!(r["files"], json!([join(&out, "red.png")]));
+    assert_eq!(photocraft_compose::render(&saved(&out), Rect::new(1, 1, 2, 2)).px[0], [0.0, 1.0, 1.0, 1.0], "the inverted red");
+
+    // Save a Copy marks the result the same way, and its recorded path is never written.
+    let out = join(&dir, "copy");
+    let elsewhere = join(&dir, "elsewhere.png");
+    let steps = json!([["image.adjustments.invert", {}], ["file.saveACopy", {"path": elsewhere}], ["file.close", {}]]);
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    assert_eq!(photocraft_compose::render(&saved(&out), Rect::new(1, 1, 2, 2)).px[0], [0.0, 1.0, 1.0, 1.0]);
+    assert!(!std::path::Path::new(&elsewhere).exists());
+
+    // With no Save step the result is still saved after the action; with nothing left open then,
+    // the file is an error, not a silent skip.
+    let out = join(&dir, "closed");
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": [["file.close", {}]]})).unwrap();
+    assert_eq!(r["files"], json!([]), "{r}");
+    assert!(r["errors"][0]["error"].as_str().unwrap().contains("no active document"), "{r}");
+}
+
+/// The document a recorded save marked is the result, not the one left active after it closed.
+/// Here the action saves and closes a second document it made, then inverts the input; the output
+/// used to be the inverted input, written in place of the result without an error.
+#[test]
+fn batch_saves_the_document_active_at_the_save_not_the_one_left_after_it() {
+    let dir = tmp("batch-save-second");
+    let red = png(&dir, "red.png", 8, 8, "#ff0000");
+    let out = join(&dir, "out");
+    let steps = json!([
+        ["file.new", {"width": 4, "height": 4, "background": "#00ff00"}],
+        ["file.save", {}],
+        ["file.close", {}],
+        ["image.adjustments.invert", {}]
+    ]);
+    let r = Session::new().execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    let saved = photocraft_io::import("red.png", &std::fs::read(join(&out, "red.png")).unwrap()).unwrap().document;
+    assert_eq!((saved.size.width, saved.size.height), (4, 4));
+    assert_eq!(photocraft_compose::render(&saved, Rect::new(1, 1, 2, 2)).px[0], [0.0, 1.0, 0.0, 1.0]);
+}
+
+/// While the saved document is open, the steps after its save still reach the result (#3058: a
+/// recorded Save then Rotate writes the rotated image). A step failing after the save writes
+/// nothing, as when Batch saved only after the action.
+#[test]
+fn batch_applies_the_steps_after_a_save_while_its_document_is_open() {
+    let dir = tmp("batch-save-then-edit");
+    let red = png(&dir, "red.png", 8, 8, "#ff0000");
+    let mut s = Session::new();
+    let out = join(&dir, "edited");
+    let steps = json!([["file.saveAs", {}], ["image.adjustments.invert", {}]]);
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    let saved = photocraft_io::import("red.png", &std::fs::read(join(&out, "red.png")).unwrap()).unwrap().document;
+    assert_eq!(photocraft_compose::render(&saved, Rect::new(1, 1, 2, 2)).px[0], [0.0, 1.0, 1.0, 1.0]);
+
+    let out = join(&dir, "failed");
+    let steps = json!([["image.adjustments.invert", {}], ["file.saveAs", {}], ["layer.select", {"layer": "missing"}]]);
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"].as_array().unwrap().len(), 1, "{r}");
+    assert!(!std::path::Path::new(&join(&out, "red.png")).exists(), "{r}");
+}
+
 #[test]
 fn exposure_text_near_one_second_is_not_one_over_one() {
     assert_eq!(exposure_text(0.996).as_deref(), Some("0.996 s"), "not \"1/1 s\"; three significant digits");

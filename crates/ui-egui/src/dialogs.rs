@@ -7,6 +7,37 @@ use crate::PhotocraftApp;
 use crate::state::{Dialog, DialogKind};
 use crate::widgets::{ButtonRole, DialogButton, dialog_buttons};
 
+/// A dialog body sets this field to the key of the text field whose Browse… button was clicked;
+/// [`show`] takes it out again and opens the matching file or folder dialog.
+pub(crate) const BROWSE_FIELD: &str = "__browse";
+
+/// Browse… beside a path field of dialog `id`: a folder picker for `dir` fields, a `.wasm` picker
+/// for Install Plug-in…'s `path`. The answer fills the field.
+fn browse_field(app: &mut PhotocraftApp, id: u64, fields: &serde_json::Map<String, Value>, key: &str) {
+    let key = key.to_string();
+    let r = if key == "dir" {
+        app.ask_folder(move |app, path| fill_field(app, id, &key, path))
+    } else if fields.get("__command").and_then(Value::as_str) == Some("plugin.install") {
+        let initial_dir = crate::file_dialog::last_used_dir(&app.ui.recent_files);
+        let request = crate::file_dialog::FileDialogRequest::Open { multiple: false, initial_dir, extensions: Some(vec!["wasm".into()]) };
+        app.ask_file(request, move |app, answer| match answer {
+            crate::file_dialog::FileDialogAnswer::Paths(mut paths) if !paths.is_empty() => fill_field(app, id, &key, paths.remove(0)),
+            _ => Err("Install Plug-in reads a .wasm file from disk".into()),
+        })
+    } else {
+        return;
+    };
+    if let Err(e) = r.map(|_| ()).or_else(|e| if e == crate::file_dialog::CANCELLED { Ok(()) } else { Err(e) }) {
+        app.ui.status = e;
+    }
+}
+
+fn fill_field(app: &mut PhotocraftApp, id: u64, key: &str, path: String) -> Result<Value, String> {
+    let d = app.ui.dialog_mut(id).ok_or("the dialog was closed")?;
+    d.fields.insert(key.into(), json!(path));
+    Ok(Value::Null)
+}
+
 /// Where this frame's dialogs are on screen (the canvas reads last frame's: it draws first).
 const RECTS: &str = "pc-dialog-rects";
 
@@ -130,7 +161,15 @@ fn show_modal<T>(
         }
         if let Some(size) = resizable {
             let max = (ctx.content_rect().size() - egui::vec2(40.0, 40.0)).max(egui::vec2(560.0, 400.0));
-            egui::Resize::default().id(id.with("resize")).default_size(size.min(max)).min_size(egui::vec2(560.0, 400.0)).max_size(max).show(ui, contents)
+            // No stroke: Resize outlines its contents 2 points out, an inner box inside the
+            // dialog's frame that left the title and buttons flush against it (#8199).
+            egui::Resize::default()
+                .id(id.with("resize"))
+                .with_stroke(false)
+                .default_size(size.min(max))
+                .min_size(egui::vec2(560.0, 400.0))
+                .max_size(max)
+                .show(ui, contents)
         } else {
             contents(ui)
         }
@@ -389,6 +428,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 }
             }
             crate::field_tab::end(ui.ctx(), tab);
+            if let Some(Value::String(key)) = fields.remove(BROWSE_FIELD) {
+                browse_field(app, d.id, &fields, &key);
+            }
             if crate::guide_layout_ui::owns(&fields) || crate::brush_preset_dialog::owns(&fields) {
                 // These dialogs own their right-side actions and validate Enter themselves.
             } else if crate::color_picker_ui::owns(&fields) {
@@ -1223,5 +1265,46 @@ mod preference_resize_tests {
         // The contents never ask for more than the dialog gives them, so it keeps its size.
         h.run_steps(10);
         assert_eq!(frame(&h), smaller);
+    }
+
+    /// #8199: no outline is drawn just around the contents, which left the title flush against a
+    /// second, inner box instead of the frame's margin like the other dialogs.
+    #[test]
+    fn preferences_has_no_inner_outline_hugging_its_title() {
+        fn find<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| find(s, out)),
+                s => out.push(s),
+            }
+        }
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        crate::prefs_ui::open_preferences(&mut app, "general");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).build_ui_state(
+            |ui, app| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                    show(app, ui.ctx());
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(5);
+        let mut shapes = Vec::new();
+        h.output().shapes.iter().for_each(|s| find(&s.shape, &mut shapes));
+        let title = shapes
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Text(t) if t.galley.job.text == "Preferences" => Some(t.pos),
+                _ => None,
+            })
+            .expect("the title is painted");
+        let hugging: Vec<egui::Rect> = shapes
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r) if r.stroke.width > 0.0 && r.rect.contains(title) && (0.0..4.0).contains(&(title.x - r.rect.left())) => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        assert!(hugging.is_empty(), "an outline within 4 points of the title at {title:?}: {hugging:?}");
     }
 }

@@ -479,6 +479,7 @@ fn every_mapped_command_exports_and_imports_back() {
         ("layer.setProps", json!({"layer": "Shadow", "visible": false})),
         ("layer.setLabelColor", json!({"color": "red"})),
         ("layer.select", json!({"layer": "Shadow", "mode": "add"})),
+        ("layer.select", json!({"layer": "Shadow", "mode": "range"})),
         ("layer.selectTop", json!({})),
         ("layer.selectBelow", json!({})),
         ("layer.addBelowToSelection", json!({})),
@@ -553,6 +554,7 @@ fn every_mapped_command_exports_and_imports_back() {
         ("layerComp.apply", json!({"comp": "Original"})),
         ("actions.play", json!({"action": "Other", "set": "S"})),
         (STOP_MESSAGE, json!({"message": "Hi", "allowContinue": false})),
+        ("document.activate", json!({"offset": -1})),
         // The TrueGrit Texture Supply sets (Debaser, Distress Press, Halftone Zine Machine).
         ("filter.distort.ripple", json!({"amount": 50, "size": "medium"})),
         ("filter.pixelate.crystallize", json!({"cellSize": 5})),
@@ -1388,6 +1390,74 @@ fn fsel(t: D) -> Descriptor {
     desc("null").with("null", D::Reference(vec![ReferenceItem::Property { class: class("Chnl"), key: Id::new("fsel") }])).with("T   ", t)
 }
 
+/// #7103: Photoshop records switching to another open document as a `select` of `Dcmn` by
+/// offset (previous -1, next +1). The template action of the report, which copies from the
+/// source image and pastes into the template opened after it, imports with no Photoshop steps,
+/// plays across the two documents and saves back the same shape. With no previous document
+/// open, playback stops at the switch instead of pasting into the wrong document.
+#[test]
+fn select_document_by_offset_imports_plays_and_saves_back() {
+    let doc = |offset: i32| desc("null").with("null", D::Reference(vec![ReferenceItem::Offset { class: class("Dcmn"), offset }]));
+    // A recorded document id (`DocI`) means nothing in another session: ignored, not written back.
+    let copy_in = vec![
+        item("slct", "Select", Some(doc(-1).with("DocI", long(35.0)))),
+        item("setd", "Set", Some(fsel(enm("Ordn", "Al  ")))),
+        item("copy", "Copy", None),
+        item("slct", "Select", Some(doc(1))),
+        item("past", "Paste", None),
+    ];
+    let data = set_of("Template", vec![("Copy In", copy_in)]);
+
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "name": "source"})).unwrap();
+    s.execute("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+    s.execute("file.new", json!({"width": 8, "height": 8, "name": "template", "background": "transparent"})).unwrap();
+    let r = s.execute("actions.load", json!({"data": data})).unwrap();
+    assert_eq!(r["unsupported"], json!([]), "{r}");
+    let steps = &s.actions.list[0].steps;
+    assert_eq!(steps[0], ("document.activate".to_string(), json!({"offset": -1})));
+    assert_eq!(steps[3], ("document.activate".to_string(), json!({"offset": 1})));
+
+    let pixel = |s: &mut Session| -> Vec<f32> { serde_json::from_value(s.execute("document.pixel", json!({"x": 4, "y": 4})).unwrap()).unwrap() };
+    assert_eq!(pixel(&mut s), [0.0; 4]);
+    let r = s.execute("actions.play", json!({"action": "Copy In"})).unwrap();
+    assert!(r.get("failed").is_none(), "{r}");
+    assert_eq!(s.active().unwrap().doc.name, "template");
+    assert_eq!(s.active().unwrap().doc.layers.len(), 2, "the source's pixels are pasted on a new layer");
+    assert_eq!(pixel(&mut s), [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(s.documents()[0].doc.layers.len(), 1, "the source is only copied from");
+
+    let first = s.actions.list.clone();
+    let r = s.execute("actions.save", json!({"set": "Template"})).unwrap();
+    assert_eq!(r["skipped"], json!([]));
+    let saved = photocraft_paint::tile::b64_decode(r["data"].as_str().unwrap()).unwrap();
+    let file = atn::parse(&saved).unwrap();
+    let offsets: Vec<i32> = file.actions[0]
+        .items
+        .iter()
+        .filter_map(|i| match get_ref(i.descriptor.as_ref()?, "null")? {
+            [ReferenceItem::Offset { class, offset }] if trimmed(&class.class_id) == "Dcmn" => Some(*offset),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(offsets, [-1, 1]);
+    assert!(file.actions[0].items[0].descriptor.as_ref().unwrap().get("DocI").is_none());
+    let mut t = Session::new();
+    t.execute("actions.load", json!({"data": b64(&saved)})).unwrap();
+    assert_eq!(t.actions.list, first);
+    // An absolute tab index has no Photoshop equivalent: it stays out of a strict save.
+    assert!(export_item("document.activate", &json!({"document": 0}), "S").is_none());
+    assert!(export_item("document.activate", &json!({"document": 0, "offset": 1}), "S").is_none());
+
+    let mut one = Session::new();
+    one.execute("file.new", json!({"width": 8, "height": 8, "name": "template"})).unwrap();
+    one.execute("actions.load", json!({"data": data})).unwrap();
+    let r = one.execute("actions.play", json!({"action": "Copy In"})).unwrap();
+    assert_eq!(r["failed"]["step"], 0, "{r}");
+    assert_eq!(r["failed"]["error"], "no document 1 before the active one, which is 1 of 1", "{r}");
+    assert_eq!(one.active().unwrap().doc.layers.len(), 1);
+}
+
 fn set_of(name: &str, actions: Vec<(&str, Vec<AtnItem>)>) -> String {
     let file = AtnFile {
         name: UnicodeString::new_nul(name),
@@ -1556,17 +1626,19 @@ fn remove_white_clears_the_targeted_layer_not_the_converted_background() {
     assert!(bottom.surface().unwrap().sample_channel(2, 2, 1) > 0.99, "and kept its pixels");
 }
 
-/// Measured in Photoshop: `executeAction` fails for the codes `BoxB`, `SrfB`, `Fltn` and
-/// `BlnW` ("the command is not currently available"), while the names `boxblur`,
-/// `surfaceBlur`, `flattenImage`, `blackAndWhite` and the code `FltI` run.
+/// Measured in Photoshop: `executeAction` fails for the codes `BoxB`, `SrfB`, `Fltn`, `BlnW`
+/// and `PhtF` ("the command is not currently available"), while the names `boxblur`,
+/// `surfaceBlur`, `flattenImage`, `blackAndWhite`, `photoFilter` and the code `FltI` run.
 #[test]
 fn events_photoshop_only_runs_by_name_export_by_name_and_old_codes_still_import() {
     let bw = json!({"reds": 40, "yellows": 60, "greens": 40, "cyans": 60, "blues": 20, "magentas": 80, "tint": false, "tintColor": "#e4d5b0"});
+    let photo_filter = json!({"color": "#0022cd", "density": 67, "preserveLuminosity": false});
     let cases = [
         ("filter.blur.boxBlur", json!({"radius": 3}), "boxblur", "BoxB"),
         ("filter.blur.surfaceBlur", json!({"radius": 5, "threshold": 15}), "surfaceBlur", "SrfB"),
         ("layer.flattenImage", json!({}), "FltI", "Fltn"),
         ("image.adjustments.blackWhite", bw, "blackAndWhite", "BlnW"),
+        ("image.adjustments.photoFilter", photo_filter, "photoFilter", "PhtF"),
     ];
     for (id, params, written, legacy) in &cases {
         let exported = export_item(id, params, "S").unwrap_or_else(|| panic!("{id} does not export"));
@@ -1613,7 +1685,7 @@ fn events_photoshop_only_runs_by_name_export_by_name_and_old_codes_still_import(
 
     // Unknown ids, near misses and the legacy codes written as names stay Photoshop steps,
     // never a panic or a wrong command.
-    for event in ["BoxBlur", "boxBlur", "BOXB", "Fltn ", "FLTI", "", "\u{0}\u{0}\u{0}\u{0}", "BlnWx"] {
+    for event in ["BoxBlur", "boxBlur", "BOXB", "Fltn ", "FLTI", "", "\u{0}\u{0}\u{0}\u{0}", "BlnWx", "PHTF", "PhtF ", "photofilter"] {
         let e = event_for(&item(event, "", None).event);
         assert!(e.is_none(), "{event:?} maps to {:?}", e.map(|e| e.ids));
     }
@@ -1624,6 +1696,72 @@ fn events_photoshop_only_runs_by_name_export_by_name_and_old_codes_still_import(
     match (e.from)(&desc("null").with("Rds ", text("x"))) {
         Mapped::Steps(steps) => assert!(steps.iter().all(|(_, p)| p.get("radius").is_none()), "{steps:?}"),
         Mapped::Unsupported { .. } => {}
+    }
+}
+
+/// #8301: Photoshop stops on a Photo Filter step saved as `PhtF` ("not currently available")
+/// and runs the same descriptor under the name `photoFilter`. A recorded step saves by name,
+/// a Photoshop-authored step re-saves by name, and actions saved before with `PhtF` still load
+/// and play the same.
+#[test]
+fn photo_filter_saves_under_the_name_photoshop_runs() {
+    let params = json!({"color": "#0022cd", "density": 67, "preserveLuminosity": false});
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "background": "#808080"})).unwrap();
+    s.execute("actions.record", json!({"name": "Filter"})).unwrap();
+    s.execute("image.adjustments.photoFilter", params.clone()).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+    let saved = s.execute("actions.save", json!({"action": "Filter"})).unwrap();
+    assert_eq!(saved["skipped"], json!([]), "{saved}");
+    let file = atn::parse(&photocraft_paint::tile::b64_decode(saved["data"].as_str().unwrap()).unwrap()).unwrap();
+    let step = &file.actions[0].items[0];
+    assert_eq!(step.event, AtnEvent::Name("photoFilter".into()), "never the code PhtF");
+    assert_eq!(step.dictionary, "Photo Filter".as_bytes());
+    let d = step.descriptor.clone().unwrap();
+    for key in ["Clr ", "Dnst", "PrsL"] {
+        assert!(d.get(key).is_some(), "the descriptor keeps {key}: {d:?}");
+    }
+
+    // A Photoshop-authored step (by name) and an old PhotoCraft one (`PhtF`) both load to the
+    // command, and saving them again writes the name.
+    let data =
+        set_of("S", vec![("Photoshop", vec![item("photoFilter", "Photo Filter", Some(d.clone()))]), ("Legacy", vec![item("PhtF", "Photo Filter", Some(d))])]);
+    let mut t = Session::new();
+    let r = t.execute("actions.load", json!({"data": data})).unwrap();
+    assert_eq!(r["unsupported"], json!([]), "{r}");
+    for a in &t.actions.list {
+        assert_eq!(a.steps.len(), 1, "{}", a.name);
+        assert_eq!(a.steps[0].0, "image.adjustments.photoFilter", "{}", a.name);
+        let mut p = a.steps[0].1.clone();
+        normalise(&mut p);
+        assert_eq!(p, params, "{}", a.name);
+    }
+    let resaved = t.execute("actions.save", json!({"set": "S"})).unwrap();
+    assert_eq!(resaved["skipped"], json!([]), "{resaved}");
+    let file = atn::parse(&photocraft_paint::tile::b64_decode(resaved["data"].as_str().unwrap()).unwrap()).unwrap();
+    let events: Vec<String> = file.actions.iter().flat_map(|a| a.items.iter().map(|i| i.event.id())).collect();
+    assert_eq!(events, ["photoFilter", "photoFilter"]);
+
+    // Both play like the command run directly, at 8 and 16 bits.
+    for depth in [8, 16] {
+        let pixel = |s: &Session| {
+            let st = s.active().unwrap();
+            let surface = st.doc.layers.first().unwrap().surface().unwrap();
+            [0, 1, 2].map(|c| surface.sample_channel(3, 3, c))
+        };
+        let new_doc = |t: &mut Session| {
+            t.execute("file.new", json!({"width": 8, "height": 8, "background": "#808080", "depth": depth})).unwrap();
+        };
+        new_doc(&mut t);
+        t.execute("image.adjustments.photoFilter", params.clone()).unwrap();
+        let direct = pixel(&t);
+        assert_ne!(direct, [128.0 / 255.0; 3], "the filter changes the grey");
+        for action in ["Photoshop", "Legacy"] {
+            new_doc(&mut t);
+            let r = t.execute("actions.play", json!({"action": action})).unwrap();
+            assert!(r.get("failed").is_none(), "{action}: {r}");
+            assert_eq!(pixel(&t), direct, "{action} at {depth} bits");
+        }
     }
 }
 
@@ -2103,6 +2241,24 @@ fn add_noise_with_mask_target_is_not_exported_as_pixel_filter() {
     }
 }
 
+/// Photoshop's Duplicate Layer has no in-place flag: an in-place duplicate (the artboard copy
+/// that stays on the original) must not be exported as a plain duplicate, which places the
+/// copy beside the original on playback.
+#[test]
+fn duplicate_in_place_is_not_exported_as_plain_duplicate() {
+    let in_place = Action { name: "Probe".into(), steps: vec![("layer.duplicate".into(), json!({"inPlace": true}))], ..Default::default() };
+    assert!(export("Audit5", &[&in_place], &[], false).is_err());
+    let (_, skipped) = export("Audit5", &[&in_place], &[], true).unwrap();
+    assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "layer.duplicate".into() }]);
+    for params in [json!({}), json!({"inPlace": false})] {
+        let plain = Action { name: "Plain".into(), steps: vec![("layer.duplicate".into(), params)], ..Default::default() };
+        let (bytes, skipped) = export("Audit5", &[&plain], &[], false).unwrap();
+        assert!(skipped.is_empty());
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps, vec![("layer.duplicate".to_string(), json!({}))]);
+    }
+}
+
 /// A Play Action that starts the called action at a later step must not export as a call of the
 /// whole action: that would replay the steps the recording deliberately skipped.
 #[test]
@@ -2407,4 +2563,92 @@ fn radial_blur_off_center_strict_export_refuses_silent_recentering() {
     ));
     let saved_pixels = s.execute("actions.save", json!({"action": "PixelsTarget"})).unwrap();
     assert_eq!(saved_pixels["steps"], 1);
+}
+
+/// A crop with W x H x Resolution output options must not export as a plain rectangle crop
+/// that keeps the old size and resolution on replay: the mapper has no field for them.
+#[test]
+fn crop_with_output_size_or_resolution_is_not_exported_as_plain_crop() {
+    for params in [
+        json!({"x": 1, "y": 1, "width": 4, "height": 3, "targetWidth": 8, "targetHeight": 6, "resolution": 144, "resample": "nearest"}),
+        json!({"x": 1, "y": 1, "width": 4, "height": 3, "resolution": 144}),
+        json!({"x": 1, "y": 1, "width": 4, "height": 3, "targetWidth": 8, "targetHeight": 6}),
+    ] {
+        let sized = Action { name: "Probe".into(), steps: vec![("image.crop".into(), params)], ..Default::default() };
+        assert!(export("Audit", &[&sized], &[], false).is_err());
+        let (_, skipped) = export("Audit", &[&sized], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "image.crop".into() }]);
+    }
+    let plain = Action { name: "Plain".into(), steps: vec![("image.crop".into(), json!({"x": 1, "y": 1, "width": 4, "height": 3}))], ..Default::default() };
+    let (bytes, skipped) = export("Audit", &[&plain], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let imported = import(&bytes).unwrap();
+    assert_eq!(imported.actions[0].steps, vec![("image.crop".to_string(), json!({"x": 1, "y": 1, "width": 4, "height": 3, "deleteCroppedPixels": true}))]);
+}
+
+/// `image.imageSize` with `resample: "none"` ignores width, height and percent; the `.atn`
+/// round trip must not turn them into a pixel resize (#7189).
+#[test]
+fn image_size_resample_none_keeps_ignoring_its_size_through_atn_export() {
+    let event = event_for(&export_item("image.imageSize", &json!({"resolution": 72}), "S").expect("exports").event).expect("a known event");
+    let back = |p: Value| {
+        let item = export_item("image.imageSize", &p, "S")?;
+        let Mapped::Steps(steps) = (event.from)(item.descriptor.as_ref().unwrap()) else { panic!("does not import back") };
+        let mut back = steps[0].1.clone();
+        normalise(&mut back);
+        Some(back)
+    };
+    for sized in [json!({"width": 12, "height": 10}), json!({"width": 12}), json!({"percent": 200}), json!({"width": 12, "percent": 50, "height": 3})] {
+        let mut p = sized.clone();
+        p["resolution"] = json!(144);
+        p["resample"] = json!("none");
+        assert_eq!(back(p.clone()), Some(json!({"resolution": 144, "resample": "none"})), "{p}");
+    }
+    // A step with nothing left to record is refused rather than exported as an empty (unsupported) event.
+    assert_eq!(back(json!({"width": 12, "height": 10, "resample": "none"})), None);
+    // Real resizes are untouched.
+    assert_eq!(back(json!({"width": 12, "height": 10, "resample": "bicubic"})), Some(json!({"width": 12, "height": 10, "resample": "bicubic"})));
+}
+
+/// #8302, #8308: Hue/Saturation's hue is `H   ` in Photoshop's `Hst2`, both ways. It was written
+/// and read as `Hue `: exported actions failed in Photoshop, and Photoshop-recorded ones lost
+/// their hue on import with no warning. PhotoCraft's own older files (`Hue `) still read.
+#[test]
+fn hue_saturation_uses_photoshops_hue_key() {
+    let params = json!({"colorize": false, "hue": 30, "saturation": 20, "lightness": -7, "greens": {"hue": -12, "saturation": 0, "lightness": 0, "range": [75, 105, 135, 165]}});
+    let a = Action::new("H", vec![("image.adjustments.hueSaturation".into(), params.clone())]);
+    let (bytes, skipped) = export("S", &[&a], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let file = atn::parse(&bytes).unwrap();
+    let d = file.actions[0].items[0].descriptor.clone().expect("a descriptor");
+    let entries: Vec<Descriptor> =
+        get_list(&d, "Adjs").expect("Adjs").iter().filter_map(|e| if let D::Descriptor(e) = e { Some(e.clone()) } else { None }).collect();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(get_num(&entries[0], "H   "), Some(30.0), "the master hue under H");
+    assert_eq!(get_num(&entries[1], "H   "), Some(-12.0), "a range's hue under H");
+    assert!(entries.iter().all(|e| get_num(e, "Hue ").is_none()), "no Hue key");
+
+    // A Photoshop-recorded step (H) and an older PhotoCraft one (Hue ) both import with the hue.
+    let step = |key: &str| {
+        desc("null")
+            .with("presetKind", enm("presetKindType", "presetKindCustom"))
+            .with("Clrz", D::Boolean(false))
+            .with("Adjs", D::List(vec![D::Descriptor(desc("Hst2").with(key, long(30.0)).with("Strt", long(20.0)).with("Lght", long(-7.0)))]))
+    };
+    for key in ["H   ", "Hue "] {
+        let e = event_for(&item("HStr", "", None).event).expect("HStr imports");
+        match (e.from)(&step(key)) {
+            Mapped::Steps(steps) => {
+                assert_eq!(steps[0].0, "image.adjustments.hueSaturation");
+                assert_eq!(steps[0].1["hue"], json!(30.0), "{key:?}: {}", steps[0].1);
+                assert_eq!(steps[0].1["saturation"], json!(20.0));
+            }
+            Mapped::Unsupported { .. } => panic!("{key:?} is unsupported"),
+        }
+    }
+    // Through a whole file, saved and loaded back: the hue survives.
+    let back = import(&bytes).unwrap();
+    let mut p = back.actions[0].steps[0].1.clone();
+    normalise(&mut p);
+    assert_eq!(p["hue"], json!(30), "{p}");
 }

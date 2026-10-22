@@ -906,6 +906,7 @@ impl Session {
         if !crate::brush_cmds::coalesce_journal(self, id, &params) {
             let params = match id {
                 _ if self.actions.recording.is_none() => params,
+                "layer.duplicate" => crate::artboard_cmds::recorded_duplicate(self, crate::layer_multi_cmds::recorded_step(self, id, params, pre_selected)),
                 "layerComp.apply" => crate::comps_cmds::recorded_apply(self, params),
                 _ => crate::layer_multi_cmds::recorded_step(self, id, params, pre_selected),
             };

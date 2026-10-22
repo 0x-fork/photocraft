@@ -217,3 +217,6 @@ sync_github_name = false
 [people.theshubh77]
 real_name = "Shubham Bhamare"
 sync_github_name = true
+
+[people.ksaxena149]
+sync_github_name = true

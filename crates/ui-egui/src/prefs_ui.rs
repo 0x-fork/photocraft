@@ -1497,6 +1497,9 @@ fn rendering_mode_row(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
         }
     });
     ui.label(tl!("Automatic uses GPU acceleration when available and falls back to CPU rendering on errors."));
+    // Next to the setting, as for System Title Bar (#1677): the renderer is picked when the
+    // window opens, so a change otherwise looks like it did nothing (#7939).
+    ui.label(RichText::new(tl!("Applies at next launch.")).color(Tokens::get(ui.ctx()).text_dim));
     ui.add_space(8.0);
 }
 
@@ -1570,8 +1573,11 @@ fn theme_swatch(ui: &mut egui::Ui, kind: ThemeKind, id: &str, selected: &mut Str
     ui.painter().circle(center, BADGE, t.card, egui::Stroke::new(1.0, t.card_border));
     let (icon, tint) = if favorite { ("star-filled", t.accent) } else { ("star", t.text_dim) };
     let action = if favorite { tl!("Remove from favorites") } else { tl!("Add to favorites") };
-    let star = egui::Button::image(crate::icons::image(icon, 10.0, tint)).frame(false);
-    let response = ui.put(badge, star).on_hover_text(action);
+    // Interact and paint without allocating: a widget placed at `badge` would grow the row by the
+    // 4 px the badge overhangs the swatch, re-centring the swatches after this one whenever the
+    // pointer arrives, and oscillating when that moves the swatch out from under it.
+    let response = ui.interact(badge, ui.id().with((id, "favorite")), Sense::click()).on_hover_text(action);
+    crate::icons::paint(ui, badge, icon, 10.0, tint);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{action}: {label}")));
     if response.clicked() {
         if favorite {
@@ -3132,6 +3138,27 @@ mod tests {
         assert_eq!(dark, vec![ThemeKind::Studio]);
     }
 
+    /// The favourite star badge overhangs its swatch; showing it on hover must not move the swatches
+    /// after it, or the row would shift under the pointer.
+    #[test]
+    fn theme_star_badge_on_hover_does_not_move_the_next_swatch() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let (mut app, _) = app_with_store();
+        open_preferences(&mut app, "interface");
+        let mut h = Harness::builder().with_size(vec2(1280.0, 800.0)).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            app
+        });
+        h.run_steps(4);
+        let first = h.get_by_label("Classic").rect();
+        let next = h.get_by_label("Adwaita").rect();
+        h.hover_at(first.right_top() + vec2(-3.0, 3.0));
+        h.run_steps(3);
+        assert!(h.query_by_label("Add to favorites: Classic").is_some(), "the badge shows while the swatch is hovered");
+        assert_eq!(h.get_by_label("Classic").rect(), first);
+        assert_eq!(h.get_by_label("Adwaita").rect(), next);
+    }
+
     #[test]
     fn preferences_interface_shows_language_without_scrolling() {
         // #2532: in a small window the theme cards filled the page and Language sat out of view
@@ -4141,6 +4168,28 @@ mod tests {
         assert!(!h.state().session.prefs().interface.system_title_bar);
         assert_eq!(stored(&store)["interface"]["systemTitleBar"], false);
         assert!(h.state().custom_titlebar);
+    }
+
+    /// #7939: switching Rendering Mode waits for the next launch, and says so next to the setting.
+    #[test]
+    fn rendering_mode_explains_next_launch() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let obj = json!({"renderingMode": "auto", "historyStates": 50}).as_object().unwrap().clone();
+        let mut h = Harness::new_ui_state(
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "performance", obj, &[], crate::i18n::Lang::from_pref("en"), None, ""),
+            obj,
+        );
+        h.run_steps(4);
+        h.get_by_label("Rendering Mode");
+        h.get_by_label("Applies at next launch.");
+        // A search that leaves Rendering Mode out leaves its notice out too.
+        let obj = json!({"renderingMode": "auto", "historyStates": 50}).as_object().unwrap().clone();
+        let mut h = Harness::new_ui_state(
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "performance", obj, &[], crate::i18n::Lang::from_pref("en"), None, "history"),
+            obj,
+        );
+        h.run_steps(4);
+        assert!(h.query_by_label("Applies at next launch.").is_none());
     }
 
     #[test]
