@@ -855,7 +855,8 @@ fn gradient_map_to(p: &Value) -> Option<Descriptor> {
     Some(d)
 }
 
-/// An adjustment: its Photoshop class (also the direct event's code), the command suffix (`image.adjustments.<suffix>`, `layer.newAdjustmentLayer.<suffix>`), and
+/// An adjustment: its Photoshop class (usually also the direct event's code; Black & White and
+/// Photo Filter run by name), the command suffix (`image.adjustments.<suffix>`, `layer.newAdjustmentLayer.<suffix>`), and
 /// the converters between the adjustment descriptor and the command params.
 struct Adjustment {
     class: &'static str,
@@ -3141,7 +3142,8 @@ const EVENTS: &[Event] = &[
     adjustment_event!("ClrB", "ClrB", "colorBalance", "Color Balance"),
     adjustment_event!("Vbrn", "Vbrn", "vibrance", "Vibrance"),
     adjustment_event!("Exps", "Exps", "exposure", "Exposure"),
-    adjustment_event!("PhtF", "PhtF", "photoFilter", "Photo Filter"),
+    // Photoshop runs Photo Filter by name only: `PhtF` is the class, not an event (#8301).
+    adjustment_event!("", "PhtF", "photoFilter", "Photo Filter"),
     adjustment_event!("", "BlnW", "blackAndWhite", "Black & White", "image.adjustments.blackWhite"),
     adjustment_event!("ChnM", "ChnM", "channelMixer", "Channel Mixer"),
     adjustment_event!("GdMp", "GdMp", "gradientMapEvent", "Gradient Map", "image.adjustments.gradientMap"),
@@ -3465,7 +3467,8 @@ const EVENTS: &[Event] = &[
 /// these codes fails ("the command is not currently available"), and `Fltn` is the
 /// `flatness` property, not the flatten event. Import keeps accepting them so actions saved
 /// before still load; export never writes them.
-const LEGACY_CODES: &[(&str, &str)] = &[("BoxB", "boxblur"), ("SrfB", "surfaceBlur"), ("Fltn", "flattenImage"), ("BlnW", "blackAndWhite")];
+const LEGACY_CODES: &[(&str, &str)] =
+    &[("BoxB", "boxblur"), ("SrfB", "surfaceBlur"), ("Fltn", "flattenImage"), ("BlnW", "blackAndWhite"), ("PhtF", "photoFilter")];
 
 fn event_for(item: &AtnEvent) -> Option<&'static Event> {
     let id = item.id();

@@ -1431,17 +1431,19 @@ fn remove_white_clears_the_targeted_layer_not_the_converted_background() {
     assert!(bottom.surface().unwrap().sample_channel(2, 2, 1) > 0.99, "and kept its pixels");
 }
 
-/// Measured in Photoshop: `executeAction` fails for the codes `BoxB`, `SrfB`, `Fltn` and
-/// `BlnW` ("the command is not currently available"), while the names `boxblur`,
-/// `surfaceBlur`, `flattenImage`, `blackAndWhite` and the code `FltI` run.
+/// Measured in Photoshop: `executeAction` fails for the codes `BoxB`, `SrfB`, `Fltn`, `BlnW`
+/// and `PhtF` ("the command is not currently available"), while the names `boxblur`,
+/// `surfaceBlur`, `flattenImage`, `blackAndWhite`, `photoFilter` and the code `FltI` run.
 #[test]
 fn events_photoshop_only_runs_by_name_export_by_name_and_old_codes_still_import() {
     let bw = json!({"reds": 40, "yellows": 60, "greens": 40, "cyans": 60, "blues": 20, "magentas": 80, "tint": false, "tintColor": "#e4d5b0"});
+    let photo_filter = json!({"color": "#0022cd", "density": 67, "preserveLuminosity": false});
     let cases = [
         ("filter.blur.boxBlur", json!({"radius": 3}), "boxblur", "BoxB"),
         ("filter.blur.surfaceBlur", json!({"radius": 5, "threshold": 15}), "surfaceBlur", "SrfB"),
         ("layer.flattenImage", json!({}), "FltI", "Fltn"),
         ("image.adjustments.blackWhite", bw, "blackAndWhite", "BlnW"),
+        ("image.adjustments.photoFilter", photo_filter, "photoFilter", "PhtF"),
     ];
     for (id, params, written, legacy) in &cases {
         let exported = export_item(id, params, "S").unwrap_or_else(|| panic!("{id} does not export"));
@@ -1488,7 +1490,7 @@ fn events_photoshop_only_runs_by_name_export_by_name_and_old_codes_still_import(
 
     // Unknown ids, near misses and the legacy codes written as names stay Photoshop steps,
     // never a panic or a wrong command.
-    for event in ["BoxBlur", "boxBlur", "BOXB", "Fltn ", "FLTI", "", "\u{0}\u{0}\u{0}\u{0}", "BlnWx"] {
+    for event in ["BoxBlur", "boxBlur", "BOXB", "Fltn ", "FLTI", "", "\u{0}\u{0}\u{0}\u{0}", "BlnWx", "PHTF", "PhtF ", "photofilter"] {
         let e = event_for(&item(event, "", None).event);
         assert!(e.is_none(), "{event:?} maps to {:?}", e.map(|e| e.ids));
     }
@@ -1499,6 +1501,72 @@ fn events_photoshop_only_runs_by_name_export_by_name_and_old_codes_still_import(
     match (e.from)(&desc("null").with("Rds ", text("x"))) {
         Mapped::Steps(steps) => assert!(steps.iter().all(|(_, p)| p.get("radius").is_none()), "{steps:?}"),
         Mapped::Unsupported { .. } => {}
+    }
+}
+
+/// #8301: Photoshop stops on a Photo Filter step saved as `PhtF` ("not currently available")
+/// and runs the same descriptor under the name `photoFilter`. A recorded step saves by name,
+/// a Photoshop-authored step re-saves by name, and actions saved before with `PhtF` still load
+/// and play the same.
+#[test]
+fn photo_filter_saves_under_the_name_photoshop_runs() {
+    let params = json!({"color": "#0022cd", "density": 67, "preserveLuminosity": false});
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "background": "#808080"})).unwrap();
+    s.execute("actions.record", json!({"name": "Filter"})).unwrap();
+    s.execute("image.adjustments.photoFilter", params.clone()).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+    let saved = s.execute("actions.save", json!({"action": "Filter"})).unwrap();
+    assert_eq!(saved["skipped"], json!([]), "{saved}");
+    let file = atn::parse(&photocraft_paint::tile::b64_decode(saved["data"].as_str().unwrap()).unwrap()).unwrap();
+    let step = &file.actions[0].items[0];
+    assert_eq!(step.event, AtnEvent::Name("photoFilter".into()), "never the code PhtF");
+    assert_eq!(step.dictionary, "Photo Filter");
+    let d = step.descriptor.clone().unwrap();
+    for key in ["Clr ", "Dnst", "PrsL"] {
+        assert!(d.get(key).is_some(), "the descriptor keeps {key}: {d:?}");
+    }
+
+    // A Photoshop-authored step (by name) and an old PhotoCraft one (`PhtF`) both load to the
+    // command, and saving them again writes the name.
+    let data =
+        set_of("S", vec![("Photoshop", vec![item("photoFilter", "Photo Filter", Some(d.clone()))]), ("Legacy", vec![item("PhtF", "Photo Filter", Some(d))])]);
+    let mut t = Session::new();
+    let r = t.execute("actions.load", json!({"data": data})).unwrap();
+    assert_eq!(r["unsupported"], json!([]), "{r}");
+    for a in &t.actions.list {
+        assert_eq!(a.steps.len(), 1, "{}", a.name);
+        assert_eq!(a.steps[0].0, "image.adjustments.photoFilter", "{}", a.name);
+        let mut p = a.steps[0].1.clone();
+        normalise(&mut p);
+        assert_eq!(p, params, "{}", a.name);
+    }
+    let resaved = t.execute("actions.save", json!({"set": "S"})).unwrap();
+    assert_eq!(resaved["skipped"], json!([]), "{resaved}");
+    let file = atn::parse(&photocraft_paint::tile::b64_decode(resaved["data"].as_str().unwrap()).unwrap()).unwrap();
+    let events: Vec<String> = file.actions.iter().flat_map(|a| a.items.iter().map(|i| i.event.id())).collect();
+    assert_eq!(events, ["photoFilter", "photoFilter"]);
+
+    // Both play like the command run directly, at 8 and 16 bits.
+    for depth in [8, 16] {
+        let pixel = |s: &Session| {
+            let st = s.active().unwrap();
+            let surface = st.doc.layers.first().unwrap().surface().unwrap();
+            [0, 1, 2].map(|c| surface.sample_channel(3, 3, c))
+        };
+        let new_doc = |t: &mut Session| {
+            t.execute("file.new", json!({"width": 8, "height": 8, "background": "#808080", "depth": depth})).unwrap();
+        };
+        new_doc(&mut t);
+        t.execute("image.adjustments.photoFilter", params.clone()).unwrap();
+        let direct = pixel(&t);
+        assert_ne!(direct, [128.0 / 255.0; 3], "the filter changes the grey");
+        for action in ["Photoshop", "Legacy"] {
+            new_doc(&mut t);
+            let r = t.execute("actions.play", json!({"action": action})).unwrap();
+            assert!(r.get("failed").is_none(), "{action}: {r}");
+            assert_eq!(pixel(&t), direct, "{action} at {depth} bits");
+        }
     }
 }
 
