@@ -399,6 +399,7 @@ pub fn render_layer(layer: &Layer, rect: Rect) -> Buffer {
             vector_masks: RenderVectorMasks::default(),
             fx_maps: Default::default(),
             fx_clip: Default::default(),
+            fx_over_budget: false,
             tone_luts: prepare_tones(std::slice::from_ref(layer), 0),
             doc: None,
             layer_keys: Default::default(),
@@ -771,6 +772,9 @@ struct Ctx<'a> {
     fx_maps: std::sync::Mutex<std::collections::HashMap<u64, (std::sync::Arc<effects::FxMaps>, bool)>>,
     /// The rectangle being rendered (a band of [`render_bands`]); see [`effect_region`].
     fx_clip: std::sync::Mutex<Option<Rect>>,
+    /// The whole-region effect maps of this render's layers wouldn't fit in the effect cache
+    /// together ([`fx_over_budget`]), so local ones are clipped to the render rect (#8330).
+    fx_over_budget: bool,
     /// The document being rendered (deep knockouts reveal its Background); `None` for a lone layer.
     doc: Option<&'a Document>,
     /// Effect-map identities of this render's document layers (see [`LayerKeys`]).
@@ -842,6 +846,7 @@ impl<'a> Ctx<'a> {
             vector_masks: RenderVectorMasks::default(),
             fx_maps: Default::default(),
             fx_clip: Default::default(),
+            fx_over_budget: fx_over_budget(&doc.layers, doc.bounds()),
             layer_keys: Default::default(),
             tone_luts: prepare_tones(&doc.layers, 0),
         }
@@ -2156,7 +2161,9 @@ fn fx_cache() -> &'static std::sync::Mutex<FxCache> {
 /// 1920 × 103675 webtoon page each such layer's maps took about 2.4 GB, and a render held them for
 /// every layer at once (60 GB with 25 stroked type layers, #1909). When its effects are local
 /// ([`effects::maps_are_local`]), such a layer's maps are built over the render rectangle padded
-/// by twice the effect reach instead, which gives the same pixels there. Only when `rect`, what
+/// by twice the effect reach instead, which gives the same pixels there. So are any layer's local
+/// maps when the render's whole-region maps wouldn't fit in the effect cache ([`fx_over_budget`]).
+/// Only when `rect`, what
 /// the caller composites the layer over, lies within the render rectangle: a group's effect shape
 /// (or anything else rendering children over a wider area) gets the whole region.
 fn effect_region(layer: &Layer, rect: Rect, cx: &Ctx) -> (Rect, bool) {
@@ -2164,12 +2171,44 @@ fn effect_region(layer: &Layer, rect: Rect, cx: &Ctx) -> (Rect, bool) {
     let region = effect_source_bounds(layer, cx.canvas).inflate(m).intersect(&cx.canvas.inflate(m));
     let clip = *cx.fx_clip.lock().unwrap_or_else(|e| e.into_inner());
     match clip {
-        Some(c) if c.contains_rect(&rect) && advanced::shapeless(layer) && effects::maps_are_local(layer) => {
+        Some(c) if c.contains_rect(&rect) && (advanced::shapeless(layer) || cx.fx_over_budget) && effects::maps_are_local(layer) => {
             let part = region.intersect(&c.inflate(m.saturating_mul(2)));
             (part, part != region)
         }
         _ => (region, false),
     }
+}
+
+/// Whether the effect maps of the visible layers of `layers` (groups included), each over its
+/// whole region, would take more than the effect cache budget together. A render needs all of
+/// them, so when they don't fit, building one evicts the next one needed and every render builds
+/// them all again, seconds even for a small rect (#8330). Counted as [`effects::FxMaps::bytes`]
+/// counts them, with only the shape and one map per enabled effect: a lower bound.
+fn fx_over_budget(layers: &[Layer], canvas: Rect) -> bool {
+    fx_region_bytes(layers, canvas) > effect_cache_budget() as u64
+}
+
+/// The lower bound [`fx_over_budget`] compares with the budget.
+fn fx_region_bytes(layers: &[Layer], canvas: Rect) -> u64 {
+    fn bytes(layers: &[Layer], canvas: Rect, depth: u32) -> u64 {
+        let mut total = 0u64;
+        for l in layers.iter().filter(|l| l.visible) {
+            if effects::has_effects(l) {
+                let m = effects::margin(l);
+                let region = effect_source_bounds(l, canvas).inflate(m).intersect(&canvas.inflate(m));
+                let maps = 1 + l.effects.items.iter().filter(|e| e.enabled()).count() as u64;
+                let px = u64::from(region.width()) * u64::from(region.height());
+                total = total.saturating_add(maps.saturating_mul(px).saturating_mul(4));
+            }
+            if let LayerContent::Group(g) = &l.content
+                && depth < PREPARE_DEPTH
+            {
+                total = total.saturating_add(bytes(&g.children, canvas, depth + 1));
+            }
+        }
+        total
+    }
+    bytes(layers, canvas, 0)
 }
 
 /// The layer's effect maps over its region (layer bounds grown by the effect reach, within the
