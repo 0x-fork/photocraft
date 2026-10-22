@@ -134,3 +134,27 @@ fn crop_image_movement_keeps_its_continuous_camera_mapping() {
     app.ui.tool_options.crop_shield.classic_mode = true;
     assert_pixel_edges(xf.pixel_aligned_for(&app, 1.0), 1.0);
 }
+
+#[test]
+fn animated_active_transform_aligns_the_display_camera_and_preserves_target_pan() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.run("file.new", serde_json::json!({"width": 3000, "height": 2000})).unwrap();
+    app.run("prefs.set", serde_json::json!({"values": {"general.animatedZoom": true}})).unwrap();
+    app.sync_views();
+    for ppp in [1.0, 1.25, 1.5, 2.0] {
+        app.ppp = ppp;
+        app.last_canvas_rect = xform(ppp, [523.0, 471.0]).rect;
+        let v = &mut app.ui.views[0];
+        v.zoom = 3.0;
+        v.center = [1500.0, 1000.0];
+        v.zoom_animating = true;
+        v.display_camera = Some((1.0, [1490.25, 990.75]));
+        let active = ViewXform::active(&app).unwrap();
+        assert_eq!(active.zoom, 1.0 / ppp);
+        assert_pixel_edges(active, ppp);
+        assert!((active.center[0] - 1490.25).abs() <= 0.501);
+        assert!((active.center[1] - 990.75).abs() <= 0.501);
+        assert_eq!(app.ui.views[0].center, [1500.0, 1000.0]);
+        assert_eq!(app.ui.views[0].display_camera, Some((1.0, [1490.25, 990.75])));
+    }
+}
