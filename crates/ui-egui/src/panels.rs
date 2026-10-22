@@ -2131,12 +2131,16 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let pinch_zooms = app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch;
     let animated_zoom = app.session.prefs().general.animated_zoom;
     let touch_gestures = app.session.prefs().enhanced_controls.touch_gestures;
+    let navigator_wheel = egui::Id::new("pc-navigator-wheel");
     if resp.hovered()
         && let Some(crate::wheel_nav::Wheel::Zoom(factor)) =
-            crate::wheel_nav::read_with(&ctx, true, pinch_zooms, animated_zoom, egui::Id::new("pc-navigator-wheel"), true, true, touch_gestures)
+            crate::wheel_nav::read_with(&ctx, true, pinch_zooms, animated_zoom, navigator_wheel, true, true, touch_gestures)
     {
         let view = &mut app.ui.views[idx];
         let next = crate::zoom_levels::clamp(view.zoom * factor, view.doc_size);
+        if next != view.zoom * factor {
+            crate::wheel_nav::settle(&ctx, navigator_wheel);
+        }
         if next != view.zoom {
             view.zoom = next;
             view.fit_pending = false;

@@ -3439,12 +3439,13 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // Enhanced Controls › Enable Gestures off: two fingers on a touch screen neither zoom nor
     // turn the view (#204); the mouse and trackpad are unaffected.
     let touch_gestures = app.session.prefs().enhanced_controls.touch_gestures;
+    let wheel_owner = response.id.with("wheel");
     let wheel = crate::wheel_nav::read_with(
         &ctx,
         app.session.prefs().general.zoom_with_scroll_wheel,
         app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch,
         app.session.prefs().general.animated_zoom,
-        response.id.with("wheel"),
+        wheel_owner,
         nav_hovered,
         app.session.prefs().interface.enable_animations,
         touch_gestures,
@@ -3456,6 +3457,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 // At a limit the view stays put, as in Photoshop: a notch past 12800 % neither
                 // zooms nor slides the image towards the pointer.
                 let nz = crate::zoom_levels::clamp(view.zoom * f, view.doc_size);
+                if nz != view.zoom * f {
+                    crate::wheel_nav::settle(&ctx, wheel_owner);
+                }
                 if nz != view.zoom {
                     // Over the pasteboard the anchor is the image's nearest point (#3720).
                     let at = wheel_anchor(&xf, p, view.doc_size);

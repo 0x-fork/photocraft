@@ -505,6 +505,26 @@ fn animated_alt_scroll_zoom_still_lands_on_one_step_around_the_pointer() {
     assert!((d1[0] - d0[0]).abs() < 0.05 && (d1[1] - d0[1]).abs() < 0.05, "centred on the pointer: {d0:?} -> {d1:?}");
 }
 
+/// Animated Zoom on: notches flicked past 12800 % stop there, and the first notch back zooms out
+/// at once by its ×1/1.1. The rest of the notches the limit swallowed must not eat it.
+#[test]
+fn the_first_animated_notch_back_from_the_limit_zooms_out() {
+    let mut h = harness();
+    {
+        let v = &mut h.state_mut().ui.views[0];
+        (v.zoom, v.fit_pending) = (crate::zoom_levels::MAX / 1.05, false);
+    }
+    let r = h.state().last_canvas_rect;
+    h.hover_at(r.center());
+    h.run_steps(2);
+    wheel(&h, 3.0, Modifiers::ALT);
+    h.step();
+    assert_eq!(zoom(&h), crate::zoom_levels::MAX, "the flick reaches the limit");
+    wheel(&h, -1.0, Modifiers::ALT);
+    h.run_steps(40);
+    assert!((zoom(&h) - crate::zoom_levels::MAX / 1.1).abs() < 1e-2, "one notch back: {}", zoom(&h));
+}
+
 #[test]
 fn alt_scroll_zooms_while_a_temporary_tool_is_held() {
     let mut h = harness();

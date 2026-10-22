@@ -118,11 +118,18 @@ pub(crate) fn interact(
     // Reuse the canvas wheel policy: retain the modifiers of the wheel event while egui
     // smooths it, even if Alt is released before the final part of the notch arrives.
     let cr_hovered = response.hovered();
-    let wheel = crate::wheel_nav::read(ui.ctx(), false, true, animated_zoom, ui.id().with("cr-wheel"), cr_hovered);
+    let cr_wheel = ui.id().with("cr-wheel");
+    let wheel = crate::wheel_nav::read(ui.ctx(), false, true, animated_zoom, cr_wheel, cr_hovered);
     if cr_hovered {
         ui.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
         match wheel {
-            Some(crate::wheel_nav::Wheel::Zoom(factor)) => state.zoom_at(state.scale(viewport, size) * factor, at, viewport, size),
+            Some(crate::wheel_nav::Wheel::Zoom(factor)) => {
+                let zoom = state.scale(viewport, size) * factor;
+                if zoom != zoom.clamp(MIN_ZOOM, MAX_ZOOM) {
+                    crate::wheel_nav::settle(ui.ctx(), cr_wheel);
+                }
+                state.zoom_at(zoom, at, viewport, size);
+            }
             Some(crate::wheel_nav::Wheel::SnapZoom(n)) => {
                 let dir = if n > 0 { 1 } else { -1 };
                 let mut nz = state.scale(viewport, size);

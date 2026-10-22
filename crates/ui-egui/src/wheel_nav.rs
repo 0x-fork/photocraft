@@ -34,7 +34,7 @@
 //! and stays instant. The Alt state is taken from the wheel events and kept until the next wheel
 //! event: releasing Alt while the tail is still settling must not turn it into a pan.
 
-use egui::{Context, Event, Id, InputState, Modifiers, MouseWheelUnit, RawInput, Vec2};
+use egui::{Context, Event, Id, InputState, Modifiers, MouseWheelUnit, RawInput, TouchPhase, Vec2};
 
 /// Zoom factor of one wheel notch: every step is exactly ×1.1.
 pub const NOTCH: f32 = 1.1;
@@ -269,6 +269,67 @@ fn ease_zoom_delta(ctx: &Context, owner: Id, delta: f32) -> f32 {
     released
 }
 
+/// A zoom limit stopped the eased zoom of `owner`: drop what is left of the notch. It would no
+/// longer zoom, only cancel the first notch back (flick to 12800 %, and the notch back did
+/// nothing). This frame's release stays cached, so a second read in the same frame is unchanged.
+pub fn settle(ctx: &Context, owner: Id) {
+    let id = zoom_ease_id(owner);
+    ctx.data_mut(|d| {
+        if let Some(e) = d.get_temp::<ZoomEase>(id) {
+            d.insert_temp(id, ZoomEase { residual: 0.0, ..e });
+        }
+    });
+}
+
+/// Whether a trackpad touch is in progress (egui's `InTouch`), at the start and at the end of a
+/// frame: the start is kept, so every read in one frame sees the same states.
+#[derive(Clone, Copy)]
+struct Touch {
+    frame: u64,
+    at_start: bool,
+    at_end: bool,
+}
+
+/// Per viewport, as egui keeps its wheel state per viewport.
+fn touch_id(ctx: &Context) -> Id {
+    Id::new(("wheel-nav-touch", ctx.viewport_id()))
+}
+
+/// This frame's wheel events (in order) with, for each, whether egui leaves it unsmoothed: during a
+/// trackpad touch, or a point delta under 8 points (`WheelState::on_wheel_event`). Those are
+/// already smooth, and easing them again would only add latency; the rest (notches, and the
+/// big pixel steps browsers report for a mouse wheel) is what Animated Zoom eases.
+fn mark_unsmoothed(ctx: &Context, events: Vec<(MouseWheelUnit, Vec2, Modifiers, TouchPhase)>) -> Vec<(MouseWheelUnit, Vec2, Modifiers, bool)> {
+    let frame = ctx.cumulative_pass_nr();
+    let (horizontal, vertical) = ctx.options(|o| (o.input_options.horizontal_scroll_modifier, o.input_options.vertical_scroll_modifier));
+    // Not read in the previous pass (no canvas then): a touch could have ended unseen, and a
+    // stuck one would leave every later notch un-eased.
+    let id = touch_id(ctx);
+    let mut touch = match ctx.data(|d| d.get_temp::<Touch>(id)) {
+        Some(t) if t.frame == frame => t.at_start,
+        Some(t) if t.frame.saturating_add(1) == frame => t.at_end,
+        _ => false,
+    };
+    let at_start = touch;
+    let mut wheel = Vec::with_capacity(events.len());
+    for (unit, delta, modifiers, phase) in events {
+        match phase {
+            TouchPhase::Start => touch = true,
+            TouchPhase::End | TouchPhase::Cancel => touch = false,
+            TouchPhase::Move => {}
+        }
+        // egui folds a scroll onto one axis by its modifiers before it measures the step.
+        let step = match (modifiers.matches_any(horizontal), modifiers.matches_any(vertical)) {
+            (true, false) | (false, true) => (delta.x + delta.y).abs(),
+            _ => delta.length(),
+        };
+        let instant = touch || (unit == MouseWheelUnit::Point && step < 8.0);
+        wheel.push((unit, delta, modifiers, instant));
+    }
+    ctx.data_mut(|d| d.insert_temp(id, Touch { frame, at_start, at_end: touch }));
+    wheel
+}
+
 /// Read this frame's wheel input. Call it every frame (hovered or not) so the Alt and Shift
 /// states of the gesture follow the latest wheel event. `owner` scopes the snap-zoom
 /// accumulator per viewport. `hovered` gates accumulation: only the viewport receiving
@@ -307,16 +368,17 @@ pub fn read_with(
             Event::MouseWheel { modifiers, .. } => Some(modifiers.shift && !modifiers.command && !modifiers.ctrl),
             _ => None,
         });
-        let wheel: Vec<(MouseWheelUnit, Vec2, Modifiers)> = i
+        let wheel: Vec<(MouseWheelUnit, Vec2, Modifiers, TouchPhase)> = i
             .events
             .iter()
             .filter_map(|e| match e {
-                Event::MouseWheel { unit, delta, modifiers, .. } => Some((*unit, *delta, *modifiers)),
+                Event::MouseWheel { unit, delta, phase, modifiers } => Some((*unit, *delta, *modifiers, *phase)),
                 _ => None,
             })
             .collect();
         (i.smooth_scroll_delta, pinch_factor(i, touch_gestures), latest_alt, latest_shift, wheel, i.content_rect().height())
     });
+    let wheel = mark_unsmoothed(ctx, wheel);
     let alt = match latest_alt {
         Some(a) => {
             ctx.data_mut(|d| d.insert_temp(alt_id(), a));
@@ -339,9 +401,10 @@ pub fn read_with(
     // --- Input classification (hovered viewport only) ---
     // The wheel events that belong to the gesture in progress: Shift+Alt (snap zoom), Alt-only
     // (continuous zoom), Shift-only (snap zoom with zoom_with_wheel), or plain (scroll/zoom).
-    let raw = wheel
+    // `instant`: the part of `raw` egui leaves unsmoothed (a trackpad; see `wheel_events`).
+    let (raw, instant) = wheel
         .iter()
-        .filter(|(_, _, m)| {
+        .filter(|(_, _, m, _)| {
             if alt && shift {
                 m.alt && m.shift && !m.command && !m.ctrl
             } else if alt {
@@ -352,13 +415,14 @@ pub fn read_with(
                 !m.alt && !m.shift && !m.command && !m.ctrl
             }
         })
-        .fold(Vec2::ZERO, |sum, (unit, delta, _)| {
-            sum + *delta
+        .fold((Vec2::ZERO, Vec2::ZERO), |(sum, instant), (unit, delta, _, unsmoothed)| {
+            let d = *delta
                 * match unit {
                     MouseWheelUnit::Point => 1.0,
                     MouseWheelUnit::Line => notch,
                     MouseWheelUnit::Page => page,
-                }
+                };
+            (sum + d, if *unsmoothed { instant + d } else { instant })
         });
     let snap_mode = shift && ((alt && !zoom_with_wheel) || (!alt && zoom_with_wheel));
     let has_pinch = pinch_zooms && zoom_delta.is_finite() && zoom_delta > 0.0 && zoom_delta != 1.0;
@@ -421,11 +485,13 @@ pub fn read_with(
         // modifiers, so it would also carry the unfinished tail of a pan notch into the zoom.
         let wheel_zooms = !shift && (alt != zoom_with_wheel);
         let scroll = if animated_zoom && wheel_zooms {
-            let fed = if alt { raw.y + raw.x } else { raw.y };
-            let eased = ease_zoom_delta(ctx, owner, fed);
+            // Eased as egui eases a wheel: what it leaves unsmoothed (a trackpad) zooms at once.
+            let along = |v: Vec2| if alt { v.y + v.x } else { v.y };
+            let eased = ease_zoom_delta(ctx, owner, along(raw - instant)) + along(instant);
             // The plain wheel zooms through `y`; its sideways part (⌘/Ctrl + wheel, a trackpad's
-            // horizontal scroll) is not a zoom event, so it keeps egui's smoothed pan delta.
-            if alt { Vec2::new(0.0, eased) } else { Vec2::new(scroll.x, eased) }
+            // horizontal scroll) is not a zoom event, so it pans like any scroll: smoothed, or
+            // with Enable Animations off at once (#5721).
+            if alt { Vec2::new(0.0, eased) } else { Vec2::new(if smooth { scroll.x } else { raw.x }, eased) }
         } else {
             ctx.data_mut(|d| d.remove::<ZoomEase>(zoom_ease_id(owner)));
             // Unsmoothed, a plain scroll pans by this frame's own wheel events (none: no tail).
@@ -818,6 +884,117 @@ mod tests {
         assert_eq!(snaps, 1);
         let second = zoom / zoom_after_first;
         assert!((second - NOTCH).abs() < 1e-4, "the second ⌥ notch zooms ×1.1 on its own: {second}");
+    }
+
+    /// A trackpad's ⌥ + two-finger scroll comes in points and is already smooth: egui leaves it
+    /// unsmoothed because smoothing adds latency, so Animated Zoom must not ease it either. Each
+    /// frame zooms by its own events, at once.
+    #[test]
+    fn animated_zoom_does_not_ease_a_trackpad() {
+        let frames =
+            run_zoom(30, |n| if n == 0 { vec![wheel_point(Vec2::new(0.0, 4.0), Modifiers::ALT)] } else { Vec::new() }, |n| f64::from(n) / 60.0, |_| true);
+        assert!((frames[0] - NOTCH.powf(0.1)).abs() < 1e-6, "all of it in the frame it arrives: {:?}", &frames[..4]);
+        assert!(frames[1..].iter().all(|f| *f == 1.0), "no tail after it: {frames:?}");
+    }
+
+    /// Zoom with Scroll Wheel + Animated Zoom with Enable Animations off: the wheel zooms eased, but
+    /// a sideways wheel still pans without a glide (#5721), all of it in the frame it turns.
+    #[test]
+    fn animated_zoom_keeps_the_sideways_wheel_unsmoothed_with_animations_off() {
+        let owner = Id::new("test-sideways-unsmoothed");
+        let ctx = Context::default();
+        configure(&ctx);
+        let pans: Vec<Vec2> = (0..30)
+            .map(|n| {
+                let events = if n == 0 { vec![wheel(Vec2::new(1.0, 0.0), Modifiers::NONE)] } else { Vec::new() };
+                let raw = RawInput { time: Some(f64::from(n) / 60.0), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
+                let mut pan = Vec2::ZERO;
+                let mut out = ctx.run_ui(raw, |ui| {
+                    if let Some(Wheel::Pan(d)) = read_with(ui.ctx(), true, true, true, owner, true, false, true) {
+                        pan = d;
+                    }
+                });
+                out.textures_delta.clear();
+                pan
+            })
+            .collect();
+        assert!(near(pans[0], Vec2::new(40.0, 0.0)), "the whole notch at once: {:?}", &pans[..4]);
+        assert!(pans[1..].iter().all(|p| *p == Vec2::ZERO), "no glide after it: {pans:?}");
+    }
+
+    /// A diagonal point step with ⌥ is measured as egui measures it, folded onto one axis: (5, 5)
+    /// is a 10-point step, which egui smooths, so Animated Zoom eases it.
+    #[test]
+    fn a_diagonal_alt_point_step_is_measured_like_egui() {
+        let frames =
+            run_zoom(60, |n| if n == 0 { vec![wheel_point(Vec2::new(5.0, 5.0), Modifiers::ALT)] } else { Vec::new() }, |n| f64::from(n) / 60.0, |_| true);
+        assert!(frames[0] < NOTCH.powf(0.25) - 1e-4 && frames[1] > 1.0, "eased: {:?}", &frames[..4]);
+    }
+
+    /// A touch whose end nobody read (no canvas in that pass, e.g. the last document closed
+    /// during a trackpad scroll) must not leave later mouse notches un-eased.
+    #[test]
+    fn a_touch_end_nobody_read_does_not_stick() {
+        let owner = Id::new("test-touch-unread-end");
+        let ctx = Context::default();
+        configure(&ctx);
+        let point = |phase: TouchPhase| Event::MouseWheel { unit: MouseWheelUnit::Point, delta: Vec2::ZERO, phase, modifiers: Modifiers::ALT };
+        let mut first = 1.0;
+        for n in 0..10u32 {
+            let events = match n {
+                0 => vec![point(TouchPhase::Start)],
+                2 => vec![point(TouchPhase::End)],
+                5 => vec![wheel(Vec2::new(0.0, 1.0), Modifiers::ALT)],
+                _ => Vec::new(),
+            };
+            let raw = RawInput { time: Some(f64::from(n) / 60.0), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| {
+                // Frames 2-3: nothing reads the wheel.
+                if !(2..4).contains(&n)
+                    && let Some(Wheel::Zoom(f)) = read(ui.ctx(), false, true, true, owner, true)
+                    && n == 5
+                {
+                    first = f;
+                }
+            });
+            out.textures_delta.clear();
+        }
+        assert!(first > 1.0 && first < NOTCH - 1e-3, "the notch is eased: {first}");
+    }
+
+    /// Quick back-and-forth wheeling still lands on whole ×1.1 steps: three notches in and one
+    /// out a frame later is ×1.1², whatever was still easing.
+    #[test]
+    fn a_quick_notch_back_nets_out() {
+        for back_at in [1, 3] {
+            let events = |n: u32| match n {
+                0 => vec![wheel(Vec2::new(0.0, 3.0), Modifiers::ALT)],
+                n if n == back_at => vec![wheel(Vec2::new(0.0, -1.0), Modifiers::ALT)],
+                _ => Vec::new(),
+            };
+            let total: f32 = run_zoom(60, events, |n| f64::from(n) / 60.0, |_| true).iter().product();
+            assert!((total - NOTCH * NOTCH).abs() < 1e-4, "back at frame {back_at}: {total}");
+        }
+    }
+
+    /// A browser reports a mouse notch as a big pixel step (about 100 points in Chrome), which
+    /// egui smooths like a notch: Animated Zoom eases it too. Within a trackpad touch (egui's
+    /// `InTouch`) even big point steps zoom at once.
+    #[test]
+    fn animated_zoom_eases_big_pixel_steps_but_not_a_touch() {
+        let point = |dy: f32, phase: TouchPhase| Event::MouseWheel { unit: MouseWheelUnit::Point, delta: Vec2::new(0.0, dy), phase, modifiers: Modifiers::ALT };
+        let browser = run_zoom(60, |n| if n == 0 { vec![point(100.0, TouchPhase::Move)] } else { Vec::new() }, |n| f64::from(n) / 60.0, |_| true);
+        assert!(browser[0] > 1.0 && browser[0] < NOTCH.powf(2.5) - 1e-3, "eased: {:?}", &browser[..4]);
+        let total: f32 = browser.iter().product();
+        assert!((total - NOTCH.powf(2.5)).abs() < 1e-3, "{total}");
+        let events = |n: u32| match n {
+            0 => vec![point(0.0, TouchPhase::Start)],
+            1 => vec![point(20.0, TouchPhase::Move)],
+            _ => Vec::new(),
+        };
+        let touch = run_zoom(30, events, |n| f64::from(n) / 60.0, |_| true);
+        assert!((touch[1] - NOTCH.powf(0.5)).abs() < 1e-5, "at once: {:?}", &touch[..4]);
+        assert!(touch[2..].iter().all(|f| *f == 1.0), "no tail: {touch:?}");
     }
 
     #[test]
