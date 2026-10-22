@@ -1911,6 +1911,15 @@ fn apply_image_from(d: &Descriptor) -> Mapped {
 }
 
 fn apply_image_to(_: &str, p: &Value) -> Option<Descriptor> {
+    // The optional blending mask has no descriptor mapping: refuse it rather than drop it,
+    // which would widen the edit to the whole layer.
+    let mask_channel = match p.get("mask") {
+        Some(m) => m.get("channel"),
+        None => p.get("maskChannel"),
+    };
+    if mask_channel.is_some_and(|c| !(c.is_null() || c == "none" || c == "")) {
+        return None;
+    }
     let source = p.get("source").cloned().unwrap_or(json!({}));
     let channel = jstr(&source, "channel").unwrap_or("composite");
     let chan = lookup_back(SOURCE_CHANNELS, channel).or_else(|| lookup_back(CHANNELS, channel))?;

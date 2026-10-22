@@ -1829,3 +1829,23 @@ fn transform_with_mask_or_channel_target_is_not_exported_as_layer_transform() {
         assert!(transform_to("edit.transform", &form).is_none());
     }
 }
+
+/// Apply Image's optional blending mask has no `.atn` mapping: a strict export must refuse the
+/// step rather than drop the mask and widen the edit to the whole layer.
+#[test]
+fn apply_image_with_blending_mask_is_not_exported_without_its_mask() {
+    let source = json!({"layer": "Pixels", "channel": "green", "invert": true});
+    for params in [json!({"source": source, "blending": "normal", "mask": {"channel": 0}}), json!({"source": source, "blending": "normal", "maskChannel": 0})] {
+        let masked = Action { name: "Masked".into(), steps: vec![("image.applyImage".into(), params.clone())], ..Default::default() };
+        assert!(export("Audit5", &[&masked], &[], false).is_err(), "{params}");
+        let (_, skipped) = export("Audit5", &[&masked], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Masked".into(), step: 0, id: "image.applyImage".into() }]);
+    }
+    for params in [json!({"source": source, "blending": "normal"}), json!({"source": source, "blending": "normal", "mask": {"channel": "none"}})] {
+        let plain = Action { name: "Plain".into(), steps: vec![("image.applyImage".into(), params.clone())], ..Default::default() };
+        let (bytes, skipped) = export("Audit5", &[&plain], &[], false).unwrap();
+        assert!(skipped.is_empty());
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps, vec![("image.applyImage".to_string(), json!({"source": source, "blending": "normal"}))]);
+    }
+}
