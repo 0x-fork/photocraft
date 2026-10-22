@@ -14,12 +14,12 @@ use serde_json::json;
 
 use crate::PhotocraftApp;
 use crate::color_picker_ui::{hex, not_web_safe, out_of_gamut};
-use photocraft_color::convert::{hsb_to_rgb, rgb_to_hsb};
 use crate::panels::{color_field_fill_id, field_chips, field_hsva, srgb_hsva};
 use crate::state::{ColorPanelMode, ColorRamp};
 use crate::theme::Tokens;
 use crate::widgets;
 use photocraft_color::convert;
+use photocraft_color::convert::{hsb_to_rgb, rgb_to_hsb};
 
 /// Width of the chips column, as the cube field's.
 const CHIPS_W: f32 = 38.0;

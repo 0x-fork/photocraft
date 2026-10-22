@@ -4724,7 +4724,6 @@ mod color_tests {
         }
     }
 
-
     /// The Color panel's hex readout is editable, with or without the leading `#`.
     #[test]
     fn color_panel_hex_field_takes_a_typed_hex() {
