@@ -2172,6 +2172,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Nenhum demarcador para criar a seleção: desenhe um com a ferramenta Caneta ou selecione um no painel Demarcadores.
 	Cancel opening	Cancelar abertura
 	Cancelled opening {name}	Abertura de {name} cancelada
+	Damaged Photoshop document	Documento do Photoshop danificado
+	The document “{name}” may be damaged.	O documento “{name}” pode estar danificado.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Não foi possível ler algumas camadas, pixels ou máscaras. Deseja continuar abrindo?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Se continuar, salvar sobre o original pode descartar permanentemente os dados ilegíveis. Salve uma cópia para manter o original.
 	The document “{name}” does not have an embedded {mode} profile.	O documento “{name}” não tem um perfil {mode} incorporado.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	O documento “{name}” tem um perfil de cores incorporado que não corresponde ao espaço de trabalho {mode} atual.
 	Working: {working}	Espaço de trabalho: {working}

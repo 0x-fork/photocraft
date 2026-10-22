@@ -2499,6 +2499,11 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Нет контура для создания выделения: нарисуйте его инструментом «Перо» или выберите на панели «Контуры».
 	Cancel opening	Отменить открытие
 	Cancelled opening {name}	Открытие {name} отменено
+	Damaged Photoshop document	Повреждённый документ Photoshop
+	The document “{name}” may be damaged.	Документ «{name}», возможно, повреждён.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Не удалось прочитать некоторые слои, пикселы или маски. Продолжить открытие?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Если продолжить, сохранение поверх оригинала может безвозвратно удалить нечитаемые данные. Чтобы сохранить оригинал, сохраните копию.
+	Continue	Продолжить
 	The document “{name}” does not have an embedded {mode} profile.	В документе «{name}» нет встроенного профиля {mode}.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Встроенный цветовой профиль документа «{name}» не совпадает с текущим рабочим пространством {mode}.
 	Working: {working}	Рабочее пространство: {working}

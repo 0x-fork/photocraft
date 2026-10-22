@@ -1605,7 +1605,15 @@ impl PhotocraftApp {
         }
         let import = self.services.import.as_ref().ok_or("no importer configured")?;
         let opts = photocraft_engine::jobs::import_options(self.session.prefs());
-        let (mut doc, warnings) = import(name, bytes, &opts)?;
+        let (mut doc, warnings, damaged) = if photocraft_io::is_psd(bytes) {
+            // Read PSD damage as structured information in the same decode, not by
+            // retrying an error or matching the text of a compatibility warning.
+            let (r, damaged) = photocraft_io::import_for_open(name, bytes, &opts).map_err(|e| e.to_string())?;
+            (r.document, r.warnings, damaged)
+        } else {
+            let (doc, warnings) = import(name, bytes, &opts)?;
+            (doc, warnings, false)
+        };
         // Preferences › Raw Defaults › Resolution, as the engine's open applies it.
         photocraft_engine::file_cmds::raw_defaults(&self.session, &warnings, &mut doc);
         // Edit › Color Settings policies apply on open; Ask When Opening holds the file back
@@ -1621,6 +1629,7 @@ impl PhotocraftApp {
             open_prompt::Held {
                 doc,
                 read_only: photocraft_io::affinity::is_affinity(bytes),
+                damage_pending: damaged,
                 name: name.to_string(),
                 path: path.map(str::to_string),
                 warnings: warnings.clone(),
@@ -3226,6 +3235,8 @@ mod transform_undo_tests;
 #[cfg(test)]
 mod transform_type_tests;
 
+#[cfg(test)]
+mod psd_open_tests;
 #[cfg(test)]
 mod save_identity_tests;
 

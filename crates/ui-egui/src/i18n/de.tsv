@@ -2201,6 +2201,11 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Kein Pfad für eine Auswahl vorhanden: zeichne einen mit dem Stift-Werkzeug oder wähle einen im Pfade-Bedienfeld.
 	Cancel opening	Öffnen abbrechen
 	Cancelled opening {name}	Öffnen von {name} abgebrochen
+	Damaged Photoshop document	Beschädigtes Photoshop-Dokument
+	The document “{name}” may be damaged.	Das Dokument „{name}“ ist möglicherweise beschädigt.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Einige Ebenen, Pixel oder Masken konnten nicht gelesen werden. Möchten Sie das Öffnen fortsetzen?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Wenn Sie fortfahren, kann das Speichern über das Original nicht lesbare Daten dauerhaft verwerfen. Speichern Sie eine Kopie, um das Original zu behalten.
+	Continue	Fortfahren
 	The document “{name}” does not have an embedded {mode} profile.	Das Dokument „{name}“ hat kein eingebettetes {mode}-Profil.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Das Dokument „{name}“ hat ein eingebettetes Farbprofil, das nicht zum aktuellen {mode}-Arbeitsfarbraum passt.
 	Working: {working}	Arbeitsfarbraum: {working}

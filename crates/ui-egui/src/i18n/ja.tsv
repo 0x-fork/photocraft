@@ -2212,6 +2212,11 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	選択範囲を作成するパスがありません。ペンツールで描くか、パスパネルでパスを選択してください。
 	Cancel opening	開くのをキャンセル
 	Cancelled opening {name}	{name} を開くのをキャンセルしました
+	Damaged Photoshop document	破損した Photoshop ドキュメント
+	The document “{name}” may be damaged.	ドキュメント「{name}」は破損している可能性があります。
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	一部のレイヤー、ピクセル、またはマスクを読み込めませんでした。開く処理を続行しますか？
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	続行した場合、元のファイルに上書き保存すると、読み込めなかったデータが完全に失われる可能性があります。元のファイルを残すには、コピーを保存してください。
+	Continue	続行
 	The document “{name}” does not have an embedded {mode} profile.	ドキュメント「{name}」には埋め込み {mode} プロファイルがありません。
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	ドキュメント「{name}」の埋め込みカラープロファイルは、現在の {mode} 作業用スペースと一致しません。
 	Working: {working}	作業用スペース: {working}
