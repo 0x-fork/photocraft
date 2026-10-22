@@ -1521,7 +1521,7 @@ fn photo_filter_saves_under_the_name_photoshop_runs() {
     let file = atn::parse(&photocraft_paint::tile::b64_decode(saved["data"].as_str().unwrap()).unwrap()).unwrap();
     let step = &file.actions[0].items[0];
     assert_eq!(step.event, AtnEvent::Name("photoFilter".into()), "never the code PhtF");
-    assert_eq!(step.dictionary, "Photo Filter");
+    assert_eq!(step.dictionary, "Photo Filter".as_bytes());
     let d = step.descriptor.clone().unwrap();
     for key in ["Clr ", "Dnst", "PrsL"] {
         assert!(d.get(key).is_some(), "the descriptor keeps {key}: {d:?}");
