@@ -262,11 +262,16 @@ fn stand_in_layer(l: &mut Layer, planes: Planes, depth: SampleType, canvas: Rect
 }
 
 /// `doc` as an RGB document carrying the `planes` inks' brightness.
+/// Colours given in RGB or Lab become ink through the document's own CMYK profile, as on the
+/// exact ink path.
 pub(super) fn stand_in(doc: &Document, planes: Planes) -> Document {
     let mut d = doc.clone();
     d.mode = ColorMode::Rgb;
     d.icc_profile = None;
-    d.layers.iter_mut().for_each(|l| stand_in_layer(l, planes, doc.depth, doc.bounds()));
+    let space = crate::cmyk_space(doc);
+    photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
+        d.layers.iter_mut().for_each(|l| stand_in_layer(l, planes, doc.depth, doc.bounds()));
+    });
     d
 }
 

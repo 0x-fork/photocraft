@@ -18,7 +18,10 @@
 //!
 //! Buffers hold straight-alpha `[C, M, Y, K, A]` in 0..1 ink (0 = no ink).
 
+use std::sync::Arc;
+
 use photocraft_color::blend::BlendMode;
+use photocraft_color::convert::CmykSpace;
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::adjust::ToneSpace;
 use photocraft_doc::{Adjustment, Document, Knockout, Layer, LayerContent};
@@ -545,12 +548,15 @@ fn blend_into_fill(backdrop: &mut CmykBuffer, src: &CmykBuffer, l: &Layer, gamma
     }
 }
 
-fn render_tile(doc: &Document, rect: Rect, cx: &Ctx) -> CmykBuffer {
+/// One tile on ink values. `space` is the document's CMYK profile ([`super::cmyk_space`]): a
+/// colour given in RGB or Lab (a fill, say) becomes ink through it, and tiles run on worker
+/// threads, which don't inherit the caller's scope.
+fn render_tile(doc: &Document, rect: Rect, cx: &Ctx, space: Option<&Arc<CmykSpace>>) -> CmykBuffer {
     let mut b = CmykBuffer::transparent(rect);
     // Blends stay clipped to 0..1 whatever the depth: unclipped (HDR) blending would make
     // brightness above 1, i.e. negative ink. Set explicitly, since a tile can run on a thread
     // that is in the middle of an RGB composite of a 32-bit document.
-    super::in_blend_space(false, false, || composite_stack(&doc.layers, &mut b, cx));
+    photocraft_color::convert::with_cmyk_space(space, || super::in_blend_space(false, false, || composite_stack(&doc.layers, &mut b, cx)));
     b
 }
 
@@ -601,7 +607,8 @@ pub fn render_cmyk_tiled(doc: &Document, rect: Rect, tile: i32) -> Option<CmykBu
     if supports(doc) {
         let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
         let cx = Ctx::for_doc(doc, &patterns);
-        return Some(render_with(rect, tile, |t| render_tile(doc, t, &cx)));
+        let space = super::cmyk_space(doc);
+        return Some(render_with(rect, tile, |t| render_tile(doc, t, &cx, space.as_ref())));
     }
     if !split::supports(doc) {
         return None;
@@ -667,11 +674,12 @@ pub fn render_cmyk_bands<E>(doc: &Document, rect: Rect, band_rows: i32, mut sink
     }
     let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
     let cx = Ctx::for_doc(doc, &patterns);
+    let space = super::cmyk_space(doc);
     let rows = super::band_rows_for(rect.width(), band_rows);
     let mut y = rect.y0;
     while y < rect.y1 {
         let y1 = y.saturating_add(rows).min(rect.y1);
-        if let Err(e) = sink(render_with(Rect::new(rect.x0, y, rect.x1, y1), RENDER_TILE, |t| render_tile(doc, t, &cx))) {
+        if let Err(e) = sink(render_with(Rect::new(rect.x0, y, rect.x1, y1), RENDER_TILE, |t| render_tile(doc, t, &cx, space.as_ref()))) {
             return Some(Err(e));
         }
         y = y1;

@@ -1655,3 +1655,45 @@ fn flattening_keeps_exact_inks() {
     let stamp = crate::flatten_to_surface(&d, CMYKA8, None);
     assert_eq!(stamp.pixel(2, 0), vec![0.0, 0.0, 0.0, 1.0, q(0.4)]);
 }
+
+/// A colour given in RGB becomes ink through the document's own CMYK profile, not the built-in
+/// coated one, on both ink paths: a solid fill on the exact path (its tiles render on worker
+/// threads) and a Color Overlay on the split path (its stand-ins).
+#[test]
+fn rgb_colours_become_ink_through_the_document_profile() {
+    let profile = photocraft_cms::synth::cmyk_profile(&photocraft_cms::synth::CmykParams {
+        description: "Test Uncoated".into(),
+        tvi: [0.26, 0.26, 0.26, 0.3],
+        grid_a2b: 5,
+        grid_b2a: 9,
+        ..Default::default()
+    });
+    let bytes = profile.to_bytes();
+    let space = photocraft_color::convert::CmykSpace::for_profile(Some(&bytes));
+    assert!(space.is_some(), "a profile other than the built-in one");
+    let rgb = photocraft_color::Color { mode: ColorMode::Rgb, c: [0.2, 0.5, 0.8, 0.0], alpha: 1.0 };
+    let want = photocraft_color::convert::with_cmyk_space(space.as_ref(), || rgb.in_mode(ColorMode::Cmyk).c);
+    let builtin = rgb.in_mode(ColorMode::Cmyk).c;
+    assert!((0..4).any(|i| (want[i] - builtin[i]).abs() > 0.02), "the profiles differ: {want:?} {builtin:?}");
+    let check = |d: &Document, what: &str| {
+        let got = render_cmyk(d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+        for p in &got.px {
+            assert!((0..4).all(|i| (p[i] - want[i]).abs() <= 1.0 / 255.0) && p[4] == 1.0, "{what}: {p:?}, want {want:?} (built-in {builtin:?})");
+        }
+    };
+
+    let mut exact = doc(8, 4);
+    exact.icc_profile = Some(bytes.clone());
+    exact.layers.push(Layer::new("fill", LayerContent::Fill(photocraft_doc::Fill::Solid(rgb))));
+    assert!(supports(&exact));
+    check(&exact, "solid fill");
+
+    let mut overlay = doc(8, 4);
+    overlay.icc_profile = Some(bytes);
+    let mut l = layer(&[(Rect::new(0, 0, 8, 4), [0.0, 0.0, 0.0, 1.0, 1.0])]);
+    l.effects.enabled = true;
+    l.effects.items.push(Effect::ColorOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), color: rgb });
+    overlay.layers.push(l);
+    assert!(!supports(&overlay) && split::supports(&overlay));
+    check(&overlay, "colour overlay");
+}
