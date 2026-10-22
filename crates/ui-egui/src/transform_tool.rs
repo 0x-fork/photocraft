@@ -3846,25 +3846,28 @@ mod tests {
         }
     }
 
-    /// #5667: New Layer while a dropped file is in Free Transform applies the transform as it
-    /// shows (in the background too), and the place, the new layer and the transform each stay
-    /// their own step: the new layer isn't folded into the place.
+    /// #5667: New Layer while a dropped file is in Free Transform applies the transform first. When
+    /// the commit runs in the background the command is refused until it has landed, then runs: the
+    /// place (which takes the move into its step) and the new layer each stay their own step, in
+    /// that order.
     #[test]
     fn new_layer_applies_the_open_transform() {
         let (mut app, placed, frame, steps) = moved_place();
         let layers = app.session.active().unwrap().doc.layers.len();
-        app.run("layer.new.layer", json!({})).unwrap();
-        end_if_left(&mut app);
+        let err = app.run("layer.new.layer", json!({})).unwrap_err();
+        assert!(err.contains("Free Transform is still being applied"), "refused while the commit runs: {err}");
+        assert_eq!(app.session.active().unwrap().doc.layers.len(), layers, "no layer yet");
         land_jobs(&mut app);
         assert!(app.ui.transform.is_none() && app.transform_preview.is_none(), "the box ended");
         assert_eq!(frame_of(&app, placed), Some(frame.translate(8, 0)), "applied as it showed, not the original");
+        app.run("layer.new.layer", json!({})).unwrap();
         let st = app.session.active().unwrap();
         assert_eq!(st.doc.layers.len(), layers + 1);
-        assert_eq!(st.history.past_len(), steps + 3, "place, New Layer, Free Transform");
-        assert_eq!(st.history.undo_label(), Some("Free Transform"));
+        assert_eq!(st.history.past_len(), steps + 2, "the place with its move, then New Layer");
+        assert_eq!(st.history.undo_label(), Some("New Layer"));
         app.session.undo();
-        assert_eq!(frame_of(&app, placed), Some(frame), "one undo takes back the move only");
-        assert_eq!(app.session.active().unwrap().doc.layers.len(), layers + 1, "the new layer stays");
+        assert_eq!(app.session.active().unwrap().doc.layers.len(), layers, "one undo takes back the new layer");
+        assert_eq!(frame_of(&app, placed), Some(frame.translate(8, 0)), "the transform stays");
     }
 
     /// #5665, the report's second case through the UI with background jobs on, as in the desktop
