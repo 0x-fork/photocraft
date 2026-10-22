@@ -710,6 +710,8 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p: &Value) -> Res
             k
         };
         o.screen_mode = next.to_string();
+        // Tab's view of the chrome (#6760) lasts only while in Full Screen Mode.
+        app.ui.panels.full_screen_chrome = false;
         // Both full-screen modes take the whole display; the menu bar stays in the first.
         let (full_screen, maximized) = ctx.input(|i| (i.viewport().fullscreen.unwrap_or(false), i.viewport().maximized.unwrap_or(false)));
         let was_maximized = ctx.data(|d| d.get_temp::<bool>(was_maximized_id())).unwrap_or(false);
@@ -867,9 +869,12 @@ fn arrange(app: &mut PhotocraftApp, k: &str, p: &Value) -> Result<Value, String>
             let src = app.ui.views.get(i).cloned().ok_or("no document")?;
             let (zoom, loc, rot) =
                 (matches!(k, "matchZoom" | "matchAll"), matches!(k, "matchLocation" | "matchAll"), matches!(k, "matchRotation" | "matchAll"));
-            let apply = |v: &mut crate::state::View| {
+            // Each view stays within its own document's zoom range (a view not drawn yet has no
+            // `doc_size`, so the size comes from the document).
+            let sizes: Vec<[u32; 2]> = app.session.documents().iter().map(|d| [d.doc.size.width, d.doc.size.height]).collect();
+            let apply = |v: &mut crate::state::View, doc: usize| {
                 if zoom {
-                    v.zoom = src.zoom;
+                    v.zoom = crate::zoom_levels::clamp(src.zoom, sizes.get(doc).copied().unwrap_or(v.doc_size));
                 }
                 if loc {
                     v.center = src.center;
@@ -879,8 +884,8 @@ fn arrange(app: &mut PhotocraftApp, k: &str, p: &Value) -> Result<Value, String>
                 }
                 v.fit_pending = false;
             };
-            app.ui.views.iter_mut().for_each(apply);
-            app.ui.windows.iter_mut().for_each(|w| apply(&mut w.view));
+            app.ui.views.iter_mut().enumerate().for_each(|(d, v)| apply(v, d));
+            app.ui.windows.iter_mut().for_each(|w| apply(&mut w.view, w.document));
             Ok(json!({"zoom": src.zoom, "center": src.center, "rotation": src.rotation}))
         }
         _ => Err(format!("unknown arrangement {k}")),

@@ -398,6 +398,20 @@ fn draw_marquee_readout(app: &PhotocraftApp, ctx: &egui::Context, cursor: Pos2, 
     draw_value_readout(app, ctx, "marquee-readout", cursor, ["W:", "H:"], values);
 }
 
+/// A turn of `deg` degrees as the readout beside the pointer shows it, to 0.1° in (-180, 180].
+/// Rounded first so a hair below zero never reads "-0.0°" and a hair above -180 reads "180.0°".
+pub(crate) fn angle_readout(deg: f64) -> String {
+    let d = (deg * 10.0).round() / 10.0;
+    let d = if d == 0.0 {
+        0.0
+    } else if d == -180.0 {
+        180.0
+    } else {
+        d
+    };
+    format!("{d:.1}°")
+}
+
 /// A transformation-values readout beside the pointer (a marquee's or the crop frame's size, an
 /// angle), unless Preferences › Tools › Show Transformation Values is off, as in Photoshop (#204).
 /// The brush HUD isn't one: Show Transformation Values doesn't hide it, so it calls [`draw_readout`].
@@ -582,13 +596,20 @@ pub(crate) fn strokes_live(tool: Tool) -> bool {
     ) || live_retouch_command(tool).is_some()
 }
 
-/// The retouching tools drawn live (`LiveRetouch`), by the command their live stroke previews.
-/// The Healing Brush shows its texture while drawing; the blend comes on release.
+/// The Spot Healing Brush's stroke while dragging: Photoshop shows the area it will heal as a
+/// semi-opaque dark overlay (an image overlay, the same in every UI theme) and heals on release.
+pub(crate) const SPOT_HEALING_TRAIL: Color32 = Color32::from_black_alpha(128);
+
+/// The retouching tools drawn live (`LiveRetouch`; the Background Eraser's and an Impressionist
+/// Pattern Stamp's dabs are laid one by one, `LiveDab`), by the command their live stroke
+/// previews. The Healing Brush shows its texture while drawing; the blend comes on release.
 fn live_retouch_command(tool: Tool) -> Option<&'static str> {
     match tool {
         Tool::CloneStamp => Some("paint.cloneStamp"),
         Tool::Healing => Some("paint.healingBrush"),
         Tool::HistoryBrush => Some("paint.historyBrush"),
+        Tool::PatternStamp => Some("paint.patternStamp"),
+        Tool::BackgroundEraser => Some("paint.backgroundEraser"),
         _ => None,
     }
 }
@@ -707,6 +728,20 @@ fn begin_live_stroke(app: &PhotocraftApp) -> Option<LiveStroke> {
         p["points"] = json!(d.points);
         p["target"] = paint_target(app);
         EngineStroke::Dab(photocraft_engine::retouch_cmds::LiveDab::begin(&app.session, cmd, &p).ok()?)
+    } else if d.tool == Tool::PatternStamp {
+        // The params `retouch_ui::finish_stroke` commits.
+        let mut p = crate::retouch_ui::pattern_stamp_params(app, &d.points);
+        p["points"] = json!(d.points);
+        p["target"] = paint_target(app);
+        if app.ui.tool_options.pattern_stamp_impressionist {
+            EngineStroke::Dab(photocraft_engine::retouch_cmds::live_pattern_impressionist(&app.session, &p).ok()?)
+        } else {
+            EngineStroke::Retouch(photocraft_engine::retouch_cmds::LiveRetouch::begin(&app.session, "paint.patternStamp", &p).ok()?)
+        }
+    } else if d.tool == Tool::BackgroundEraser {
+        // The params `eraser_ui::finish_stroke` commits (layer pixels only).
+        let p = crate::eraser_ui::background_eraser_params(app, &d.points);
+        EngineStroke::Dab(photocraft_engine::eraser_cmds::live_background_eraser(&app.session, &p).ok()?)
     } else if let Some(cmd) = live_retouch_command(d.tool) {
         // The params `retouch_ui::finish_stroke` commits.
         let mut p = if d.tool == Tool::HistoryBrush { json!({}) } else { crate::retouch_ui::clone_params(app)? };
@@ -1170,8 +1205,13 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Ar
     if let Some(shown) = crate::patch_preview::display_doc(app, idx) {
         return shown;
     }
-    // Content-Aware Move drag or box: the result, once computed in the background.
+    // Content-Aware Move drag or box: the result, once computed in the background. It comes
+    // before the reorder preview, which is built from the session document and would drop it.
     if let Some(shown) = crate::cam_preview::display_doc(app, idx) {
+        return shown;
+    }
+    // Live Layers-panel reorder previews the actual composite before mouse release.
+    if let Some(shown) = crate::layers_panel_ui::display_reorder(app, idx) {
         return shown;
     }
     // A blend mode hovered in the Layers panel.
@@ -1631,9 +1671,9 @@ fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, visible:
         damage = Some(crate::adjust_preview::live_switch_damage(app, raw_key, r, visible));
     }
     let preview_key = raw_key ^ display_key;
-    // The Navigator may draw this texture only while it holds the plain document (no live
-    // preview, which can be composited only where the view is).
-    if raw_key == 0 {
+    // The Navigator may draw this texture while it holds the plain document or a drag preview
+    // that updates the full texture (not an adjustment preview composited only where the view is).
+    if raw_key == 0 || navigator_waits_for_drag(app, idx) {
         app.navigator_plain.insert(id);
     } else {
         app.navigator_plain.remove(&id);
@@ -1784,7 +1824,8 @@ fn budget_allowance(app: &PhotocraftApp) -> (u64, u64) {
 /// [`crate::filter_dialog::FilterPreviewKey`] under a finished preview and recompute it inline,
 /// the very stall this avoids.
 pub(crate) fn filter_preview_factor(app: &PhotocraftApp, doc: &Document, cmd: &str, params: &serde_json::Value) -> u32 {
-    let k = crate::filter_dialog::preview_factor(cmd, params, crate::proxy::preview_factor(doc, crate::proxy::reduced_previews(app)));
+    // A smart filter edit re-renders the whole stack: every stage constrains the factor.
+    let k = crate::filter_dialog::smart_preview_factor(doc, cmd, params, crate::proxy::preview_factor(doc, crate::proxy::reduced_previews(app)));
     if cfg!(target_arch = "wasm32") { k } else { crate::proxy::view_factor(k, app.current_zoom()) }
 }
 
@@ -1809,13 +1850,11 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
         return None;
     }
     let cmd = d.fields.get("__command")?.as_str()?.to_string();
-    // Previews edit what the command will: a targeted layer mask included (#780), and a smart
-    // filter being edited is replaced in its stack rather than stacked again (#6324).
+    // Previews edit what the command will: a targeted layer mask included (#780).
     let (cmd, mut params) = if d.fields.contains_key("__smartFilter") {
-        crate::smart_ui::confirm_command(&d.fields, cmd, crate::filter_dialog::params_of(&d.fields))
+        crate::smart_filter_dialog::edit_command(app, &d.fields).ok()?
     } else {
-        let params = app.with_mask_target(&cmd, crate::filter_dialog::params_of(&d.fields));
-        (cmd, params)
+        (cmd.clone(), app.with_mask_target(&cmd, crate::filter_dialog::params_of(&d.fields)))
     };
     // Select and Mask previews in its view mode; holding X shows the image without one.
     if crate::select_mask_view::owns(&d.fields) {
@@ -3240,21 +3279,32 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let t = crate::theme::Tokens::get(&ctx);
             let pasteboard = crate::prefs_ui::pasteboard_color(app);
             let dot_tex = dots(&ctx, &t);
-            for r in crate::artboard_ui::pasteboard_rects(&xf, &doc) {
-                let r = r.intersect(rect);
-                if !r.is_positive() {
+            // Cut around the layers as they are shown, so a loose layer dragged with the Move tool
+            // (or otherwise previewed) is not covered where it now draws.
+            let shown = display_doc(app, idx).0;
+            // Each piece is painted as its own quad (the painter clips to the canvas), so a
+            // rotated view does not paint a piece's bounding box over the boards or loose work.
+            let fill = |q: &[Pos2; 4], tex: Option<egui::TextureId>, color: Color32| {
+                let mut mesh = tex.map_or_else(egui::Mesh::default, egui::Mesh::with_texture);
+                for &p in q {
+                    // Same phase as the dots around the document.
+                    let uv = if tex.is_some() { ((p - rect.min) / 22.0).to_pos2() } else { egui::epaint::WHITE_UV };
+                    mesh.vertices.push(egui::epaint::Vertex { pos: p, uv, color });
+                }
+                mesh.add_triangle(0, 1, 2);
+                mesh.add_triangle(0, 2, 3);
+                painter.add(mesh);
+            };
+            for q in crate::artboard_ui::pasteboard_quads(&xf, &shown) {
+                if !Rect::from_points(&q).intersects(rect) {
                     continue;
                 }
                 match pasteboard {
-                    Some(c) => {
-                        painter.rect_filled(r, 0.0, c);
-                    }
+                    Some(c) => fill(&q, None, c),
                     None => {
-                        painter.rect_filled(r, 0.0, t.canvas);
+                        fill(&q, None, t.canvas);
                         if let Some(id) = dot_tex {
-                            // Same phase as the dots around the document.
-                            let uv = Rect::from_min_max(((r.min - rect.min) / 22.0).to_pos2(), ((r.max - rect.min) / 22.0).to_pos2());
-                            painter.image(id, r, uv, Color32::WHITE);
+                            fill(&q, Some(id), Color32::WHITE);
                         }
                     }
                 }
@@ -3727,6 +3777,16 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         if tool == Tool::RotateView && !over_compass && crate::rotate_view::drag(&ctx, &mut view, &xf, &buttons, response.interact_pointer_pos()) {
             (buttons.started, buttons.dragged, buttons.stopped, buttons.clicked) = (false, false, false, false);
         }
+        // Animated Zoom: a Zoom press held still zooms continuously (zoom_hold.rs); while it does,
+        // it owns the press: no scrub, and its release is no click step.
+        if tool == Tool::Zoom && !transform_owns_pointer {
+            let out = zoom_out(ui.input(|i| i.modifiers.alt));
+            let on_canvas = !under_dialog && !over_compass && response.is_pointer_button_down_on();
+            let hold = crate::zoom_hold::hold_id(idx, primary, ctx.viewport_id());
+            if crate::zoom_hold::update(&ctx, &mut view, &xf, app.session.prefs().general.animated_zoom, out, ppp, on_canvas, hold) {
+                (buttons.started, buttons.dragged, buttons.stopped, buttons.clicked) = (false, false, false, false);
+            }
+        }
         // Zoom tool drags: scrubby zoom or a zoom rectangle (zoom_tool.rs); clicks step below.
         // Like the Hand, the selected Zoom yields to an open Free Transform box (#4799).
         if tool == Tool::Zoom && !transform_owns_pointer && crate::zoom_tool::drag(app, &ctx, &mut view, &xf, &buttons, response.interact_pointer_pos()) {
@@ -3966,7 +4026,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     }
     let xf = if crop_camera { ViewXform { center: view.center, rotation: view.rotation, ..xf } } else { xf };
     let (img_rect, beyond, layer_edges) = painted.unwrap_or_else(|| paint_canvas(app, ui, &view, xf));
-    if primary && !(hand_pan && response.dragged()) {
+    // A Hand drag (the tool, Space or the middle button) keeps every overlay on screen, as in
+    // Photoshop: the Pen path being drawn, paths, guides, grid, transform box (#6592). Only the
+    // tool cursors below give way to the fist.
+    let panning = hand_pan && response.dragged();
+    if primary {
         // The transform preview is image content: it goes under the grid and guides, which
         // stay visible across a layer being transformed (#5086); the box is drawn later.
         crate::transform_tool::draw_content(app, &painter, &xf);
@@ -4002,6 +4066,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             ctx.request_repaint();
         }
         crate::snap_ui::draw(app, &painter, &xf);
+        crate::move_distance::draw(app, &painter, &xf, idx, response.hover_pos());
         // The canvas edge isn't outlined while the pixels past it show (Photoshop's crop preview),
         // nor while the Crop tool hides everything outside its box (Show Cropped Area off).
         if border == photocraft_engine::prefs::CanvasBorder::Line && !beyond && !crate::crop_shield::hides_outside(app) {
@@ -4029,7 +4094,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             }
             command_guide_at(app, tool, d, crate::workspace_ui::sticky_mods(app, ui.input(|i| i.modifiers)))
         });
-        if let Some((vertical, _)) = guide_hover {
+        if panning {
+            // The fist set with the pan above stays (#2196).
+        } else if let Some((vertical, _)) = guide_hover {
             ui.ctx().set_cursor_icon(crate::rulers::guide_cursor(&xf, vertical));
         } else if let Some(p) = response.hover_pos()
             && let Some(c) = crate::transform_tool::cursor(app, &xf, xf.to_doc(p), ui.input(|i| i.modifiers.alt || i.modifiers.command))
@@ -4263,12 +4330,6 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             // ⇧ after a stroke: the straight line a click would paint (#257).
             crate::stroke_constraint::draw_line_preview(app, &painter, &xf, p, tool, held.shift);
         }
-    }
-    if primary && hand_pan && response.dragged() {
-        crate::transform_tool::draw_content(app, &painter, &xf);
-        crate::transform_tool::draw_overlay(app, &painter, &xf);
-        // The Pen's path in progress survives a Space pan, and stays on screen through it (#6592).
-        crate::vector_ui::draw_overlay(app, &painter, &xf, &doc);
     }
     app.tool_override = None;
     if let Some(b) = layer_edges_rect(app, idx) {
@@ -4871,7 +4932,7 @@ fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
         }
         // The frame's angle beside the pointer while it turns (#1792).
         if let (Some(a), Some(h)) = (crate::crop_ui::turning(app), hover) {
-            draw_value_readout(app, painter.ctx(), "crop-angle-readout", h, ["Angle:"], [format!("{a:.1}°")]);
+            draw_value_readout(app, painter.ctx(), "crop-angle-readout", h, ["Angle:"], [angle_readout(a)]);
         } else if let (Some([w, h]), Some(at)) = (crate::crop_ui::sizing(app), hover) {
             // Its W × H while it is drawn or resized (#1919), like the marquee's.
             draw_marquee_readout(app, painter.ctx(), at, size_readout(app, [0.0, 0.0, w, h]));
@@ -5041,6 +5102,11 @@ fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &View
         app.trail = None;
         return;
     };
+    // The Move tool's ΔX/ΔY beside the pointer, for layers and selected pixels alike (#5727).
+    if let Some(values) = crate::move_ui::offset_readout(app) {
+        let at = d.points.last().map_or(d.start, |p| [p[0], p[1]]);
+        draw_value_readout(app, painter.ctx(), "move-readout", xf.to_screen(at[0] as f32, at[1] as f32), ["ΔX:", "ΔY:"], values);
+    }
     // Dragging the selection: its own ants follow the pointer (`selection_shown_offset`).
     if d.sel_move.is_some() {
         return;
@@ -5068,9 +5134,10 @@ fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &View
                 Tool::QuickSelection => Color32::from_white_alpha(40),
                 // The Remove Tool tints what it will remove, like Photoshop's.
                 Tool::Remove => crate::theme::Tokens::get(painter.ctx()).danger.gamma_multiply(0.45),
-                // Photoshop paints the area to heal in half-opaque dark grey; a faint white trail
-                // barely showed on light pixels (#7342).
-                Tool::SpotHealing => Color32::from_black_alpha(128),
+                // Photoshop paints the area to heal in half-opaque dark grey while dragging; a faint
+                // white trail barely showed on light pixels (#7342). The heal itself is computed on
+                // release.
+                Tool::SpotHealing => SPOT_HEALING_TRAIL,
                 _ => Color32::from_white_alpha(60),
             };
             let Some(st) = app.session.active() else { return };
@@ -5629,7 +5696,14 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
                     polygon_click(app, x, y, mods);
                     return;
                 }
-                Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask if crate::type_tool::pointer_down(app, x, y, mods) => {
+                // The Type tools pick the box handle or glyph under the press where the user
+                // clicked: the snapped press can land off an edge handle's grab area (#6819).
+                Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask
+                    if {
+                        let [px, py] = if let ToolEvent::Down { x, y, .. } = raw { [x, y] } else { [x, y] };
+                        crate::type_tool::pointer_down(app, px, py, mods)
+                    } =>
+                {
                     return;
                 }
                 _ => {}
@@ -6173,10 +6247,12 @@ pub fn commit_polygon(app: &mut PhotocraftApp) {
     }
 }
 
-/// Apply the crop tool's rectangle.
+/// Apply the crop tool's rectangle. When `image.crop` refuses it (the error is in the status bar),
+/// the frame, its turn and its box Undo stay for fixing.
 pub fn commit_crop(app: &mut PhotocraftApp) {
     // Never another document's frame (#1918).
     crate::crop_ui::cancel_stale(app);
+    let kept = crate::crop_ui::keep(app);
     // Committing ends the box's own Undo/Redo: from here Edit › Undo reverts the document.
     crate::crop_ui::clear_history(app);
     // ↵ during a drag ends it: the release must not bring back the old document's frame.
@@ -6210,9 +6286,9 @@ pub fn commit_crop(app: &mut PhotocraftApp) {
     }
     // W x H x Resolution (#2443): resample to that size and set the resolution.
     crate::crop_size::commit_params(app, &mut p);
-    if app.run("image.crop", p).is_ok()
-        && let Some(i) = app.session.active_index()
-    {
+    if app.run("image.crop", p).is_err() {
+        crate::crop_ui::restore(app, kept);
+    } else if let Some(i) = app.session.active_index() {
         app.ui.views[i].fit_pending = true;
     }
 }
