@@ -26,6 +26,9 @@ pub struct PenPath {
     /// Re-dragging the final anchor changes its outgoing control only; the incoming curve stays put.
     #[serde(skip)]
     pub adjusting_last: bool,
+    /// ⌥/Alt-dragging the final anchor's incoming handle: it turns alone (#6077).
+    #[serde(skip)]
+    pub adjusting_in: bool,
     /// Drawn with the Curvature Pen: handles follow the anchors (`curvature_refresh`) and
     /// `unlinked` lists its corner points.
     #[serde(default)]
@@ -252,6 +255,7 @@ pub fn pen_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) {
         app.ui.pen = Some(resumed);
     }
     let pen = app.ui.pen.get_or_insert_with(PenPath::default);
+    pen.adjusting_in = false;
     if let Some(first) = pen.knots.first().map(|k| k[0])
         && on_closing_anchor(pen, x, y, tol)
     {
@@ -291,10 +295,14 @@ pub fn pen_move(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) {
     if let Some(pen) = app.ui.pen.as_mut()
         && pen.dragging
     {
-        let adjusting_last = pen.adjusting_last;
+        let (adjusting_last, adjusting_in) = (pen.adjusting_last, pen.adjusting_in);
         if let Some(k) = pen.knots.last_mut() {
             let a = k[0];
             let [x, y] = shift_45(a, [x, y], shift);
+            if adjusting_in {
+                k[1] = [x, y];
+                return;
+            }
             k[2] = [x, y];
             if !adjusting_last {
                 k[1] = [2.0 * a[0] - x, 2.0 * a[1] - y];
@@ -354,6 +362,7 @@ pub fn pen_up(app: &mut PhotocraftApp) {
     let Some(pen) = app.ui.pen.as_mut() else { return };
     pen.dragging = false;
     pen.adjusting_last = false;
+    pen.adjusting_in = false;
     if closing(pen) {
         // A click on the first anchor closes the path and leaves that anchor's handles alone.
         if let Some(k) = pen.knots.last_mut()
@@ -377,21 +386,31 @@ pub fn pen_break_handle(app: &mut PhotocraftApp) {
     pen.adjusting_last = true;
 }
 
-/// ⌥/Alt-press on the last anchor's outgoing handle while drawing grabs that handle alone: the
-/// drag turns it and the incoming curve stays put (#3306). False when the press misses it.
+/// ⌥/Alt-press on one of the last anchor's handles while drawing grabs that handle alone: the
+/// drag turns it and the other handle stays put (#3306, #6077). False when the press misses both.
 pub fn pen_grab_handle(app: &mut PhotocraftApp, x: f64, y: f64) -> bool {
     let tol = 6.0 / f64::from(app.point_zoom().max(0.01));
     let Some(pen) = app.ui.pen.as_mut() else { return false };
     let Some((i, k)) = pen.knots.len().checked_sub(1).zip(pen.knots.last()) else { return false };
     let dist = |p: [f64; 2]| (p[0] - x).hypot(p[1] - y);
-    if k[2] == k[0] || dist(k[2]) >= tol || dist(k[2]) >= dist(k[0]) {
+    // Both handles show only while the outgoing one is pulled out (`draw_overlay`).
+    if k[2] == k[0] {
         return false;
     }
+    let grabbed = |h: [f64; 2]| h != k[0] && dist(h) < tol && dist(h) < dist(k[0]);
+    let incoming = if grabbed(k[2]) && dist(k[2]) <= dist(k[1]) {
+        false
+    } else if grabbed(k[1]) {
+        true
+    } else {
+        return false;
+    };
     if !pen.unlinked.contains(&i) {
         pen.unlinked.push(i);
     }
     pen.dragging = true;
     pen.adjusting_last = true;
+    pen.adjusting_in = incoming;
     true
 }
 
@@ -455,6 +474,7 @@ pub(crate) fn pen_replace(app: &mut PhotocraftApp, path: &Path) {
     pen.unlinked = knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| i).collect();
     pen.dragging = false;
     pen.adjusting_last = false;
+    pen.adjusting_in = false;
     pen.moving = None;
     if pen.curvature {
         curvature_refresh(pen, false);
