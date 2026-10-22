@@ -984,8 +984,38 @@ pub fn adjustment_quantum(depth: photocraft_color::SampleType) -> Option<f32> {
 fn quantize(b: &mut Buffer, q: f32) {
     for p in &mut b.px {
         for v in p.iter_mut() {
-            *v = (*v * q + 0.5).floor() / q;
+            *v = branchless_floor(*v * q + 0.5) / q;
         }
+    }
+}
+
+/// `x.floor()`, bit for bit (signed zeros, infinities and NaNs included), without a call: baseline
+/// x86-64 has no SSE4.1 `roundss`, so `floor` is a software routine there, called once per sample
+/// of the backdrop under every adjustment layer ([`quantize`]). This form has no branch, so the
+/// loop vectorizes.
+#[inline]
+fn branchless_floor(x: f32) -> f32 {
+    // From 2^23 on every f32 is whole. Below it, adding and taking away 2^23 rounds to the
+    // nearest whole number; where that went up, step down.
+    const WHOLE: f32 = 8_388_608.0;
+    let a = x.abs();
+    let r = ((a + WHOLE) - WHOLE).copysign(x);
+    let r = if r > x { r - 1.0 } else { r };
+    if a < WHOLE { r } else { x }
+}
+
+/// Blend an adjustment layer's result (`adjusted`) back into the backdrop it was made from, each
+/// pixel by its coverage `ks` (opacity × mask) in blend mode `mode`.
+fn blend_back(backdrop: &mut [[f32; 4]], adjusted: &[[f32; 4]], ks: impl Iterator<Item = f32>, mode: BlendMode) {
+    for ((b, a), k) in backdrop.iter_mut().zip(adjusted).zip(ks) {
+        if k <= 0.0 {
+            continue;
+        }
+        let s = [a[0], a[1], a[2]];
+        // Normal is the source as it is (`blend_rgb` gives exactly that), and most adjustment
+        // layers are Normal: no per-pixel mode dispatch for them.
+        let blended = if mode == BlendMode::Normal { s } else { blend::blend_rgb(mode, [b[0], b[1], b[2]], s) };
+        *b = [b[0] + (blended[0] - b[0]) * k, b[1] + (blended[1] - b[1]) * k, b[2] + (blended[2] - b[2]) * k, b[3]];
     }
 }
 
@@ -1890,19 +1920,9 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
         cx.apply_adjustment(adj, &mut adjusted);
         // Clipped layers onto an adjustment are uncommon; they composite atop the adjusted result.
         advanced::composite_clipped(clipped, &mut adjusted, cx);
-        for y in rect.y0..rect.y1 {
-            for x in rect.x0..rect.x1 {
-                let i = ((y - rect.y0) as usize) * rect.width() as usize + (x - rect.x0) as usize;
-                let k = opacity * mask_k(&mv, i);
-                if k <= 0.0 {
-                    continue;
-                }
-                // Only `adjusted` has changed; this pixel's original backdrop is still in place.
-                let b = backdrop.px[i];
-                let a = adjusted.px[i];
-                let blended = blend::blend_rgb(layer.blend, [b[0], b[1], b[2]], [a[0], a[1], a[2]]);
-                backdrop.px[i] = [b[0] + (blended[0] - b[0]) * k, b[1] + (blended[1] - b[1]) * k, b[2] + (blended[2] - b[2]) * k, b[3]];
-            }
+        match &mv {
+            Some(m) => blend_back(&mut backdrop.px, &adjusted.px, m.iter().map(|v| opacity * v), layer.blend),
+            None => blend_back(&mut backdrop.px, &adjusted.px, std::iter::repeat(opacity), layer.blend),
         }
         recycle_buffer(adjusted);
         return;

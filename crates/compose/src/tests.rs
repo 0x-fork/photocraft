@@ -3740,3 +3740,19 @@ fn fully_masked_adjustment_tiles_preserve_output_and_skip_tone_work() {
         }
     }
 }
+
+#[test]
+fn branchless_floor_matches_floor_bitwise() {
+    // Every 4099th bit pattern (all exponents, both signs, NaNs and infinities among them), plus
+    // the values either side of the whole numbers and of 2^23 where the rounding steps.
+    let mut xs: Vec<f32> = (0..=u32::MAX).step_by(4099).map(f32::from_bits).collect();
+    for w in [0.0f32, 1.0, 2.0, 254.0, 255.0, 32768.0, 4_194_303.0, 4_194_304.0, 8_388_607.0, 8_388_608.0, 16_777_216.0] {
+        for v in [w, -w] {
+            xs.extend([v, v.next_up(), v.next_down(), v + 0.5, v - 0.5]);
+        }
+    }
+    xs.extend([f32::INFINITY, f32::NEG_INFINITY, f32::NAN, -f32::NAN, f32::MIN_POSITIVE, -f32::MIN_POSITIVE, f32::MAX, f32::MIN]);
+    for x in xs {
+        assert_eq!(branchless_floor(x).to_bits(), x.floor().to_bits(), "{x:e} ({:#010x})", x.to_bits());
+    }
+}
