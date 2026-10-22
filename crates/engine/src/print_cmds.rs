@@ -141,16 +141,27 @@ pub const SPOOLER_BUSY: &str = "the printer driver is busy with another print; t
 /// The GDI route's printers, or why they could not be listed.
 pub type RgbPrinters = std::result::Result<Vec<craft_print::rgb::Printer>, craft_print::rgb::PrintError>;
 
-/// The last answers `system_printer_list` and `rgb_printers` got in this process.
-static LAST_PRINTERS: std::sync::Mutex<Option<Vec<craft_print::Printer>>> = std::sync::Mutex::new(None);
-static LAST_RGB_PRINTERS: std::sync::Mutex<Option<RgbPrinters>> = std::sync::Mutex::new(None);
+/// A list kept with the session's `printer_source` it came from (`None` for the system's printers).
+type Kept<T> = std::sync::Mutex<Option<(Option<PrinterSource>, T)>>;
 
-fn last<T: Clone>(kept: &std::sync::Mutex<Option<T>>) -> Option<T> {
-    kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+/// The last answers `system_printer_list` and `rgb_printers` got in this process.
+static LAST_PRINTERS: Kept<Vec<craft_print::Printer>> = std::sync::Mutex::new(None);
+static LAST_RGB_PRINTERS: Kept<RgbPrinters> = std::sync::Mutex::new(None);
+
+/// The kept list when it came from `source`; a list from other printers is not returned.
+fn last<T: Clone>(kept: &Kept<T>, source: Option<&PrinterSource>) -> Option<T> {
+    let kept = kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (from, list) = kept.as_ref()?;
+    let same = match (from, source) {
+        (None, None) => true,
+        (Some(from), Some(source)) => std::sync::Arc::ptr_eq(from, source),
+        _ => false,
+    };
+    same.then(|| list.clone())
 }
 
-fn keep<T>(kept: &std::sync::Mutex<Option<T>>, value: T) {
-    *kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
+fn keep<T>(kept: &Kept<T>, source: Option<&PrinterSource>, value: T) {
+    *kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((source.cloned(), value));
 }
 
 /// Lists the printers; called with the spooler lock held.
@@ -162,7 +173,7 @@ fn list_system_printers(s: &Session) -> Vec<craft_print::Printer> {
             craft_print::printers()
         }
     };
-    keep(&LAST_PRINTERS, list.clone());
+    keep(&LAST_PRINTERS, s.printer_source.as_ref(), list.clone());
     list
 }
 
@@ -181,7 +192,7 @@ fn list_rgb_printers(s: &Session) -> RgbPrinters {
             craft_print::rgb::printers()
         }
     };
-    keep(&LAST_RGB_PRINTERS, list.clone());
+    keep(&LAST_RGB_PRINTERS, s.printer_source.as_ref(), list.clone());
     list
 }
 
@@ -206,10 +217,11 @@ pub fn rgb_printers(s: &Session) -> RgbPrinters {
 }
 
 /// `rgb_printers` for the UI thread: while another thread lists printers or is in a printer driver
-/// (a print job being handed to the spooler, Print Settings…), the list the last listing in this
-/// process got, without waiting. Only the first listing in the process waits.
+/// (a print job being handed to the spooler, Print Settings…), the list the last listing of the same
+/// printers (the system's, or the same stand-in) got in this process, without waiting. Only the
+/// first listing of those printers waits.
 pub fn rgb_printers_without_waiting(s: &Session) -> RgbPrinters {
-    try_with_spooler(|| list_rgb_printers(s)).or_else(|| last(&LAST_RGB_PRINTERS)).unwrap_or_else(|| rgb_printers(s))
+    try_with_spooler(|| list_rgb_printers(s)).or_else(|| last(&LAST_RGB_PRINTERS, s.printer_source.as_ref())).unwrap_or_else(|| rgb_printers(s))
 }
 
 /// `file.printers` for the UI thread, which lists the printers as `rgb_printers_without_waiting`
@@ -218,7 +230,8 @@ pub fn printers_without_waiting(s: &mut Session) -> Value {
     if stand_in_printers(s.printer_source.as_ref(), cfg!(target_arch = "wasm32")).is_none() && system_spooler().is_none() {
         return system_printers(s, &json!({})).unwrap_or_default();
     }
-    let list = try_with_spooler(|| list_system_printers(s)).or_else(|| last(&LAST_PRINTERS)).unwrap_or_else(|| system_printer_list(s));
+    let list =
+        try_with_spooler(|| list_system_printers(s)).or_else(|| last(&LAST_PRINTERS, s.printer_source.as_ref())).unwrap_or_else(|| system_printer_list(s));
     printers_answer(list)
 }
 

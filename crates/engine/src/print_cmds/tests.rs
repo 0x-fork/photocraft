@@ -735,18 +735,18 @@ fn listings_without_waiting_return_the_last_lists_while_the_spooler_is_busy() {
         counted.fetch_add(1, Ordering::SeqCst);
         vec![craft_print::Printer { name: "Office".into(), default: true, two_sided: None }]
     }));
-    // Lists once, so there are last lists.
-    s.execute("file.printers", json!({})).unwrap();
-    s.execute("file.print.printers", json!({})).unwrap();
     let (held_tx, held) = mpsc::channel();
     let (release, released_rx) = mpsc::channel::<()>();
     let released = Arc::new(AtomicBool::new(false));
     let holder = {
         let released = Arc::clone(&released);
+        let mut lister = Session::new();
+        lister.printer_source = s.printer_source.clone();
         std::thread::spawn(move || {
             with_spooler(|| {
-                // Nothing replaces the last lists while the lock is held.
-                held_tx.send((last(&LAST_PRINTERS), last(&LAST_RGB_PRINTERS))).unwrap();
+                // Lists this stand-in's printers once with the lock held, so another test's listing
+                // cannot replace the last lists before the listings below.
+                held_tx.send((list_system_printers(&lister), list_rgb_printers(&lister))).unwrap();
                 // Bounded, so a listing that waits fails the test rather than hanging it.
                 let _ = released_rx.recv_timeout(std::time::Duration::from_secs(5));
                 released.store(true, Ordering::SeqCst);
@@ -761,8 +761,40 @@ fn listings_without_waiting_return_the_last_lists_while_the_spooler_is_busy() {
     release.send(()).unwrap();
     holder.join().unwrap();
     assert_eq!(asked.load(Ordering::SeqCst), before, "a printer list was asked for while the spooler was busy");
-    assert_eq!(listed, printers_answer(kept.unwrap()));
-    assert_eq!(listed_rgb, kept_rgb.unwrap());
+    assert_eq!(listed, printers_answer(kept));
+    assert_eq!(listed_rgb, kept_rgb);
+}
+
+/// While the spooler is busy, a session whose printers were never listed waits for its own list:
+/// the last lists another session's stand-in got are not its printers.
+#[test]
+fn listings_without_waiting_skip_the_lists_of_another_stand_in() {
+    use std::sync::{Arc, mpsc};
+    let one = |name: &'static str| -> PrinterSource { Arc::new(move || vec![craft_print::Printer { name: name.into(), default: true, two_sided: None }]) };
+    let mut other = Session::new();
+    other.printer_source = Some(one("Elsewhere"));
+    other.execute("file.printers", json!({})).unwrap();
+    other.execute("file.print.printers", json!({})).unwrap();
+    let mut s = Session::new();
+    s.printer_source = Some(one("Proofing"));
+    let (held_tx, held) = mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        with_spooler(|| {
+            held_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        });
+    });
+    held.recv().unwrap();
+    let listed = printers_without_waiting(&mut s);
+    let listed_rgb = rgb_printers_without_waiting(&s);
+    holder.join().unwrap();
+    assert_eq!(listed["printers"], json!([{"name": "Proofing", "default": true}]));
+    let names = listed_rgb.map(|list| list.into_iter().map(|p| p.name).collect::<Vec<_>>());
+    if cfg!(windows) {
+        assert_eq!(names, Ok(vec!["Proofing".to_string()]));
+    } else {
+        assert_eq!(names, Err(craft_print::rgb::PrintError::Unsupported));
+    }
 }
 
 /// Spooling tests run in a child process: `disable_printing` is process-wide and a test above
