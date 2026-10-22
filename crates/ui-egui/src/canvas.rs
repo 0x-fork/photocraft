@@ -4363,9 +4363,19 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         app.hover_doc = response.hover_pos().map(|p| xf.to_doc(p));
     }
     if primary && app.ui.extras.rulers {
+        let before = app.guide_drag;
         crate::rulers::draw_rulers(app, ui, full, &xf);
+        // A guide dragged out of a ruler moved after this frame drew it: draw it again where it is.
+        if app.guide_drag != before {
+            ctx.request_repaint();
+        }
     } else if app.ui.extras.rulers {
         crate::rulers::paint_rulers(app, ui, full, &xf, &doc);
+    }
+    // After the ruler drags above, so the readout shows where the guide is now, and not after a
+    // release ended the drag.
+    if app.session.active_index() == Some(idx) {
+        crate::rulers::draw_guide_drag_readout(app, &ctx);
     }
     crate::rotate_view::overlay(app, &ctx, &painter, &xf, &mut view, &response);
     if primary {

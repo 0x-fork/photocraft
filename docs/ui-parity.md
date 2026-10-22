@@ -1,6 +1,6 @@
 # UI parity: tools, handles, modifiers and feel
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-21 · **Change:** minor (the wheel steps value fields, #5473; Animated Zoom: holding the Zoom tool zooms continuously, #6210; shape Density and Feather, TOOL-214-12, #5846; Pen Auto Add/Delete on the path being drawn, #6140; Show Transform Controls frames every selected layer; guide keys and clicks; menu bar from the keyboard, #4988; Crop tool Content-Aware Fill; on-canvas corner radius widgets, TOOL-214-12; Curvature Pen edits the active path; Clip Thumbnails to Layer Bounds; Pen ⇧ 45°; last selected tool restored at launch; Layers panel filter-type dropdown with Kind, Name and Mode, #5048; Free Transform box and marching ants follow the selection, #5297; History: the trash deletes the selected snapshot, rows drag onto the trash, #5324; smart filter reordering by drag; smart object perspective row corrected to done, #426; Free Transform H/V skew fields; toolbar tool shortcuts can be reassigned; ⇧-dragged guides land on ruler ticks; layer and selection keys; tool keys; spring-loaded tool letters; type formatting keys; Pen Auto Add/Delete, #4144; smart filter rows; stale missing-tool rows corrected: Color Replacement, Red Eye and the Add/Delete Anchor Point pair are live toolbar tools, Frame landed; no percentage changed; selection-modifier and ⌥-wheel rows match their tests) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-21 · **Change:** minor (the wheel steps value fields, #5473; Animated Zoom: holding the Zoom tool zooms continuously, #6210; shape Density and Feather, TOOL-214-12, #5846; a dragged guide shows its X or Y beside the pointer, #7680; Pen Auto Add/Delete on the path being drawn, #6140; Show Transform Controls frames every selected layer; guide keys and clicks; menu bar from the keyboard, #4988; Crop tool Content-Aware Fill; on-canvas corner radius widgets, TOOL-214-12; Curvature Pen edits the active path; Clip Thumbnails to Layer Bounds; Pen ⇧ 45°; last selected tool restored at launch; Layers panel filter-type dropdown with Kind, Name and Mode, #5048; Free Transform box and marching ants follow the selection, #5297; History: the trash deletes the selected snapshot, rows drag onto the trash, #5324; smart filter reordering by drag; smart object perspective row corrected to done, #426; Free Transform H/V skew fields; toolbar tool shortcuts can be reassigned; ⇧-dragged guides land on ruler ticks; layer and selection keys; tool keys; spring-loaded tool letters; type formatting keys; Pen Auto Add/Delete, #4144; smart filter rows; stale missing-tool rows corrected: Color Replacement, Red Eye and the Add/Delete Anchor Point pair are live toolbar tools, Frame landed; no percentage changed; selection-modifier and ⌥-wheel rows match their tests) · **Target:** Adobe Photoshop 2026
 
 How PhotoCraft's direct manipulation compares with Photoshop 2026 (27.11.0): the toolbox, the
 handles and modifier keys of each gesture, nudging, snapping, numeric precision, navigation,
@@ -157,6 +157,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Smart guide distance and spacing labels | missing | |
 | Ruler units px/in/cm/mm/pt/pica/% | done | |
 | ⇧-drag a guide out of a ruler: it lands on the nearest ruler tick | done | `rulers.rs` `snap_to_tick` (#3770) |
+| A dragged guide shows its position beside the pointer (X for vertical, Y for horizontal, in the ruler unit) | done | `rulers.rs` `guide_drag_readout` (#7680) |
 | Status bar follows the ruler unit | partial | #2602 |
 | Ruler corner and gaps drawn as Photoshop | partial | #2600, #2601, #2551 |
 | Guides stored as f64 | missing | `Vec<f32>` (UI-217-20) |
@@ -229,6 +230,7 @@ Paragraph; the rest open as in-app floating windows.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-19 | minor | A guide being moved or dragged out of a ruler shows an `X:` / `Y:` position readout beside the pointer, from the zero point in the ruler unit (#7680) |
 | 2026-10-17 | minor | The wheel steps value fields: a focused field takes it wherever the pointer is (the canvas and panels don't scroll), an unfocused one only a gesture that starts over it (#5473, #4061); no percentage changed |
 | 2026-10-15 | minor | Shape Density and Feather row added as done (TOOL-214-12, #5846) |
 | 2026-10-13 | minor | Menu bar from the keyboard: Alt / F10 focus, Alt+letter, underlined mnemonics (#4988) |
