@@ -780,6 +780,64 @@ mod tests {
         assert!(r.warnings.iter().all(|w| !w.contains("font")), "{:?}", r.warnings);
     }
 
+    /// #4806: text placed by a `transform` (Illustrator writes `matrix(1 0 0 1 x y)` on every text
+    /// element), on the text or on a group around it, lands where resvg draws it. usvg leaves the
+    /// glyph outlines' absolute transforms at identity, so reading them dropped the transform: the
+    /// text went off the canvas or kept its untransformed place and size.
+    ///
+    /// Shaped with the bundled Inter alone, never a system font: on a machine without fonts (a
+    /// bare CI image or VM) the test would otherwise have nothing to check, and the drawing and
+    /// its reference come from the same parse, so both use that face.
+    #[test]
+    fn transformed_text_lands_where_resvg_draws_it() {
+        fn inter() -> Arc<usvg::fontdb::Database> {
+            let mut db = usvg::fontdb::Database::new();
+            db.load_font_data(photocraft_text::fonts::INTER_REGULAR.to_vec());
+            Arc::new(db)
+        }
+        assert!(inter().faces().next().is_some(), "the bundled Inter loads");
+        let font = r#"font-size="24" font-family="Inter" fill="black""#;
+        let cases = [
+            format!(r#"<text transform="translate(10 40)" {font}>IHI</text>"#),
+            format!(r#"<text transform="matrix(1 0 0 1 10 40)" {font}>IHI</text>"#),
+            format!(r#"<text transform="translate(10 0)" x="20" y="40" {font}>IHI</text>"#),
+            format!(r#"<text transform="scale(2)" x="5" y="25" {font}>IHI</text>"#),
+            format!(r#"<g transform="translate(10 40)"><text {font}>IHI</text></g>"#),
+            format!(r#"<g transform="translate(60 0)"><g transform="rotate(90)"><text x="5" y="20" {font}>IHI</text></g></g>"#),
+        ];
+        for c in cases {
+            let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60">{c}</svg>"#);
+            let parsed = parse_with(svg.as_bytes(), inter).unwrap();
+            assert!(!parsed.fontless_text, "{c}");
+            let mut reference = tiny_skia::Pixmap::new(120, 60).unwrap();
+            resvg::render(&parsed.tree, tiny_skia::Transform::default(), &mut reference.as_mut());
+            let r = import_parsed("t", parsed, MAX_GROUP_DEPTH).unwrap();
+            let [layer] = r.document.layers.as_slice() else { panic!("one text layer, got {}: {c}", r.document.layers.len()) };
+            assert!(matches!(layer.content, LayerContent::Group(_)), "text stays outline shapes: {c}");
+            let imported = photocraft_compose::flatten(&r.document);
+            let (mut both, mut either) = (0usize, 0usize);
+            let (mut a_box, mut b_box) = ([i32::MAX, i32::MAX, i32::MIN, i32::MIN], [i32::MAX, i32::MAX, i32::MIN, i32::MIN]);
+            let grow = |bx: &mut [i32; 4], x: i32, y: i32| *bx = [bx[0].min(x), bx[1].min(y), bx[2].max(x), bx[3].max(y)];
+            for (i, px) in reference.pixels().iter().enumerate() {
+                let (x, y) = ((i % 120) as i32, (i / 120) as i32);
+                let (a, b) = (imported.get(x, y)[3] > 0.5, px.alpha() > 127);
+                if a {
+                    grow(&mut a_box, x, y);
+                }
+                if b {
+                    grow(&mut b_box, x, y);
+                }
+                both += usize::from(a && b);
+                either += usize::from(a || b);
+            }
+            assert!(either > 50, "resvg draws the text on the canvas: {c}");
+            // Same place and size to the pixel; the outlines are filled by a different rasteriser,
+            // so the edges of thin stems may differ by half a pixel.
+            assert!(a_box.iter().zip(b_box).all(|(a, b)| (a - b).abs() <= 1), "imported {a_box:?}, resvg {b_box:?}: {c}");
+            assert!(both * 10 >= either * 7, "imported glyphs cover what resvg draws ({both} of {either} px): {c}");
+        }
+    }
+
     /// #4266: a group clipped by one path (the PhotoCraft icon's rounded square) stays editable
     /// shapes with the clip as its vector mask, and looks as resvg draws the drawing; a clip of
     /// two shapes is still rasterised, with the warning.
