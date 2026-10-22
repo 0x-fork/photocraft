@@ -1265,11 +1265,11 @@ fn either_or_flags_are_usage_errors() {
     assert_eq!(code, 2);
     assert!(err.contains("--params"), "{err}");
     let token = "a".repeat(64);
-    for sub in ["mcp", "serve"] {
-        let o = bin().args([sub, "--control-token", token.as_str(), "--control-token-file", "token"]).stdin(Stdio::null()).output().unwrap();
+    for mode in [["mcp", "--bridge", "1"], ["serve", "--port", "0"]] {
+        let o = bin().args(mode).args(["--control-token", token.as_str(), "--control-token-file", "token"]).stdin(Stdio::null()).output().unwrap();
         let err = String::from_utf8_lossy(&o.stderr);
-        assert_eq!(o.status.code(), Some(2), "{sub}: {err}");
-        assert!(err.contains("--control-token-file") && err.contains("cannot be used with"), "{sub}: {err}");
+        assert_eq!(o.status.code(), Some(2), "{mode:?}: {err}");
+        assert!(err.contains("--control-token-file") && err.contains("cannot be used with"), "{mode:?}: {err}");
     }
     for port in ["70000", "x"] {
         let o = bin().args(["serve", "--port", port]).stdin(Stdio::null()).output().unwrap();
@@ -1347,6 +1347,14 @@ fn control_port_env_switches_modes_with_a_notice_and_flags_win() {
 
     // Empty or blank counts as unset: `serve` reads stdio (at its end, so it exits at once) and
     // `mcp` stays headless.
+    // A root on the command line is the headless engine's: the variable can't switch to a bridge
+    // that would drop it.
+    for root in ["--automation-read-root", "--automation-write-root"] {
+        let Exited { code, stderr: err } = with_var(&["mcp", root, "."], "PHOTOCRAFT_CONTROL_PORT", &port.to_string());
+        assert_eq!(code, Some(2), "{root}: {err}");
+        assert!(err.contains(root) && err.contains("cannot be used with 'PHOTOCRAFT_CONTROL_PORT'") && !err.contains("bridging"), "{root}: {err}");
+    }
+
     for empty in ["", "  "] {
         let Exited { code, stderr: err } = with_var(&["serve"], "PHOTOCRAFT_CONTROL_PORT", empty);
         assert!(code == Some(0) && !err.contains("PHOTOCRAFT_CONTROL_PORT"), "{empty:?}: {err}");
@@ -1372,17 +1380,30 @@ fn control_port_env_switches_modes_with_a_notice_and_flags_win() {
 
 /// `--control-token` and `--control-token-file` fall back to `PHOTOCRAFT_CONTROL_TOKEN` and
 /// `PHOTOCRAFT_CONTROL_TOKEN_FILE`. One from the environment and the other as a flag is the
-/// either/or usage error, naming the variable. Help names the token's variable, never its value.
+/// either/or usage error, naming the variable, when a token is used: a stale exported pair doesn't
+/// stop headless `mcp` or stdio `serve`. Help names the token's variable, never its value.
 #[test]
 fn control_token_env_vars_are_the_flags_fallbacks() {
     let token = "a".repeat(64);
+    for mode in [["mcp", "--bridge", "1"], ["serve", "--port", "0"]] {
+        let Exited { code, stderr: err } = with_var(&[&mode[..], &["--control-token", token.as_str()][..]].concat(), "PHOTOCRAFT_CONTROL_TOKEN_FILE", "token");
+        assert_eq!(code, Some(2), "{mode:?}: {err}");
+        assert!(err.contains("PHOTOCRAFT_CONTROL_TOKEN_FILE") && err.contains("cannot be used with"), "{mode:?}: {err}");
+        let Exited { code, stderr: err } = with_var(&[&mode[..], &["--control-token-file", "token"][..]].concat(), "PHOTOCRAFT_CONTROL_TOKEN", &token);
+        assert_eq!(code, Some(2), "{mode:?}: {err}");
+        assert!(err.contains("PHOTOCRAFT_CONTROL_TOKEN") && err.contains("cannot be used with") && !err.contains(&token), "{mode:?}: {err}");
+    }
     for sub in ["mcp", "serve"] {
-        let Exited { code, stderr: err } = with_var(&[sub, "--control-token", token.as_str()], "PHOTOCRAFT_CONTROL_TOKEN_FILE", "token");
-        assert_eq!(code, Some(2), "{sub}: {err}");
-        assert!(err.contains("PHOTOCRAFT_CONTROL_TOKEN_FILE") && err.contains("cannot be used with"), "{sub}: {err}");
-        let Exited { code, stderr: err } = with_var(&[sub, "--control-token-file", "token"], "PHOTOCRAFT_CONTROL_TOKEN", &token);
-        assert_eq!(code, Some(2), "{sub}: {err}");
-        assert!(err.contains("PHOTOCRAFT_CONTROL_TOKEN") && err.contains("cannot be used with") && !err.contains(&token), "{sub}: {err}");
+        let o = bin().arg(sub).env("PHOTOCRAFT_CONTROL_TOKEN", &token).env("PHOTOCRAFT_CONTROL_TOKEN_FILE", "token").stdin(Stdio::null()).output().unwrap();
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(!err.contains("cannot be used with"), "{sub}: {err}");
+        // stdio `serve` exits 0 at the end of its input; how headless `mcp` ends there isn't
+        // pinned, so it only must not be the usage error.
+        if sub == "serve" {
+            assert_eq!(o.status.code(), Some(0), "{sub}: {err}");
+        } else {
+            assert_ne!(o.status.code(), Some(2), "{sub}: {err}");
+        }
         let o = bin().args([sub, "--help"]).env("PHOTOCRAFT_CONTROL_TOKEN", &token).output().unwrap();
         let out = String::from_utf8_lossy(&o.stdout);
         assert!(out.contains("[env: PHOTOCRAFT_CONTROL_TOKEN]") && !out.contains(&token), "{sub}: {out}");

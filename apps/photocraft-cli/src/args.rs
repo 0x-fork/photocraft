@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use clap::error::ErrorKind;
 use clap::parser::ValueSource;
 use clap::{ArgAction, ArgGroup, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
-use photocraft_automation::args::{AutomationArgs, ControlArgs, blank_env_is_unset, control_port, name_env_vars};
+use photocraft_automation::args::{AutomationArgs, ControlArgs, blank_env_is_unset, conflict, control_port, name_env_vars};
 use photocraft_codecs::{JpegFormat, TiffCompression};
 use photocraft_io::{DdsCompression, DpxBits, TgaBits};
 use serde_json::Value;
@@ -352,10 +352,29 @@ pub(crate) fn parse(args: &[OsString]) -> Result<Cli, clap::Error> {
             {
                 return Err(cmd.error(ErrorKind::ValueValidation, format!("invalid value '{v}' for 'PHOTOCRAFT_CONTROL_PORT': {}", ValueError::Bridge)));
             }
+            if let Some(sub) = cmd.find_subcommand_mut(name) {
+                // Only the bridge reads a token, so a stale exported pair doesn't stop a headless
+                // run.
+                if a.bridge.is_some() {
+                    conflict(sub, m, "control_token", "control_token_file")?;
+                }
+                // The roots are the headless engine's: the variable switching to the bridge would
+                // drop them.
+                if a.bridge_from_env {
+                    conflict(sub, m, "automation_read_root", "bridge")?;
+                    conflict(sub, m, "automation_write_root", "bridge")?;
+                }
+            }
             check_server(cmd.find_subcommand_mut(name), m, "bridge")?;
         }
         (Command::Serve(a), Some((name, m))) => {
             a.port_from_env = from_env(m, "port");
+            // Only the TCP server reads a token, so a stale exported pair doesn't stop stdio.
+            if a.port.is_some()
+                && let Some(sub) = cmd.find_subcommand_mut(name)
+            {
+                conflict(sub, m, "control_token", "control_token_file")?;
+            }
             check_server(cmd.find_subcommand_mut(name), m, "port")?;
         }
         _ => {}

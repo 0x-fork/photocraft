@@ -4,13 +4,16 @@
 //!
 //! Parse with [`blank_env_is_unset`] applied to the arguments, so an empty variable counts as unset,
 //! and pass a parse error through [`name_env_vars`], so a bad value names the variable it came from.
+//! Check the token pair with [`conflict`] only where a token is used, so a stale exported pair
+//! doesn't stop a launch that needs none.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::builder::NonEmptyStringValueParser;
-use clap::error::{ContextKind, ContextValue};
-use clap::{Arg, Args, Command};
+use clap::error::{ContextKind, ContextValue, ErrorKind};
+use clap::parser::ValueSource;
+use clap::{Arg, ArgMatches, Args, Command};
 
 use crate::{AuthorizedWorkspace, AutomationError};
 
@@ -18,7 +21,7 @@ use crate::{AuthorizedWorkspace, AutomationError};
 #[derive(Args)]
 pub struct ControlArgs {
     /// The control token (64 hex digits)
-    #[arg(long, value_name = "64-HEX", env = "PHOTOCRAFT_CONTROL_TOKEN", hide_env_values = true, value_parser = NonEmptyStringValueParser::new(), conflicts_with = "control_token_file")]
+    #[arg(long, value_name = "64-HEX", env = "PHOTOCRAFT_CONTROL_TOKEN", hide_env_values = true, value_parser = NonEmptyStringValueParser::new())]
     pub control_token: Option<String>,
     /// A file holding the control token, used instead of --control-token (a server creates it
     /// when missing)
@@ -80,6 +83,24 @@ pub fn name_env_vars(mut error: clap::Error, cmd: &Command, args: &[OsString]) -
         }
     }
     error
+}
+
+/// clap's either/or usage error when `m`, parsed by `cmd`, has both `a` and `b`, each named as it was
+/// given: the flag, or its variable. For a conflict that depends on the mode, such as the token pair
+/// (only a server or bridge reads a token), which clap's `conflicts_with` can't express.
+pub fn conflict(cmd: &mut Command, m: &ArgMatches, a: &str, b: &str) -> Result<(), clap::Error> {
+    if m.value_source(a).is_none() || m.value_source(b).is_none() {
+        return Ok(());
+    }
+    let shown = |id: &str| {
+        let arg = cmd.get_arguments().find(|arg| arg.get_id() == id);
+        match (m.value_source(id), arg.and_then(Arg::get_env)) {
+            (Some(ValueSource::EnvVariable), Some(var)) => var.to_string_lossy().into_owned(),
+            _ => arg.map_or_else(|| id.to_owned(), |arg| arg.to_string()),
+        }
+    };
+    let message = format!("the argument '{}' cannot be used with '{}'", shown(a), shown(b));
+    Err(cmd.error(ErrorKind::ArgumentConflict, message))
 }
 
 #[cfg(test)]
