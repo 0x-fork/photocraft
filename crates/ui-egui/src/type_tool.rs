@@ -2397,7 +2397,7 @@ fn icon_label(ui: &mut egui::Ui, icon: &str, tip: &str) {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(crate::props_layout::LABEL_W, 22.0), egui::Sense::hover());
     crate::icons::paint(ui, r, icon, 12.0, t.text_dim);
     // Photoshop's Character panel icons scrub the field beside them.
-    crate::widgets::scrub_label(ui, &resp.on_hover_text(tip));
+    crate::widgets::scrub_label(ui, &resp.on_hover_text(tl!(tip)));
 }
 
 /// Labelled numeric field (Photoshop's icon + value pairs). Returns the new value when edited.
