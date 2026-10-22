@@ -12,9 +12,16 @@ pub(crate) struct Runtime {
 }
 
 pub(crate) fn check(app: &mut PhotocraftApp, _ctx: &egui::Context, params: Value) -> Result<Value, String> {
+    let before = app.session.updates.status.clone();
     let result = app.run("help.checkForUpdates", params);
-    // A check that fails to start still shows its failure and Check Again; the command error stands.
-    if result.is_ok() || matches!(app.session.updates.status, Status::Failed { .. }) {
+    // A check that fails to start still shows its failure and Check Again; the command error
+    // stands. Only this call's failure: a Failed left from an earlier check doesn't open the
+    // window for a call refused for another reason (bad params).
+    let failed_to_start = match (&result, &app.session.updates.status) {
+        (Err(error), status @ Status::Failed { message }) => *status != before || (!message.is_empty() && error.contains(message.as_str())),
+        _ => false,
+    };
+    if result.is_ok() || failed_to_start {
         app.ui.updates_open = true;
         app.updates_rt.startup_checked = true;
     }
@@ -222,11 +229,19 @@ mod tests {
         assert!(error.contains("Could not start worker"), "{error}");
         assert!(matches!(app.session.updates.status, Status::Failed { .. }));
         assert!(app.ui.updates_open, "the failure and Check Again are shown");
-        // Bad params are a caller error, not a failed check: nothing opens.
+        // Bad params are a caller error, not a failed check: nothing opens, also while the earlier
+        // failure is still the status.
         app.ui.updates_open = false;
+        assert!(menus::invoke(&mut app, &ctx, "help.checkForUpdates", serde_json::json!({"x": 1})).is_err());
+        assert!(matches!(app.session.updates.status, Status::Failed { .. }), "the earlier failure stays");
+        assert!(!app.ui.updates_open, "bad params after a failed check");
         app.session.updates.status = Status::Idle;
         assert!(menus::invoke(&mut app, &ctx, "help.checkForUpdates", serde_json::json!({"x": 1})).is_err());
         assert!(!app.ui.updates_open);
+        // The same start failure again opens it again.
+        app.session.updates.status = Status::Failed { message: "Could not start worker".into() };
+        assert!(menus::invoke(&mut app, &ctx, "help.checkForUpdates", serde_json::json!({})).is_err());
+        assert!(app.ui.updates_open, "a repeated start failure");
     }
 
     #[test]
