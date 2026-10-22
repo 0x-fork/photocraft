@@ -881,7 +881,7 @@ fn adjusted_spectrum(v: &Value, n: usize) -> Vec<Color32> {
     let rect = photocraft_geom::Rect::new(0, 0, n as i32, 1);
     let px = (0..n)
         .map(|i| {
-            let c = crate::color_picker_ui::hsv_to_rgb(i as f32 / (n - 1).max(1) as f32 * 360.0, 1.0, 1.0);
+            let c = photocraft_color::convert::hsb_to_rgb([i as f32 / (n - 1).max(1) as f32 * 360.0, 1.0, 1.0]);
             [c[0], c[1], c[2], 1.0]
         })
         .collect();

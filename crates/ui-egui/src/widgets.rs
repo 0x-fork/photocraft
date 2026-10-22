@@ -1451,7 +1451,7 @@ pub fn vline(ui: &mut Ui, height: f32) {
 /// The fully saturated colour at hue `deg` (degrees), built on sRGB values as Photoshop's hue
 /// tracks are: 0 is (255,0,0), 60 is (255,255,0), 120 is (0,255,0) and so on (#6540).
 pub fn hue_color(deg: f32) -> Color32 {
-    let [r, g, b] = crate::color_picker_ui::hsv_to_rgb(deg, 1.0, 1.0);
+    let [r, g, b] = photocraft_color::convert::hsb_to_rgb([deg, 1.0, 1.0]);
     let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
     Color32::from_rgb(q(r), q(g), q(b))
 }
