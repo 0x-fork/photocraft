@@ -276,11 +276,35 @@ pub(crate) fn join(dir: &str, name: &str) -> String {
     }
 }
 
-/// A file-name-safe version of a layer name.
+/// A file-name-safe version of a layer name. A Windows device name (`nul`, `con.v2`) gets a `_`
+/// before its first dot, so the file or folder is usable on Windows, wherever it was written.
 pub(crate) fn sanitize(name: &str) -> String {
     let s: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | ' ' | '.') { c } else { '_' }).collect();
     let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() { "layer".into() } else { s }
+    if s.is_empty() { "layer".into() } else { portable_device_name(s) }
+}
+
+/// `name` with a `_` before its first dot when it is a Windows device name (`nul` → `nul_`,
+/// `com1.v2` → `com1_.v2`); a `_` at the end would leave the device stem in place.
+pub(crate) fn portable_device_name(name: String) -> String {
+    if !is_windows_device_name(&name) {
+        return name;
+    }
+    match name.split_once('.') {
+        Some((device, rest)) => format!("{device}_.{rest}"),
+        None => format!("{name}_"),
+    }
+}
+
+/// Whether `component` names a Windows device (`CON`, `NUL`, `COM1`…, with any extension):
+/// Windows opens the device instead of a file or folder of that name. `COM` and `LPT` take the
+/// superscript digits ¹ ² ³ as well, as Windows does.
+pub(crate) fn is_windows_device_name(component: &str) -> bool {
+    let stem = component.split('.').next().unwrap_or(component).trim_end_matches(' ').to_ascii_uppercase();
+    let port = |n: &str| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³");
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$")
+        || stem.strip_prefix("COM").is_some_and(port)
+        || stem.strip_prefix("LPT").is_some_and(port)
 }
 
 pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
@@ -762,7 +786,42 @@ fn xml_escape(s: &str) -> String {
 }
 
 fn xml_unescape(s: &str) -> String {
-    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let decoded = rest.as_bytes().iter().take(13).position(|&b| b == b';').and_then(|e| {
+            let c = match &rest[1..e] {
+                "lt" => '<',
+                "gt" => '>',
+                "quot" => '"',
+                "apos" => '\'',
+                "amp" => '&',
+                n => {
+                    let n = n.strip_prefix('#')?;
+                    let code = match n.strip_prefix(['x', 'X']) {
+                        Some(h) => u32::from_str_radix(h, 16).ok()?,
+                        None => n.parse().ok()?,
+                    };
+                    char::from_u32(code)?
+                }
+            };
+            Some((c, e + 1))
+        });
+        match decoded {
+            Some((c, len)) => {
+                out.push(c);
+                rest = &rest[len..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The element `<tag …>…</tag>` (first occurrence) as (start, end, inner).
@@ -863,6 +922,18 @@ fn short_num(v: f64, decimals: usize) -> String {
     if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
 }
 
+/// `v` to three significant digits, with no trailing zeros (0.031714 → "0.0317", 0.4 → "0.4").
+/// Two decimals threw away most of a slow shutter speed: a stored 0.031714 s printed as "0.03 s",
+/// which is 5 % off, and a stored 0.0215 s printed as "0.02 s", 7 % off (#6958).
+fn sig3(v: f64) -> String {
+    let magnitude = v.abs().log10().floor();
+    // Clamped at both ends: a value at the large end must not ask for a negative field width, and
+    // at the small end the field is widened rather than truncated, so a positive exposure never
+    // reads as "0 s". 320 is beyond f64's decimal range, so it always terminates.
+    let decimals = if magnitude.is_finite() { (2.0 - magnitude).clamp(0.0, 320.0) } else { 0.0 };
+    short_num(v, decimals as usize)
+}
+
 /// Exposure time as cameras print it: "1/250 s" for fractions of a second, "0.4 s" or "2 s"
 /// when the reciprocal isn't a whole number or the exposure is a second or longer.
 fn exposure_text(t: f64) -> Option<String> {
@@ -870,10 +941,18 @@ fn exposure_text(t: f64) -> Option<String> {
         return None;
     }
     let r = 1.0 / t;
-    if t < 1.0 && r.round() > 1.0 && (r - r.round()).abs() <= r * 0.01 {
-        return Some(format!("1/{} s", r.round()));
+    let n = r.round();
+    // Below 1/10 s the reciprocal is above 10, so its nearest whole number puts the shown time
+    // within 5 % of the stored one, and is the form a photographer expects ("1/32 s"). The test
+    // used to be relative to the reciprocal, so it shrank as the exposure slowed: under 1/50 s it
+    // fell below half a rounding step and nearly every fraction fell through to the decimal form
+    // (#6958). Above 1/10 s the fraction is only right when the reciprocal is very nearly whole
+    // (1/2 s, 1/4 s) — 0.4 s stays "0.4 s" rather than becoming "1/3 s".
+    let fraction = n.is_finite() && (1.0..=1e9).contains(&n) && (t < 0.1 || (t < 1.0 && n > 1.0 && (r - n).abs() <= r * 0.01));
+    if fraction {
+        return Some(format!("1/{} s", n as u64));
     }
-    Some(format!("{} s", short_num(t, if t < 1.0 { 2 } else { 1 })))
+    Some(format!("{} s", sig3(t)))
 }
 
 /// EXIF (`2024:02:17 12:40:19`) or XMP (`2024-02-17T12:40:19.00+01:00`) dates as

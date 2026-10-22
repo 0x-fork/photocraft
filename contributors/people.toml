@@ -197,3 +197,7 @@ sync_github_name = true
 
 [people.webdevtodayjason]
 display_name = "Jason Brashear"
+
+[people.AndreeSalazar]
+real_name = "Andreé Salazar"
+sync_github_name = true

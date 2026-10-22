@@ -1255,6 +1255,7 @@ fn humanize(key: &str) -> String {
 
 fn choice_label(v: &str) -> String {
     match v {
+        "exr" => "EXR".into(),
         "cm" => "Centimeters".into(),
         "mm" => "Millimeters".into(),
         "75" | "80" | "85" | "90" | "95" | "100" | "125" | "150" | "175" | "200" | "250" | "300" => format!("{v}%"),
@@ -1512,6 +1513,7 @@ fn has_visible_fields(values: &Value, section: &str) -> bool {
 fn export_field_visible(obj: &Map<String, Value>, key: &str) -> bool {
     let format = obj.get("quickExportFormat").and_then(Value::as_str).unwrap_or("png");
     match key {
+        "convertToSrgb" | "metadata" => format != "exr",
         "jpegQuality" => format == "jpg",
         "webpLossless" => format == "webp",
         "webpQuality" => format == "webp" && obj.get("webpLossless").and_then(Value::as_bool) != Some(true),
@@ -2719,6 +2721,10 @@ mod tests {
         assert!(export_field_visible(&obj, "webpQuality"));
         assert_eq!(humanize("webpLossless"), "Lossless");
         assert_eq!(humanize("webpQuality"), "Quality");
+        obj.insert("quickExportFormat".into(), json!("exr"));
+        for key in ["jpegQuality", "webpLossless", "webpQuality", "convertToSrgb", "metadata"] {
+            assert!(!export_field_visible(&obj, key), "EXR must not offer ignored web settings: {key}");
+        }
     }
 
     #[test]

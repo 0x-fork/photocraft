@@ -987,3 +987,16 @@ fn a_rejected_printable_area_fails_the_print_and_changes_nothing() {
     let r = s.execute("file.print", json!({"paper": "a3", "scaleToFit": true, "printable": [0, 0, 60, 1191.14], "cornerCropMarks": true, "dryRun": true}));
     assert!(r.is_err(), "{r:?}");
 }
+
+#[test]
+fn package_of_a_document_named_after_a_windows_device_is_written() {
+    // On Windows a folder named `nul` is the NUL device: the save failed with "path not found".
+    let dir = tmp("package-device-name");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "name": "nul.psd"})).unwrap();
+    let r = s.execute("file.package", json!({"dir": format!("{dir}/pkg")})).unwrap();
+    assert_eq!(r["folder"].as_str().unwrap(), format!("{dir}/pkg/nul_"));
+    let document = r["document"].as_str().unwrap();
+    assert!(document.ends_with("pkg/nul_/nul_.pcraft"), "{document}");
+    assert!(std::path::Path::new(document).is_file());
+}
