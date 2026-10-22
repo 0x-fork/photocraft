@@ -129,6 +129,14 @@ fn play_owned(app: &mut PhotocraftApp, params: &Value, suspended: Option<Value>)
             failed = Some(json!({"step": i, "id": id, "error": format!("action playback exceeded the {}-step limit", actions_cmds::MAX_PLAYBACK_STEPS)}));
             break;
         }
+        // The gate judges the step before its dialog opens: a denied step neither runs nor
+        // pauses.
+        if let Some(auth) = app.session.authorize
+            && let Err(e) = auth(id, p)
+        {
+            failed = Some(json!({"step": i, "id": id, "error": e.to_string()}));
+            break;
+        }
         // The dialog toggle: show the step's dialog with its recorded values and continue
         // from the next step when it is confirmed (`resume`). Agents play headlessly.
         if action.dialogs.contains(&i) && !app.automation_input && (crate::filter_dialog::has_dialog(id) || crate::adjust_dialog::has_dialog(id)) {
@@ -145,26 +153,21 @@ fn play_owned(app: &mut PhotocraftApp, params: &Value, suspended: Option<Value>)
             break;
         }
         let target = app.session.active().map(|d| d.doc.id);
-        let result = (|| {
-            if let Some(auth) = app.session.authorize {
-                auth(id, p).map_err(|e| e.to_string())?;
-            }
-            if id == "actions.play" {
-                play(app, p)
-            } else if actions_cmds::shell_save_command(id) {
-                // Write synchronously, so the next step doesn't meet a document locked by a
-                // background save.
-                let background = std::mem::replace(&mut app.background_jobs, false);
-                let r = app.replay_save(id, p);
-                app.background_jobs = background;
-                r
-            } else if actions_cmds::shell_view_command(id) {
-                app.sync_views();
-                app.run(id, p.clone())
-            } else {
-                app.session.execute(id, p.clone()).map_err(|e| e.to_string())
-            }
-        })();
+        let result = if id == "actions.play" {
+            play(app, p)
+        } else if actions_cmds::shell_save_command(id) {
+            // Write synchronously, so the next step doesn't meet a document locked by a
+            // background save.
+            let background = std::mem::replace(&mut app.background_jobs, false);
+            let r = app.replay_save(id, p);
+            app.background_jobs = background;
+            r
+        } else if actions_cmds::shell_view_command(id) {
+            app.sync_views();
+            app.run(id, p.clone())
+        } else {
+            app.session.execute(id, p.clone()).map_err(|e| e.to_string())
+        };
         match result {
             Ok(value) => {
                 if let Some(error) = actions_cmds::nested_failure(id, &value).or_else(|| actions_cmds::save_target_closed(&app.session, id, target)) {
@@ -2036,6 +2039,25 @@ mod tests {
         let app = h.state_mut();
         app.run("actions.stop", json!({})).unwrap();
         assert_eq!(app.session.actions.list[1].steps, child_call());
+    }
+
+    fn deny_blur(id: &str, _: &Value) -> photocraft_engine::Result<()> {
+        if id == "filter.blur.gaussianBlur" { Err(photocraft_engine::EngineError::Other("blur denied".into())) } else { Ok(()) }
+    }
+
+    #[test]
+    fn a_step_the_gate_denies_opens_no_dialog() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 16, "height": 16})).unwrap();
+        let mut a = Action::new("Blur", vec![("filter.blur.gaussianBlur".into(), json!({"radius": 1}))]);
+        a.dialogs.insert(0);
+        app.session.actions.list.push(a);
+        app.session.authorize = Some(deny_blur);
+        let v = play(&mut app, &json!({"action": "Blur"})).unwrap();
+        app.session.authorize = None;
+        assert!(v["failed"]["error"].as_str().is_some_and(|e| e.contains("blur denied")), "{v}");
+        assert!(app.ui.dialogs.is_empty(), "no step dialog opened");
+        assert!(app.paused_playbacks.paused.is_empty());
     }
 
     fn deny_select_all(id: &str, _: &Value) -> photocraft_engine::Result<()> {
