@@ -3403,3 +3403,19 @@ curves	Smooth	Haluskan
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Kubus Hue
+	Brightness Cube	Kubus Kecerahan
+	Color Wheel	Roda Warna
+	RGB Sliders	Slider RGB
+	HSB Sliders	Slider HSB
+	CMYK Sliders	Slider CMYK
+	Lab Sliders	Slider Lab
+	Web Color Sliders	Slider Warna Web
+	Copy Color as HTML	Salin Warna sebagai HTML
+	Copy Color's Hex Code	Salin Kode Hex Warna
+	RGB Spectrum	Spektrum RGB
+	CMYK Spectrum	Spektrum CMYK
+	Grayscale Ramp	Gradasi Grayscale
+	Current Colors	Warna Saat Ini
+	Make Ramp Web Safe	Jadikan Gradasi Aman untuk Web

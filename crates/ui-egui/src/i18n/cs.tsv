@@ -4134,3 +4134,20 @@ cameraRaw	Dehaze	Odstranění oparu
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Krychle odstínu
+	Brightness Cube	Krychle jasu
+	Color Wheel	Barevné kolo
+	Grayscale Slider	Jezdec stupňů šedi
+	RGB Sliders	Jezdce RGB
+	HSB Sliders	Jezdce HSB
+	CMYK Sliders	Jezdce CMYK
+	Lab Sliders	Jezdce Lab
+	Web Color Sliders	Jezdce webových barev
+	Copy Color as HTML	Kopírovat barvu jako HTML
+	Copy Color's Hex Code	Kopírovat šestnáctkový kód barvy
+	RGB Spectrum	Spektrum RGB
+	CMYK Spectrum	Spektrum CMYK
+	Grayscale Ramp	Přechod stupňů šedi
+	Current Colors	Aktuální barvy
+	Make Ramp Web Safe	Omezit pruh na webové barvy

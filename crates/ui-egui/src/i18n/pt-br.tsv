@@ -4328,3 +4328,19 @@ layerLabel	No Color	Sem cor
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Cubo de matiz
+	Brightness Cube	Cubo de brilho
+	Color Wheel	Roda de cores
+	RGB Sliders	Controles deslizantes RGB
+	HSB Sliders	Controles deslizantes HSB
+	CMYK Sliders	Controles deslizantes CMYK
+	Lab Sliders	Controles deslizantes Lab
+	Web Color Sliders	Controles deslizantes de cores da Web
+	Copy Color as HTML	Copiar cor como HTML
+	Copy Color's Hex Code	Copiar código hexadecimal da cor
+	RGB Spectrum	Espectro RGB
+	CMYK Spectrum	Espectro CMYK
+	Grayscale Ramp	Rampa de tons de cinza
+	Current Colors	Cores atuais
+	Make Ramp Web Safe	Tornar rampa segura para a Web

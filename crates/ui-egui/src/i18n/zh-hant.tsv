@@ -3012,3 +3012,20 @@ curves	Smooth	平滑
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	色相立方體
+	Brightness Cube	亮度立方體
+	Color Wheel	色輪
+	Grayscale Slider	灰階滑桿
+	RGB Sliders	RGB 滑桿
+	HSB Sliders	HSB 滑桿
+	CMYK Sliders	CMYK 滑桿
+	Lab Sliders	Lab 滑桿
+	Web Color Sliders	網頁色彩滑桿
+	Copy Color as HTML	將色彩複製為 HTML
+	Copy Color's Hex Code	複製色彩的十六進位碼
+	RGB Spectrum	RGB 色譜
+	CMYK Spectrum	CMYK 色譜
+	Grayscale Ramp	灰階色帶
+	Current Colors	目前色彩
+	Make Ramp Web Safe	讓色帶成為網頁安全色

@@ -3598,3 +3598,20 @@ curves	Smooth	매끄럽게
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	색조 큐브
+	Brightness Cube	밝기 큐브
+	Color Wheel	색상환
+	Grayscale Slider	회색 음영 슬라이더
+	RGB Sliders	RGB 슬라이더
+	HSB Sliders	HSB 슬라이더
+	CMYK Sliders	CMYK 슬라이더
+	Lab Sliders	Lab 슬라이더
+	Web Color Sliders	웹 색상 슬라이더
+	Copy Color as HTML	색상을 HTML로 복사
+	Copy Color's Hex Code	색상의 16진수 코드 복사
+	RGB Spectrum	RGB 스펙트럼
+	CMYK Spectrum	CMYK 스펙트럼
+	Grayscale Ramp	회색 음영 램프
+	Current Colors	현재 색상
+	Make Ramp Web Safe	램프를 웹 안전 색상으로 만들기

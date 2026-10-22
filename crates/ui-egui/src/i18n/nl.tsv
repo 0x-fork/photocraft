@@ -4149,3 +4149,19 @@ curves	Smooth	Vloeiend maken
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Kleurtoonkubus
+	Brightness Cube	Helderheidskubus
+	Color Wheel	Kleurenwiel
+	RGB Sliders	RGB-schuifregelaars
+	HSB Sliders	HSB-schuifregelaars
+	CMYK Sliders	CMYK-schuifregelaars
+	Lab Sliders	Lab-schuifregelaars
+	Web Color Sliders	Webkleurschuifregelaars
+	Copy Color as HTML	Kleur kopiëren als HTML
+	Copy Color's Hex Code	Hexadecimale code van kleur kopiëren
+	RGB Spectrum	RGB-spectrum
+	CMYK Spectrum	CMYK-spectrum
+	Grayscale Ramp	Grijswaardenbalk
+	Current Colors	Huidige kleuren
+	Make Ramp Web Safe	Balk beperken tot webkleuren
