@@ -21,6 +21,7 @@ fn clipping_indicator_points_down_inside_the_existing_row_slot() {
     assert!(paths.iter().flat_map(|path| &path.points).all(|point| slot.contains(*point)), "the marker does not shift or overlap the thumbnail");
 }
 
+/// Build a themed Layers panel for clipping-marker and pointer-gesture checks.
 fn harness(theme: crate::theme::ThemeKind, width: f32, scale: f32, gpu: bool) -> Harness<'static, PhotocraftApp> {
     let mut session = photocraft_engine::Session::new();
     session.execute("prefs.set", json!({"path": "interface.language", "value": "en"})).unwrap();
@@ -47,6 +48,7 @@ fn harness(theme: crate::theme::ThemeKind, width: f32, scale: f32, gpu: bool) ->
     h
 }
 
+/// Toggle clipping through a real Alt-click at the boundary between the two layer rows.
 fn alt_click_line(h: &mut Harness<'_, PhotocraftApp>) {
     let rows = crate::layer_row_ui::recorded(&h.ctx);
     assert_eq!(rows.len(), 2);
@@ -81,6 +83,7 @@ fn alt_click_clipping_still_creates_releases_and_undoes_without_moving_rows() {
     assert!(!h.state().session.active().unwrap().doc.layer(active).unwrap().clipped);
 }
 
+/// Open one real adjustment editor inside a 250×160 scrollable Properties panel.
 fn adjustment_harness(kind: &str, depth: u32, theme: crate::theme::ThemeKind, scale: f32, gpu: bool) -> Harness<'static, PhotocraftApp> {
     let mut session = photocraft_engine::Session::new();
     session.execute("file.new", json!({"width": 16, "height": 8, "depth": depth})).unwrap();
@@ -117,19 +120,51 @@ fn adjustment_harness(kind: &str, depth: u32, theme: crate::theme::ThemeKind, sc
     h
 }
 
+/// Reach a control through real wheel input without enlarging the compact panel.
+fn scroll_to_adjustment_control(h: &mut Harness<'_, PhotocraftApp>, label: &str) -> egui::Rect {
+    let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(250.0, 160.0));
+    for _ in 0..32 {
+        if let Some(rect) = h.query_all_by_label(label).map(|node| node.rect()).find(|rect| viewport.contains_rect(*rect)) {
+            return rect;
+        }
+        // The label column stays clear of the Color Lookup picker, which consumes wheel input.
+        h.hover_at(pos2(16.0, 80.0));
+        h.event(Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -80.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(4);
+    }
+    panic!("adjustment control {label:?} was not reachable in the compact viewport");
+}
+
+/// Scope starts on-screen; the editor and visibility remain reachable by scrolling.
 #[test]
 fn adjustment_scope_control_fits_compact_properties_before_scrolling() {
     for theme in crate::theme::ThemeKind::ALL {
         for scale in [1.0, 1.5, 2.0] {
-            for kind in ["Hue/Saturation", "Curves", "Selective Color", "Color Lookup"] {
-                let h = adjustment_harness(kind, 8, theme, scale, false);
+            for (kind, editor_control) in [
+                ("Hue/Saturation", "Colorize"),
+                ("Curves", "Edit points to modify the curve"),
+                ("Selective Color", "Relative"),
+                ("Color Lookup", "Dither"),
+            ] {
+                let mut h = adjustment_harness(kind, 8, theme, scale, false);
+                let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(250.0, 160.0));
                 let rect = h.get_by_label("Clip to layer below").rect();
-                assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(250.0, 160.0)).contains_rect(rect), "{theme:?}, {scale}x, {kind}: {rect:?}");
+                assert!(viewport.contains_rect(rect), "{theme:?}, {scale}x, {kind}: {rect:?}");
+                let editor = scroll_to_adjustment_control(&mut h, editor_control);
+                assert!(viewport.contains_rect(editor), "{theme:?}, {scale}x, {kind}: editor {editor:?}");
+                let visibility = scroll_to_adjustment_control(&mut h, "Adjustment visible");
+                assert!(viewport.contains_rect(visibility), "{theme:?}, {scale}x, {kind}: visibility {visibility:?}");
             }
         }
     }
 }
 
+/// Read a document pixel on the shared scanline used by the clipping-output assertions.
 fn sample(h: &mut Harness<'_, PhotocraftApp>, x: i32) -> Vec<f32> {
     serde_json::from_value(h.state_mut().run("document.pixel", json!({"x": x, "y": 4})).unwrap()).unwrap()
 }
