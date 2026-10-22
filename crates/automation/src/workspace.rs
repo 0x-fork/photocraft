@@ -383,8 +383,11 @@ fn preferences_may_grant_ambient_paths(id: &str, params: &Value) -> bool {
 fn preference_uses_ambient_filesystem(path: &str) -> bool {
     // The engine skips empty segments (`.scriptEvents.enabled` sets `scriptEvents.enabled`), so
     // judge the first non-empty one; no segment at all is the whole-preferences update.
-    let Some(section) = path.split('.').find(|segment| !segment.is_empty()) else { return true };
+    let mut segments = path.split('.').filter(|segment| !segment.is_empty());
+    let Some(section) = segments.next() else { return true };
+    // File Handling's LUT folder (#6558) is listed from disk; the rest of that section is not.
     matches!(section, "colorSettings" | "scriptEvents" | "historyLog" | "plugIns" | "scratchDisks")
+        || (section == "fileHandling" && segments.next().is_none_or(|key| key == "lutFolder"))
 }
 
 fn command_uses_ambient_path(id: &str, params: &Value) -> bool {
@@ -872,6 +875,8 @@ mod tests {
             "historyLog.filePath",
             ".historyLog.filePath",
             "plugIns.additionalPluginsFolder",
+            "fileHandling.lutFolder",
+            "fileHandling",
             "scratchDisks.disks",
             ".",
             "..historyLog.filePath",
@@ -882,6 +887,7 @@ mod tests {
             authorize_engine_command("prefs.set", &serde_json::json!({"values": {"interface.language": "fr", "historyLog.filePath": "/outside/log"}})).is_err()
         );
         assert!(authorize_engine_command("prefs.set", &serde_json::json!({"path": "interface.language", "value": "fr"})).is_ok());
+        assert!(authorize_engine_command("prefs.set", &serde_json::json!({"path": "fileHandling.autosave", "value": false})).is_ok());
     }
 
     #[test]

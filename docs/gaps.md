@@ -321,6 +321,8 @@ what an agent can't finish alone.
 | 2026-10-18 | minor | G13: Russian gained the 1,229 dynamic UI labels other catalogs already had (filter and adjustment parameters, Camera Raw, lighting, History/Layers/paths menus, metadata, System Info, status templates, dialogs); engine messages and native review remain open |
 | 2026-10-17 | minor | Classical Object Finder improvement; learned segmentation remains open |
 | 2026-10-15 | minor | G10: Cineon write landed (10-bit log gray/RGB, Save As `.cin`) |
+| 2026-10-14 | minor | G1: 32-bit Hue/Saturation unclipped (slider on whole levels) and Colorize's saturation scaled by 1 − \|Lightness\|; photoshop rgb32 hue-saturation and hue-saturation-colorize pass |
+| 2026-10-14 | minor | G1: Lab adjustment layers' results are whole samples (native Lab path); photoshop lab8 curves passes |
 | 2026-10-15 | minor | G1 / #5972 A1: render only provably constant-RGB `GdFl` noise fills; variable noise synthesis remains open |
 | 2026-10-18 | minor | G9: with no selection, Copy takes fill and adjustment layers whole and Paste recreates them (#2344); UI-217-23 stays partial (a single pixel layer copies its pixels only); estimate unchanged |
 | 2026-10-17 | minor | G11: `.atn` Apply Layer Comp imports, plays and exports by comp name (#7101); other reference forms remain unsupported |

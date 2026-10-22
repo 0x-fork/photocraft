@@ -473,6 +473,9 @@ pub struct FileHandling {
     pub recent_file_count: u32,
     /// Most recently opened files, newest first (File › Open Recent).
     pub recent_files: Vec<String>,
+    /// A folder whose `.cube`, `.3dl` and `.look` files Color Lookup lists under its built-in
+    /// looks (native only, #6558). Empty lists none.
+    pub lut_folder: String,
 }
 
 impl FileHandling {
@@ -500,6 +503,7 @@ impl Default for FileHandling {
             rasterize_svg_groups_deeper_than: photocraft_doc::MAX_GROUP_DEPTH as u32,
             recent_file_count: 20,
             recent_files: Vec::new(),
+            lut_folder: String::new(),
         }
     }
 }

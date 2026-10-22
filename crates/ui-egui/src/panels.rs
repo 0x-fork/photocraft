@@ -1931,6 +1931,7 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         return;
     };
     let (rev, size, origin) = (st.revision, st.doc.size, st.doc.ruler_origin);
+    let cmyk_space = photocraft_compose::cmyk_space(&st.doc);
     // Positions and sizes in the ruler unit (Preferences › Units & Rulers).
     let units = app.session.prefs().units_and_rulers.clone();
     let dpi = st.doc.resolution_dpi as f64;
@@ -1976,9 +1977,10 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         row(&mut cols[0], "R:", rgba.map_or_else(dash, |c| q(c[0]).to_string()));
         row(&mut cols[0], "G:", rgba.map_or_else(dash, |c| q(c[1]).to_string()));
         row(&mut cols[0], "B:", rgba.map_or_else(dash, |c| q(c[2]).to_string()));
-        // Naive device CMYK (no ICC profile yet), in percent like Photoshop's readout. The Color
-        // Sampler readout uses the same conversion (`sampler_cmds::device_cmyk`).
-        let cmyk = rgba.map(|c| photocraft_engine::sampler_cmds::device_cmyk(c[0], c[1], c[2]));
+        // Colour-managed CMYK in percent like Photoshop's readout, through the same conversion as
+        // the Color Picker (#8101) and the Color Sampler readout (`sampler_cmds::device_cmyk`).
+        let cmyk =
+            rgba.map(|c| photocraft_color::convert::with_cmyk_space(cmyk_space.as_ref(), || photocraft_engine::sampler_cmds::device_cmyk(c[0], c[1], c[2])));
         for (i, k) in ["C:", "M:", "Y:", "K:"].iter().enumerate() {
             row(&mut cols[1], k, cmyk.map_or_else(dash, |c| format!("{}%", c[i])));
         }
@@ -4195,7 +4197,9 @@ pub(crate) fn offer_color_field_fill(ui: &egui::Ui, pro: bool, group: crate::doc
 /// which folds onto a second line in a narrow dock. 120 pt when nothing sets a height.
 fn color_field_height(avail: Option<f32>, width: f32) -> f32 {
     let reserve = 32.0 + if width < 280.0 { 26.0 } else { 0.0 };
-    avail.filter(|a| a.is_finite()).map_or(120.0, |a| (a - reserve).clamp(120.0, 2000.0))
+    // When docked, shrink the field so the hex/RGB readout stays in view (#6885). A 120 pt floor
+    // here pushed the readout below the scroll area in a compact Color group.
+    avail.filter(|a| a.is_finite()).map_or(120.0, |a| (a - reserve).clamp(0.0, 2000.0))
 }
 
 /// The colour the SV field draws for `hsva`, with what the field showed last (`hue`, `saturation`)
@@ -5170,15 +5174,38 @@ mod color_tests {
         assert_eq!(srgb_bytes(h.state().session.tools.foreground), [0, 255, 0]);
     }
 
-    /// The Color field fills the dock group, never shrinks below 120 pt, and ignores a bad height.
+    /// The Color field fills the dock group, shrinks to leave room for the readout in a short group, and ignores a bad height.
     #[test]
     fn color_field_height_fills_the_group() {
         assert_eq!(color_field_height(None, 300.0), 120.0);
         assert_eq!(color_field_height(Some(500.0), 300.0), 468.0);
         assert_eq!(color_field_height(Some(500.0), 200.0), 442.0);
-        assert_eq!(color_field_height(Some(60.0), 300.0), 120.0);
+        assert_eq!(color_field_height(Some(60.0), 300.0), 28.0);
         assert_eq!(color_field_height(Some(f32::NAN), 300.0), 120.0);
         assert_eq!(color_field_height(Some(1.0e9), 300.0), 2000.0);
+    }
+
+    /// A squeezed Color group still shows the hex/RGB readout, not only the spectrum field (#6885).
+    #[test]
+    fn docked_color_field_keeps_rgb_readout_at_compact_height() {
+        use egui_kittest::kittest::Queryable;
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        // Body height after tab strip and margins in a Color group at `compact_height` (130 pt).
+        let inner = 86.0;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(240.0, inner)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    ui.set_height(inner);
+                    ui.data_mut(|d| d.insert_temp(color_field_fill_id(), inner));
+                    color_field(app, ui);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Pro);
+        h.run_steps(2);
+        assert!(h.query_by_label("R").is_some(), "RGB readout stays visible when the group is short");
+        assert!(h.query_by_role(egui::accesskit::Role::TextInput).is_some(), "hex field stays visible");
     }
 
     fn field_harness(app: PhotocraftApp) -> egui_kittest::Harness<'static, PhotocraftApp> {

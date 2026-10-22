@@ -730,6 +730,14 @@ fn adjustment_layers() {
         let pf = Adjustment::PhotoFilter { color: [0.93, 0.54, 0.0], density: 0.6, preserve_luminosity: true };
         d.layers.push(Layer::new("pf", LayerContent::Adjustment(pf)));
         check(&mut g, &d, &format!("photo filter {depth:?}"));
+        // Colorize: the saturation scaled by 1 - |lightness| at 32 bits (compose::adjust::colorize_saturation).
+        let hs = Adjustment::HueSaturation { hue: -160.0, saturation: 40.0, lightness: 5.0, colorize: true, ranges: HueRange::defaults() };
+        d.layers.push(Layer::new("hs", LayerContent::Adjustment(hs)));
+        check(&mut g, &d, &format!("colorize {depth:?}"));
+        // Hue/Saturation: at 32 bits the raised saturation isn't clipped.
+        let hs = Adjustment::HueSaturation { hue: 40.0, saturation: 25.0, lightness: -10.0, colorize: false, ranges: HueRange::defaults() };
+        d.layers.push(Layer::new("hs2", LayerContent::Adjustment(hs)));
+        check(&mut g, &d, &format!("hue/saturation {depth:?}"));
         // Threshold: whole 16-bit samples against the level in 16 bits, or the float luminosity.
         d.layers.push(Layer::new("th", LayerContent::Adjustment(Adjustment::Threshold { level: 0.5 })));
         check(&mut g, &d, &format!("threshold {depth:?}"));

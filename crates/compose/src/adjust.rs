@@ -158,7 +158,8 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                     }
                     None => (0.0, 0.0, 0.0),
                 };
-                let out = hue_saturation(c, *hue + dh, (*saturation / 100.0 + ds).clamp(-1.0, 1.0), (*lightness / 100.0).clamp(-1.0, 1.0), *colorize);
+                let sat = colorize_saturation((*saturation / 100.0 + ds).clamp(-1.0, 1.0), *lightness / 100.0, *colorize, depth);
+                let out = hue_saturation_in(c, *hue + dh, sat, (*lightness / 100.0).clamp(-1.0, 1.0), *colorize, depth);
                 range_lightness(out, dl)
             })
         }
@@ -664,10 +665,30 @@ pub fn hue_range_tables(ranges: &[HueRange; 6]) -> [Vec<f32>; 3] {
     std::array::from_fn(|i| rows.iter().map(|r| r[i]).collect())
 }
 
+/// Hue/Saturation's saturation `s` (-1..1) as [`hue_saturation`] takes it in a document of
+/// `depth`. A 32-bit Colorize builds its colour with the saturation times `1 - |lightness|`:
+/// the photoshop corpus's rgb32 hue-saturation-colorize.psd (Saturation 40, Lightness +5) has 0.95
+/// of the chroma at every lightness, and is exact so, where 8 and 16 bits keep the full saturation
+/// (their oracles are exact without it). Only a raised Lightness is measured; a lowered one is
+/// taken to scale the same way.
+pub fn colorize_saturation(s: f32, lightness: f32, colorize: bool, depth: Option<SampleType>) -> f32 {
+    if colorize && depth == Some(SampleType::F32) { s * (1.0 - lightness.abs().min(1.0)) } else { s }
+}
+
 /// One Hue/Saturation evaluation: hue shift in degrees, saturation and lightness in -1..=1.
 /// Colorize sets the hue and saturation instead of shifting them; at 0% it leaves only the
 /// lightness, as in Photoshop (#2326). Ticking Colorize in the dialog starts saturation at 25%.
 pub fn hue_saturation(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool) -> [f32; 3] {
+    hue_saturation_in(c, hue, s, l, colorize, None)
+}
+
+/// [`hue_saturation`] in a document of `depth`. At 32 bits Photoshop doesn't clip the raised
+/// saturation, so saturated colours leave 0..1 (red with Hue +40, Saturation +25, Lightness -10
+/// becomes (1.0477, 0.649, -0.1477)), and it raises it by `1 / (1 - s)` with `s` cut to whole 8-bit
+/// levels (25 % → 63/255, a factor of 1.328 where 1/0.75 is 1.333): the photoshop corpus's rgb32
+/// hue-saturation.psd is exact so.
+pub fn hue_saturation_in(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool, depth: Option<SampleType>) -> [f32; 3] {
+    let hdr = depth == Some(SampleType::F32);
     let lighten = |v: f32| if l > 0.0 { v + (1.0 - v) * l } else { v * (1.0 + l) };
     if colorize {
         // Colorize builds the colour at the lightened (or darkened) lightness, so black with
@@ -682,7 +703,12 @@ pub fn hue_saturation(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool) -> 
     let hh = (hh + hue / 360.0).rem_euclid(1.0);
     // Raising saturation divides by 1 - s, lowering it multiplies by 1 + s: +50 % doubles it
     // (measured in Photoshop 27.11); +100 % saturates any colour that has some.
-    let ss = if s > 0.0 { ss / (1.0 - s).max(1.0 / 512.0) } else { ss * (1.0 + s) }.clamp(0.0, 1.0);
+    let ss = if hdr {
+        let s = s.signum() * (s.abs() * 255.0).floor() / 255.0;
+        (if s > 0.0 { ss / (1.0 - s).max(1.0 / 512.0) } else { ss * (1.0 + s) }).max(0.0)
+    } else {
+        if s > 0.0 { ss / (1.0 - s).max(1.0 / 512.0) } else { ss * (1.0 + s) }.clamp(0.0, 1.0)
+    };
     hsl_to_rgb(hh, ss, ll)
 }
 
@@ -1501,6 +1527,37 @@ mod tone_tests {
     /// Photoshop's own 32-bit results (photoshop corpus rgb32): nothing clips, legacy contrast
     /// pivots at 127, the mixer cuts its percentages to 1/1024 and counts 255/512 of the
     /// constant, and the Black & White tint keeps values above 1.
+    /// Photoshop's 32-bit Colorize (photoshop corpus rgb32 hue-saturation-colorize.psd: hue -160,
+    /// saturation 40, lightness +5): red becomes (0.3445, 0.5852, 0.7055), 0.95 of the chroma an
+    /// 8-bit Colorize gives at the same lightness, (0.335, 0.5883, 0.715).
+    /// Photoshop's 32-bit Hue/Saturation (photoshop corpus rgb32 hue-saturation.psd: hue +40,
+    /// saturation +25, lightness -10): saturated colours leave 0..1, and the saturation factor is
+    /// 1 / (1 - 63/255), so red becomes (1.0477, 0.649, -0.1477), where 8 bits clip to (0.9, 0.6, 0).
+    #[test]
+    fn thirty_two_bit_hue_saturation_is_unclipped() {
+        let adj = Adjustment::HueSaturation { hue: 40.0, saturation: 25.0, lightness: -10.0, colorize: false, ranges: HueRange::defaults() };
+        let near = |got: [f32; 3], want: [f32; 3]| got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-3);
+        for (c, want) in
+            [([1.0, 0.0, 0.0], [1.0477, 0.649, -0.1477]), ([0.9301, 0.6105, 0.2541], [0.7804, 0.9369, 0.1289]), ([0.0, 0.3864, 1.0], [0.1871, -0.1477, 1.0477])]
+        {
+            assert!(near(hdr(&adj, c), want), "{c:?}: {:?}", hdr(&adj, c));
+        }
+        let mut b = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [1.0, 0.0, 0.0, 1.0]);
+        apply_depth(&adj, &mut b, Transfer::Srgb, Some(SampleType::U16));
+        assert!(b.px[0].iter().all(|v| (0.0..=1.0).contains(v)), "16 bits clip: {:?}", b.px[0]);
+    }
+
+    #[test]
+    fn thirty_two_bit_colorize_scales_the_saturation() {
+        let adj = Adjustment::HueSaturation { hue: -160.0, saturation: 40.0, lightness: 5.0, colorize: true, ranges: HueRange::defaults() };
+        let near = |got: [f32; 3], want: [f32; 3]| got.iter().zip(want).all(|(g, w)| (g - w).abs() < 2e-3);
+        let red = hdr(&adj, [1.0, 0.0, 0.0]);
+        assert!(near(red, [0.3445, 0.5852, 0.7055]), "{red:?}");
+        let mut b = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [1.0, 0.0, 0.0, 1.0]);
+        apply_depth(&adj, &mut b, Transfer::Srgb, Some(SampleType::U16));
+        assert!(near([b.px[0][0], b.px[0][1], b.px[0][2]], [0.335, 0.5883, 0.715]), "16-bit keeps the full saturation: {:?}", b.px[0]);
+    }
+
     #[test]
     fn thirty_two_bit_adjustments_match_photoshop_unclipped() {
         let near = |got: [f32; 3], want: [f32; 3], tol: f32| got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol);

@@ -240,6 +240,20 @@ impl CameraRawDialog {
     pub(crate) fn render_pending(&self) -> bool {
         self.pending.is_some()
     }
+
+    /// A newer frame means the worker failure is over: takes its message down, unless something
+    /// else has reported since.
+    fn clear_recovered_error(&mut self, ui: &mut crate::UiState) {
+        let Some((e, revision)) = &self.preview_error else { return };
+        if *revision == self.preview_revision {
+            return;
+        }
+        if ui.status_error && ui.status == *e {
+            ui.status.clear();
+            ui.status_error = false;
+        }
+        self.preview_error = None;
+    }
 }
 
 /// Everything one develop of the proxy reads, owned, so it can run off the UI thread.
@@ -334,22 +348,32 @@ pub fn without_develop_note(warnings: &[String]) -> Vec<String> {
     warnings.iter().filter(|w| !w.contains(photocraft_io::raw::DEVELOPED_NOTE)).cloned().collect()
 }
 
-/// Queues the open-time dialog for the active document (shown on the next frame). `warnings`
-/// are the import's: its note says which demosaic method the open developed with.
-pub fn queue_open_dialog(app: &mut PhotocraftApp, name: &str, path: Option<&str>, bytes: Option<&[u8]>, warnings: &[String]) {
-    if let Some(st) = app.session.active() {
-        // The method the open actually used (`jobs::import_options` at the job's start), from its
-        // note: the preference may have changed while a background open ran.
-        let method = photocraft_io::raw::developed_demosaic(warnings).unwrap_or_else(|| app.session.prefs().raw_defaults.demosaic.method());
-        app.pending_raw_open = Some(RawOpen {
-            document: st.doc.id,
-            name: name.to_string(),
-            path: path.map(str::to_string),
-            bytes: bytes.map(|b| std::sync::Arc::new(b.to_vec())),
-            developed_with: method,
-            demosaic: method,
-        });
+/// Queues the open-time dialog for the document whose import completed, independent of the
+/// active tab. A delayed completion for a closed document must not review another photograph.
+/// `warnings` are the import's: its note says which demosaic method the open developed with.
+pub fn queue_open_dialog(
+    app: &mut PhotocraftApp,
+    document: photocraft_doc::DocId,
+    name: &str,
+    path: Option<&str>,
+    bytes: Option<&[u8]>,
+    warnings: &[String],
+) -> Result<(), String> {
+    if document_index(app, document).is_none() {
+        return Err("the imported raw document is missing".into());
     }
+    // The method the open actually used (`jobs::import_options` at the job's start), from its
+    // note: the preference may have changed while a background open ran.
+    let method = photocraft_io::raw::developed_demosaic(warnings).unwrap_or_else(|| app.session.prefs().raw_defaults.demosaic.method());
+    app.pending_raw_open = Some(RawOpen {
+        document,
+        name: name.to_string(),
+        path: path.map(str::to_string),
+        bytes: bytes.map(|b| std::sync::Arc::new(b.to_vec())),
+        developed_with: method,
+        demosaic: method,
+    });
+    Ok(())
 }
 
 /// Opens the queued open-time dialog on its document's (only) layer.
@@ -481,7 +505,8 @@ fn commit_open_raw(app: &mut PhotocraftApp, params: &CameraRaw, raw: &RawOpen) -
 }
 
 /// Swap the default-developed document `doc_id` for the re-developed one, at the same tab
-/// position and with the same path. Returns `{document, previous, warnings, wb}`.
+/// position and with the same path. Returns `{document, docId, previous, warnings, wb}`:
+/// `document` is the tab index at apply time, `docId` is the replacement's stable identity.
 fn replace_raw_document(
     s: &mut photocraft_engine::Session,
     doc_id: photocraft_doc::DocId,
@@ -497,22 +522,24 @@ fn replace_raw_document(
     }
     s.close(index);
     let (opened, _) = s.open_document(r.document, path);
+    let replacement = s.documents().get(opened).ok_or(photocraft_engine::EngineError::NoDocument)?.doc.id;
     let index = match s.execute("document.move", json!({"document": opened, "to": index})) {
         Ok(moved) => moved.get("document").and_then(Value::as_u64).map_or(opened, |i| i as usize),
         Err(_) => opened,
     };
     s.set_active(index);
-    Ok(json!({"document": index, "previous": doc_id.0, "warnings": r.warnings, "wb": wb}))
+    Ok(json!({"document": index, "docId": replacement.0, "previous": doc_id.0, "warnings": r.warnings, "wb": wb}))
 }
 
 /// After the re-develop: keep the old document's view (zoom, scroll) on the new one, report
 /// the import's notes, then apply the remaining settings.
 fn finish_redevelop(app: &mut PhotocraftApp, params: &CameraRaw, raw: &RawOpen, v: &Value) -> Result<Value, String> {
-    let index = v.get("document").and_then(Value::as_u64).ok_or("the re-develop returned no document")? as usize;
-    if let Some(new_id) = app.session.documents().get(index).map(|st| st.doc.id) {
-        for id in app.view_docs.iter_mut().filter(|id| **id == raw.document) {
-            *id = new_id;
-        }
+    // A preceding completion (for example Save and Close) may have shifted the tab indices.
+    // Validate identity before remapping views, filtering or marking any document unmodified.
+    let replacement = v.get("docId").and_then(Value::as_u64).map(photocraft_doc::DocId).ok_or("the re-develop returned no document identity")?;
+    let index = document_index(app, replacement).ok_or("the re-developed document was closed")?;
+    for id in app.view_docs.iter_mut().filter(|id| **id == raw.document) {
+        *id = replacement;
     }
     let warnings: Vec<String> =
         v.get("warnings").and_then(Value::as_array).map(|a| a.iter().filter_map(|w| w.as_str().map(str::to_string)).collect()).unwrap_or_default();
@@ -928,6 +955,8 @@ fn menu_update(app: &mut PhotocraftApp, ctx: &egui::Context, ui: &Value) -> Opti
     if d.dirty {
         d.render(ctx);
     }
+    // The control channel can read the status before the next frame draws.
+    d.clear_recovered_error(&mut app.ui);
     if app.ui.camera_raw_scope.vectorscope
         && let Some(d) = app.camera_raw.as_mut()
     {
@@ -1242,17 +1271,7 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
             app.ui.status_error = true;
         }
         d.request_render(ctx);
-        // A newer frame means the failure is over: take its message down, unless something else
-        // has reported since.
-        if let Some((e, revision)) = &d.preview_error
-            && *revision != d.preview_revision
-        {
-            if app.ui.status_error && app.ui.status == *e {
-                app.ui.status.clear();
-                app.ui.status_error = false;
-            }
-            d.preview_error = None;
-        }
+        d.clear_recovered_error(&mut app.ui);
         let (full, _) = ui.allocate_exact_size(screen.size(), Sense::click());
         let painter = ui.painter().clone();
         painter.rect_filled(full, 0.0, t.chrome);
@@ -1392,7 +1411,7 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
                 };
                 for (k, name) in BANDS.iter().enumerate() {
                     let c = photocraft_algo::camera_raw::HSL_BANDS[k];
-                    let base = hue_color(c);
+                    let base = widgets::hue_color(c);
                     let grad = [Color32::from_gray(128), base];
                     row(ui, &mut dirty, name, &mut arr[k], -100.0..=100.0, Some(&grad));
                 }
@@ -1490,20 +1509,6 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
         }
         _ => {}
     }
-}
-
-fn hue_color(h: f32) -> Color32 {
-    let h6 = (h.rem_euclid(360.0)) / 60.0;
-    let x = 1.0 - ((h6 % 2.0) - 1.0).abs();
-    let (r, g, b) = match h6 as u32 {
-        0 => (1.0, x, 0.0),
-        1 => (x, 1.0, 0.0),
-        2 => (0.0, 1.0, x),
-        3 => (0.0, x, 1.0),
-        4 => (x, 0.0, 1.0),
-        _ => (1.0, 0.0, x),
-    };
-    Color32::from_rgb((r * 220.0) as u8, (g * 220.0) as u8, (b * 220.0) as u8)
 }
 
 #[cfg(test)]
@@ -1722,6 +1727,14 @@ mod tests {
         finish_worker(app.camera_raw.as_mut().unwrap(), &ctx);
         frame(&mut app);
         assert!(app.ui.status_error && app.ui.status == "something else failed", "{}", app.ui.status);
+
+        // A control-channel edit renders on its own thread; the status is clear before any frame.
+        fail(&mut app);
+        frame(&mut app);
+        assert!(app.ui.status_error);
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"exposure": -0.5}}})).unwrap().unwrap();
+        assert!(!app.ui.status_error && app.ui.status.is_empty(), "{}", app.ui.status);
+        assert_eq!(crate::control::inspect(&app, &ctx)["statusError"], false);
     }
 
     #[test]
@@ -1905,7 +1918,8 @@ mod tests {
         let warnings = app.open_bytes("IMG_0004.dng", &dng).unwrap();
         app.pending_raw_open.take();
         app.run("prefs.set", json!({"path": "rawDefaults.demosaic", "value": "ahd"})).unwrap();
-        queue_open_dialog(&mut app, "IMG_0004.dng", None, Some(&dng), &warnings);
+        let document = app.session.active().unwrap().doc.id;
+        queue_open_dialog(&mut app, document, "IMG_0004.dng", None, Some(&dng), &warnings).unwrap();
         let raw = app.pending_raw_open.take().unwrap();
         use photocraft_io::raw::Demosaic;
         assert_eq!((raw.developed_with, raw.demosaic), (Demosaic::Bilinear, Demosaic::Bilinear));
@@ -2111,3 +2125,7 @@ mod tests {
         assert_eq!(app.camera_raw.as_ref().unwrap().params.clarity, 25.0);
     }
 }
+
+#[cfg(test)]
+#[path = "camera_raw_identity_tests.rs"]
+mod identity_tests;
