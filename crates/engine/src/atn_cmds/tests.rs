@@ -604,6 +604,16 @@ fn photo_filter_round_trip(params: Value) -> Option<Value> {
     }
 }
 
+/// A `Mk` layerSection step exported to .atn and imported back → (id, params), or None.
+fn group_round_trip(id: &str, params: &Value) -> Option<(String, Value)> {
+    let item = export_item(id, params, "S")?;
+    let e = event_for(&item.event)?;
+    match (e.from)(item.descriptor.as_ref()?) {
+        Mapped::Steps(steps) => steps.first().map(|(i, p)| (i.clone(), p.clone())),
+        _ => None,
+    }
+}
+
 #[test]
 fn photo_filter_preset_only_step_keeps_its_resolved_color() {
     // #7235: the Photoshop descriptor keeps only a colour (`phfl`/`PhtF` are colour-only; the io
@@ -628,6 +638,44 @@ fn photo_filter_preset_only_step_keeps_its_resolved_color() {
     let mut back = photo_filter_round_trip(json!({"filter": "nope", "density": 25})).unwrap();
     normalise(&mut back);
     assert_eq!(back, json!({"density": 25}));
+}
+
+#[test]
+fn group_layers_keeps_its_explicit_target_through_atn() {
+    // #7236: a recorded step with an explicit layer groups that layer, not the current
+    // selection. The source goes into the `From` reference by name and comes back the same
+    // way; a step with no source layer keeps the implicit form, imported as before.
+    let (id, p) = group_round_trip("layer.groupLayers", &json!({"layer": "A", "name": "Group"})).unwrap();
+    assert_eq!(id, "layer.groupLayers");
+    assert_eq!(p, json!({"layer": "A", "name": "Group"}));
+    // The implicit form survives unchanged: the reference stays the target layer.
+    let (id, p) = group_round_trip("layer.groupLayers", &json!({"name": "Group"})).unwrap();
+    assert_eq!(id, "layer.groupLayers");
+    assert_eq!(p, json!({"name": "Group"}));
+    let (id, p) = group_round_trip("layer.groupLayers", &json!({})).unwrap();
+    assert_eq!(id, "layer.groupLayers");
+    assert_eq!(p, json!({}));
+    // Group Without Layers: no `From` at all, imported as a plain new group.
+    let (id, p) = group_round_trip("layer.new.group", &json!({"name": "G"})).unwrap();
+    assert_eq!(id, "layer.new.group");
+    assert_eq!(p, json!({"name": "G"}));
+}
+
+#[test]
+fn group_layers_from_index_reference_stays_implicit() {
+    // A Photoshop-authored `From` that names nothing portable (a zero-based index) keeps the
+    // old implicit import instead of inventing a wrong explicit target (#7236, edge).
+    let d = desc("null")
+        .with("null", class_ref("layerSection"))
+        .with("From", D::Reference(vec![ReferenceItem::Index { class: class("Lyr "), index: 2 }]))
+        .with("Usng", D::Descriptor(desc("layerSection").with("Nm  ", text("Group"))));
+    match make_from(&d) {
+        Mapped::Steps(steps) => {
+            assert_eq!(steps[0].0, "layer.groupLayers");
+            assert_eq!(steps[0].1, json!({"name": "Group"}));
+        }
+        _ => panic!("an index source imports as the implicit form"),
+    }
 }
 
 #[test]
