@@ -29,8 +29,8 @@ use serde_json::{Value, json};
 
 use crate::budgets::{BatchReplyBudget, write_reply};
 use crate::security::{
-    ConnectionLimiter, LineRead, MAX_BATCH_STEPS, MAX_CONNECTIONS, MAX_REQUEST_BYTES, authentication_reply, configure_stream, discard_rest_of_line,
-    read_bounded_line, repeat_auth_reply,
+    AUTH_DEADLINE, AuthDeadlineStream, ConnectionLimiter, LineRead, MAX_BATCH_STEPS, MAX_CONNECTIONS, MAX_REQUEST_BYTES, authentication_reply,
+    configure_stream, discard_rest_of_line, read_bounded_line, repeat_auth_reply,
 };
 use crate::{AutomationError, Headless};
 
@@ -114,10 +114,20 @@ impl Headless {
                 let mut opts =
                     photocraft_io::ExportOptions { tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false), tga_bits, ..Default::default() };
                 opts.encode.dpx_bits = photocraft_engine::file_cmds::dpx_bits_param(&p, "doc.save").map_err(|e| bad(e.to_string()))?;
-                if let Some(q) = p.get("quality").and_then(Value::as_u64) {
-                    opts.encode.jpeg_quality = q.clamp(1, 100) as u8;
-                    opts.encode.webp_quality = q.clamp(1, 100) as u8;
-                    opts.encode.webp_lossless = false;
+                opts.encode.dds = photocraft_engine::file_cmds::dds_param(&p, "doc.save").map_err(|e| bad(e.to_string()))?.unwrap_or_default();
+                match p.get("quality") {
+                    None | Some(Value::Null) => {}
+                    Some(v) => {
+                        // Like the CLI's `--quality`: never ignore or clamp a bad value.
+                        let q = v
+                            .as_u64()
+                            .filter(|q| (1..=100).contains(q))
+                            .and_then(|q| u8::try_from(q).ok())
+                            .ok_or_else(|| bad(format!("`quality` must be a whole number from 1 to 100, got {v}")))?;
+                        opts.encode.jpeg_quality = q;
+                        opts.encode.webp_quality = q;
+                        opts.encode.webp_lossless = false;
+                    }
                 }
                 let path = str_of(&p, "path").map(PathBuf::from);
                 self.save(index_of(&p)?, path.as_deref(), str_of(&p, "format"), &opts)
@@ -262,10 +272,12 @@ pub fn serve_lines(h: &Mutex<Headless>, mut r: impl BufRead, mut w: impl Write) 
     }
 }
 
-fn serve_tcp_connection(h: &Mutex<Headless>, stream: std::net::TcpStream, token: &str) -> std::io::Result<()> {
+/// Serve one connection. It must complete `auth` within `auth_deadline` of connecting, however
+/// much it sends meanwhile (#4965); after that only the idle timeout applies.
+fn serve_tcp_connection(h: &Mutex<Headless>, stream: std::net::TcpStream, token: &str, auth_deadline: std::time::Duration) -> std::io::Result<()> {
     configure_stream(&stream)?;
     let read = stream.try_clone()?;
-    let mut reader = std::io::BufReader::new(read);
+    let mut reader = std::io::BufReader::new(AuthDeadlineStream::new(read, auth_deadline));
     let mut out = stream;
     let mut line = String::new();
     let mut authenticated = false;
@@ -290,6 +302,9 @@ fn serve_tcp_connection(h: &Mutex<Headless>, stream: std::net::TcpStream, token:
         } else {
             let (reply, ok) = authentication_reply(&line, token);
             authenticated = ok;
+            if ok {
+                reader.get_mut().authenticated()?;
+            }
             reply
         };
         write_reply(&mut out, &reply)?;
@@ -322,7 +337,7 @@ pub fn serve_tcp(addr: &str, h: Arc<Mutex<Headless>>, token: String, ready: impl
         let token = Arc::clone(&token);
         std::thread::spawn(move || {
             let _permit = permit;
-            let _ = serve_tcp_connection(&h, stream, &token);
+            let _ = serve_tcp_connection(&h, stream, &token, AUTH_DEADLINE);
         });
     }
     Ok(())
@@ -334,6 +349,19 @@ mod tests {
 
     fn session() -> Mutex<Headless> {
         Mutex::new(Headless::trusted_local())
+    }
+
+    #[test]
+    fn document_activation_reply_survives_engine_rpc() {
+        let h = session();
+        let mut g = h.lock().unwrap();
+        for _ in 0..2 {
+            g.handle("engine.execute", json!({"command": "file.new", "params": {"width": 4, "height": 4}})).unwrap();
+        }
+        let reply = g.handle("engine.execute", json!({"command": "document.activate", "params": {"offset": -1}})).unwrap();
+        assert_eq!(reply, json!({"document": 0}));
+        let reply = g.handle("engine.execute", json!({"command": "document.activate", "params": {"document": 1}})).unwrap();
+        assert_eq!(reply, json!({"document": 1}));
     }
 
     #[test]
@@ -571,6 +599,26 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Regression: `quality` 85.0 or "85" was ignored (a lossless WebP, reply ok) and 0 or 500 was
+    /// clamped, where the CLI refuses anything but a whole number from 1 to 100.
+    #[test]
+    fn doc_save_rejects_a_bad_quality_instead_of_ignoring_or_clamping_it() {
+        let dir = std::env::temp_dir().join(format!("pc-rpc-save-quality-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("x.webp");
+        let mut h = Headless::trusted_local();
+        h.handle("doc.new", json!({"width": 16, "height": 16})).unwrap();
+        for q in [json!(85.0), json!("85"), json!(0), json!(500), json!(-5), json!(true)] {
+            let err = h.handle("doc.save", json!({"path": path.to_string_lossy(), "quality": q})).unwrap_err().to_string();
+            assert!(err.contains("quality"), "{q}: {err}");
+            assert!(!path.exists(), "{q} wrote a file");
+        }
+        h.handle("doc.save", json!({"path": path.to_string_lossy(), "quality": 85})).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(bytes.get(12..16), Some(&b"VP8 "[..]), "a WebP saved with a quality is lossy");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn automation_preview_rejects_oversized_full_size_and_numeric_wraparound() {
         let mut h = Headless::new();
@@ -752,6 +800,43 @@ mod tests {
     }
 
     #[test]
+    fn indexed_place_and_data_set_methods_keep_the_active_document() {
+        let base = std::env::temp_dir().join(format!("pc-doc-index-active-{}", std::process::id()));
+        let root = base.join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let img = photocraft_codecs::Image::from_u8(4, 4, photocraft_codecs::ChannelLayout::Rgb, vec![42; 4 * 4 * 3]).unwrap();
+        std::fs::write(root.join("logo.png"), photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap()).unwrap();
+        std::fs::write(root.join("sets.csv"), "Data Set,show\none,true\ntwo,false\n").unwrap();
+        let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        h.handle("doc.new", json!({"width": 8, "height": 8, "background": "white", "name": "first"})).unwrap();
+        h.handle("doc.new", json!({"width": 8, "height": 8, "background": "white", "name": "second"})).unwrap();
+        let layer = h.handle("doc.inspect", json!({})).unwrap()["layers"][0]["id"].as_u64().expect("the layer id");
+        h.handle("engine.execute", json!({"command": "image.variables.define", "params": {"defs": [{"name": "show", "layer": layer, "type": "visibility"}]}}))
+            .unwrap();
+        h.handle("doc.select", json!({"index": 0})).unwrap();
+
+        let steps = [
+            ("doc.place", json!({"path": "logo.png", "index": 1}), true),
+            ("doc.importDataSets", json!({"path": "sets.csv", "index": 1}), true),
+            ("doc.exportLayers", json!({"dir": "layers", "index": 1}), true),
+            ("doc.exportDataSets", json!({"dir": "sets", "index": 1}), true),
+            // A failing call restores the active document too.
+            ("doc.importDataSets", json!({"path": "missing.csv", "index": 1}), false),
+        ];
+        for (method, params, succeeds) in steps {
+            let result = h.handle(method, params.clone());
+            assert_eq!(result.is_ok(), succeeds, "{method} {params}: {result:?}");
+            assert_eq!(h.session.active_index(), Some(0), "{method} {params} must not select document 1");
+        }
+        assert_eq!(h.session.documents()[0].doc.layer_count(), 1, "nothing was placed into the active document");
+        assert_eq!(h.session.documents()[1].doc.layer_count(), 2, "the placed layer is in document 1");
+        assert_eq!(std::fs::read_dir(root.join("sets")).unwrap().count(), 2, "document 1's data sets were exported");
+        // Release directory capabilities before cleanup on Windows.
+        drop(h);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn trusted_local_render_keeps_full_size_behavior() {
         let mut h = Headless::trusted_local();
         h.handle("doc.new", json!({"width": 2049, "height": 1})).unwrap();
@@ -812,6 +897,60 @@ mod tests {
         let v: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(v["id"], "a");
         assert!(v["result"].as_array().unwrap().iter().any(|m| m == "batch"));
+    }
+
+    /// #4965: a connection that keeps sending without authenticating is closed at the deadline,
+    /// and one that authenticated in time keeps being served after it.
+    #[test]
+    fn tcp_connections_must_authenticate_before_the_deadline_whatever_they_send() {
+        use std::io::{BufReader, Write as _};
+        use std::time::{Duration, Instant};
+        const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let h = Mutex::new(Headless::new());
+            let mut results = Vec::new();
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                let started = Instant::now();
+                let r = serve_tcp_connection(&h, stream, TOKEN, Duration::from_millis(300));
+                results.push((r.map_err(|e| e.kind()), started.elapsed()));
+            }
+            results
+        });
+
+        // Never a newline, a byte every 20 ms: each read succeeds long before the idle timeout.
+        let mut slow = std::net::TcpStream::connect(addr).unwrap();
+        for _ in 0..150 {
+            if slow.write_all(b" ").is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        drop(slow);
+
+        // Authenticates at once, then asks again 300 ms after the deadline.
+        let mut s = std::net::TcpStream::connect(addr).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        writeln!(s, r#"{{"id":"auth","method":"auth","params":{{"token":"{TOKEN}"}}}}"#).unwrap();
+        let mut reader = BufReader::new(s.try_clone().unwrap());
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["result"]["authenticated"], true);
+        std::thread::sleep(Duration::from_millis(600));
+        writeln!(s, r#"{{"id":"a","method":"methods"}}"#).unwrap();
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["id"], "a");
+        drop(reader);
+        drop(s);
+
+        let results = server.join().unwrap();
+        let (slow_result, slow_time) = &results[0];
+        assert!(matches!(slow_result, Err(std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock)), "{slow_result:?}");
+        assert!(*slow_time < Duration::from_secs(3), "the trickle did not extend the deadline: {slow_time:?}");
+        assert_eq!(results[1].0, Ok(()), "the authenticated connection ended with its client");
     }
 
     #[test]
