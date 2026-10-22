@@ -654,6 +654,36 @@ fn fit_image_and_conditional_mode_change() {
 }
 
 #[test]
+fn fit_image_zero_or_negative_side_is_unconstrained() {
+    // Dialogs send 0 for an empty field: that side is not a limit, not a 1 px box.
+    let mut s = session(1000, 800, 8);
+    s.execute("file.automate.fitImage", json!({"width": 0, "height": 400})).unwrap();
+    assert_eq!((doc(&s).size.width, doc(&s).size.height), (500, 400));
+    s.execute("file.automate.fitImage", json!({"width": 250, "height": -5})).unwrap();
+    assert_eq!((doc(&s).size.width, doc(&s).size.height), (250, 200));
+    let r = s.execute("file.automate.fitImage", json!({"width": 0, "height": 0})).unwrap();
+    assert_eq!(r["changed"], false);
+    assert_eq!((doc(&s).size.width, doc(&s).size.height), (250, 200));
+}
+
+#[test]
+fn conditional_mode_change_single_gray_source_matches_grayscale() {
+    // A single `"from"` string is normalised like the array form: "gray" names Grayscale (#7042).
+    let mut s = session(4, 4, 8);
+    s.execute("image.mode.grayscale", json!({})).unwrap();
+    let r = s.execute("file.automate.conditionalModeChange", json!({"from": "rgb", "to": "rgb"})).unwrap();
+    assert_eq!(r["changed"], false);
+    assert_eq!(doc(&s).mode, ColorMode::Grayscale);
+    let r = s.execute("file.automate.conditionalModeChange", json!({"from": "gray", "to": "rgb"})).unwrap();
+    assert_eq!(r["changed"], true, "{r}");
+    assert_eq!(doc(&s).mode, ColorMode::Rgb);
+    s.execute("image.mode.grayscale", json!({})).unwrap();
+    let r = s.execute("file.automate.conditionalModeChange", json!({"from": "Gray", "to": "rgb"})).unwrap();
+    assert_eq!(r["changed"], true, "{r}");
+    assert_eq!(doc(&s).mode, ColorMode::Rgb);
+}
+
+#[test]
 fn conditional_mode_change_cannot_run_a_mode_change_the_gate_denies() {
     fn deny_mode(id: &str, _: &Value) -> Result<()> {
         if id.starts_with("image.mode.") { Err(EngineError::Other(format!("automation command `{id}` is disabled"))) } else { Ok(()) }
@@ -1427,4 +1457,23 @@ fn batch_naming_rejects_outputs_that_replace_inputs_before_processing() {
     assert!(error.to_string().contains("input"), "{error}");
     assert_eq!(std::fs::read(&first).unwrap(), before[0]);
     assert_eq!(std::fs::read(&second).unwrap(), before[1]);
+}
+
+#[test]
+fn exposure_text_near_one_second_is_not_one_over_one() {
+    assert_eq!(exposure_text(0.996).as_deref(), Some("1 s"));
+    assert_eq!(exposure_text(0.99).as_deref(), Some("0.99 s"));
+    assert_eq!(exposure_text(1.0 / 250.0).as_deref(), Some("1/250 s"));
+}
+
+/// A folder batch picks up GIMP's gzipped `.xcf.gz`, whose last extension alone (`gz`) says nothing.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn folder_listing_recognises_gzipped_xcf_by_its_double_extension() {
+    assert!(super::openable_name("/scans/page 01.xcf.gz"));
+    assert!(super::openable_name("C:\\scans\\PAGE.XCF.GZ"));
+    assert!(super::openable_name("page.xcfgz"));
+    assert!(super::openable_name("page.PNG"));
+    assert!(!super::openable_name("archive.tar.gz"));
+    assert!(!super::openable_name("notes.txt"));
 }

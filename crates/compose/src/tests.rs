@@ -637,6 +637,115 @@ fn clipped_adjustment_only_affects_base() {
     assert!(close4(px(&d, 3, 0), [1.0; 4]), "background untouched (white)");
 }
 
+/// #6535: showing or hiding a clipped adjustment changes only its base's pixels, so its change
+/// bounds are the base's; it still reaches everywhere without a base, or clipped to an
+/// adjustment, or to a pass-through group whose adjustment it isolates.
+#[test]
+fn clipped_adjustment_changes_only_its_base() {
+    let canvas = Rect::new(0, 0, 8, 6);
+    let base_rect = Rect::new(2, 1, 5, 4);
+    let mut d = doc_white(8, 6);
+    d.layers.push(solid_layer("base", base_rect, [0.2, 0.4, 0.6, 1.0]));
+    let mut over = solid_layer("over", Rect::new(3, 2, 4, 3), [0.9, 0.1, 0.1, 1.0]);
+    over.clipped = true;
+    d.layers.push(over);
+    let mut adj = Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert));
+    adj.clipped = true;
+    d.layers.push(adj);
+    assert_eq!(change_bounds(&d.layers[3], canvas), None);
+    assert_eq!(change_bounds_in(&d.layers, 3, None, canvas), Some(base_rect));
+    // Every pixel the toggle changes lies inside those bounds.
+    let shown = render(&d, canvas);
+    d.layers[3].visible = false;
+    let hidden = render(&d, canvas);
+    let mut changed = Rect::EMPTY;
+    for (i, (a, b)) in shown.px.iter().zip(&hidden.px).enumerate() {
+        if !close4(*a, *b) {
+            let (x, y) = ((i % 8) as i32, (i / 8) as i32);
+            assert!(base_rect.contains(x, y), "pixel {x},{y} changed outside the base");
+            let p = Rect::from_xywh(x, y, 1, 1);
+            changed = if changed.is_empty() { p } else { changed.union(&p) };
+        }
+    }
+    assert_eq!(changed, base_rect);
+    // Other layers keep their own bounds.
+    assert_eq!(change_bounds_in(&d.layers, 2, None, canvas), Some(Rect::new(3, 2, 4, 3)));
+    assert_eq!(change_bounds_in(&d.layers, 9, None, canvas), None);
+
+    // Unclipped, or with no base beneath it, it reaches everything.
+    let mut free = d.layers.clone();
+    free[3].clipped = false;
+    assert_eq!(change_bounds_in(&free, 3, None, canvas), None);
+    let orphan = vec![d.layers[3].clone()];
+    assert_eq!(change_bounds_in(&orphan, 0, None, canvas), None);
+    // Clipped layers on an adjustment composite atop the adjusted backdrop.
+    let on_adj = vec![d.layers[0].clone(), Layer::new("lv", LayerContent::Adjustment(Adjustment::Invert)), d.layers[3].clone()];
+    assert_eq!(change_bounds_in(&on_adj, 2, None, canvas), None);
+    // A pass-through group holding an adjustment is isolated only while it has visible clipped
+    // layers, so they change whether its adjustment reaches the layers beneath.
+    let mut g = Layer::group("g", vec![solid_layer("in", base_rect, [0.2, 0.4, 0.6, 1.0]), Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert))]);
+    g.blend = BlendMode::PassThrough;
+    let on_group = vec![d.layers[0].clone(), g, d.layers[3].clone()];
+    assert_eq!(change_bounds_in(&on_group, 2, None, canvas), None);
+}
+
+/// #6535: a clipped adjustment with no base beneath it, inside a pass-through group, composites
+/// as an ordinary adjustment, so hiding the group or the layer clipped to it (which ends its
+/// isolation) changes the whole canvas, not just the group's pixels.
+#[test]
+fn orphan_clipped_adjustment_in_pass_through_base_reaches_everything() {
+    let canvas = Rect::new(0, 0, 8, 6);
+    let mut d = doc_white(8, 6);
+    let mut orphan = Layer::new("A", LayerContent::Adjustment(Adjustment::Invert));
+    orphan.clipped = true;
+    let mut g = Layer::group("G", vec![orphan, solid_layer("P", Rect::new(2, 1, 4, 3), [0.2, 0.4, 0.6, 1.0])]);
+    g.blend = BlendMode::PassThrough;
+    d.layers.push(g);
+    let mut x = Layer::new("X", LayerContent::Adjustment(Adjustment::Invert));
+    x.clipped = true;
+    d.layers.push(x);
+    let shown = px(&d, 0, 0);
+    d.layers[2].visible = false;
+    assert!(!close4(shown, px(&d, 0, 0)), "the toggle changes pixels outside the group");
+    assert_eq!(change_bounds_in(&d.layers, 2, None, canvas), None);
+    assert_eq!(change_bounds(&d.layers[1], canvas), None);
+    // With a base beneath it the clipped adjustment stays inside the group.
+    let LayerContent::Group(g) = &mut d.layers[1].content else { panic!("group") };
+    g.children.swap(0, 1);
+    assert_eq!(change_bounds_in(&d.layers, 2, None, canvas), Some(Rect::new(2, 1, 4, 3)));
+}
+
+/// A pass-through group that is a clip base renders isolated while it holds a visible
+/// adjustment, so hiding a clipped adjustment inside it changes the group's other children too:
+/// its damage is the group's, not just its base's.
+#[test]
+fn clipped_adjustment_in_pass_through_clip_base_reaches_its_group() {
+    let canvas = Rect::new(0, 0, 10, 8);
+    let mut d = doc_white(10, 8);
+    d.layers.push(solid_layer("bg", canvas, [0.5, 0.5, 0.5, 1.0]));
+    let mut a = Layer::new("A", LayerContent::Adjustment(Adjustment::Invert));
+    a.clipped = true;
+    let mut q = solid_layer("Q", Rect::new(6, 4, 8, 6), [0.5, 0.5, 0.5, 1.0]);
+    q.blend = BlendMode::Multiply;
+    let mut g = Layer::group("G", vec![solid_layer("P", Rect::new(2, 1, 4, 3), [0.2, 0.4, 0.6, 1.0]), a, q]);
+    g.blend = BlendMode::PassThrough;
+    d.layers.push(g);
+    let mut x = solid_layer("X", Rect::new(2, 1, 3, 2), [1.0, 0.0, 0.0, 1.0]);
+    x.clipped = true;
+    d.layers.push(x);
+    let shown = px(&d, 7, 5);
+    let LayerContent::Group(g) = &mut d.layers[2].content else { panic!("group") };
+    g.children[1].visible = false;
+    assert!(!close4(shown, px(&d, 7, 5)), "hiding A changes Q, outside A's base");
+    let group = Rect::new(2, 1, 8, 6);
+    let LayerContent::Group(g) = &d.layers[2].content else { panic!("group") };
+    assert_eq!(change_bounds_in(&g.children, 1, Some((&d.layers, 2)), canvas), Some(group));
+    // Not a clip base: the group stays pass-through either way, and A changes only its base.
+    d.layers.truncate(3);
+    let LayerContent::Group(g) = &d.layers[2].content else { panic!("group") };
+    assert_eq!(change_bounds_in(&g.children, 1, Some((&d.layers, 2)), canvas), Some(Rect::new(2, 1, 4, 3)));
+}
+
 #[test]
 fn threshold_posterize_levels_curves() {
     let mut buf = Buffer::filled(Rect::new(0, 0, 1, 1), [0.3, 0.3, 0.3, 1.0]);
@@ -1063,6 +1172,7 @@ fn stroke(size: f32, position: StrokePosition) -> Effect {
         size,
         position,
         paint: FxPaint::Color(Color::rgb(0.0, 0.0, 1.0)),
+        overprint: false,
     })
 }
 
@@ -1339,6 +1449,7 @@ fn satin_and_bevel_stay_inside_shape() {
             altitude: 30.0,
             use_global_light: false,
             gloss_contour: photocraft_doc::Contour::Linear,
+            gloss_anti_alias: false,
             highlight: FxCommon::new(photocraft_color::BlendMode::Screen, 0.75),
             highlight_color: Color::WHITE,
             shadow: FxCommon::new(photocraft_color::BlendMode::Multiply, 0.75),
@@ -1515,6 +1626,7 @@ fn bevel_fx(style: photocraft_doc::BevelStyle, soften: f32) -> Effect {
         altitude: 30.0,
         use_global_light: false,
         gloss_contour: photocraft_doc::Contour::Linear,
+        gloss_anti_alias: false,
         highlight: FxCommon::new(photocraft_color::BlendMode::Screen, 0.75),
         highlight_color: Color::WHITE,
         shadow: FxCommon::new(photocraft_color::BlendMode::Multiply, 0.75),
@@ -1755,6 +1867,7 @@ fn emboss_shades_the_composited_layer() {
         altitude: 30.0,
         use_global_light: false,
         gloss_contour: photocraft_doc::Contour::Linear,
+        gloss_anti_alias: false,
         highlight: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0),
         highlight_color: Color::WHITE,
         shadow: FxCommon::new(photocraft_color::BlendMode::Multiply, 0.0),
@@ -1804,6 +1917,7 @@ fn upper_stroke_blends_with_the_backdrop_not_the_lower_stroke() {
         size: 3.0,
         position: StrokePosition::Outside,
         paint: FxPaint::Color(Color::rgb(1.0, 1.0, 0.0)),
+        overprint: false,
     });
     let d = fx_doc(vec![yellow, stroke(8.0, StrokePosition::Outside)]);
     assert!(close4(px(&d, 8, 20), [1.0, 1.0, 0.0, 1.0]), "{:?}", px(&d, 8, 20));
@@ -2734,6 +2848,7 @@ fn nested_parallel_fx_doc() -> Document {
         size: 3.0,
         position: StrokePosition::Inside,
         paint: FxPaint::Color(Color::rgb(1.0, 0.0, 0.0)),
+        overprint: false,
     })];
     let mut glow = Layer::new("glow", LayerContent::Fill(g(90.0)));
     glow.opacity = 0.5;
@@ -2764,6 +2879,7 @@ fn nested_parallel_fx_doc() -> Document {
         altitude: 32.0,
         use_global_light: false,
         gloss_contour: Contour::Linear,
+        gloss_anti_alias: false,
         highlight: FxCommon::new(BlendMode::Screen, 0.75),
         highlight_color: Color::WHITE,
         shadow: FxCommon::new(BlendMode::Multiply, 0.75),

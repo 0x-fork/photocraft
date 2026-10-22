@@ -20,9 +20,11 @@
 //! - The synthetic input methods reject unknown fields, wrong types, unknown enum values and
 //!   out-of-range numbers before acting, naming the parameter (#2449)
 //! - `ui.resize {width, height}`: resize the main window
-//! - `ui.gpu.simulateLoss {error?}`: act as if the wgpu device was lost (or, with `error: true`,
-//!   reported an error): the app switches to the CPU renderer for the rest of the session, as on a
-//!   real loss. For testing the fallback; returns whether a GPU canvas was active
+//! - `ui.gpu.simulateLoss {error?, destroy?}`: act as if the wgpu device was lost (or, with
+//!   `error: true`, reported an error): the app switches to the CPU renderer for the rest of the
+//!   session, as on a real loss. For testing the fallback; returns whether a GPU canvas was active.
+//!   `destroy: true` destroys the window's real device instead, as a driver reset does: the app
+//!   saves its unsaved documents for recovery and closes (#3438); returns `destroyed`
 //! - `ui.screenshot {path?, focus?}`: capture the main window (PNG). Raises the window first (default)
 //!   because occluded macOS windows stop rendering
 //! - `ui.focus`: bring the main window to the front
@@ -207,6 +209,20 @@ fn num_field(p: &Value, key: &str) -> std::result::Result<Option<f64>, String> {
     match p.get(key) {
         None => Ok(None),
         Some(v) => v.as_f64().filter(|f| f.is_finite()).map(Some).ok_or_else(|| format!("{key} must be a finite number")),
+    }
+}
+
+/// A finite number that stays finite as `f32` (1e39 would turn into inf and silently reset
+/// rotation to 0° or zoom to 100%).
+fn f32_range(n: &f64) -> bool {
+    n.is_finite() && n.abs() <= f64::from(f32::MAX)
+}
+
+/// A `ui.set` numeric field the view stores as `f32`: `Ok(None)` when absent, else within `f32` range.
+fn f32_field(p: &Value, key: &str) -> std::result::Result<Option<f64>, String> {
+    match p.get(key) {
+        None => Ok(None),
+        Some(v) => v.as_f64().filter(f32_range).map(Some).ok_or_else(|| format!("{key} must be a finite number within f32 range")),
     }
 }
 
@@ -571,9 +587,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 let dock = whole_object(&app.ui.dock, p.get("dock"), "dock")?;
                 // Which chip the Color panel edits.
                 let color_panel = whole_object(&app.ui.color_panel, p.get("colorPanel"), "colorPanel")?;
-                let dock_width = num_field(p, "dockWidth")?;
-                let zoom = num_field(p, "zoom")?;
-                let rotation = num_field(p, "rotation")?;
+                let dock_width = f32_field(p, "dockWidth")?;
+                let zoom = f32_field(p, "zoom")?;
+                let rotation = f32_field(p, "rotation")?;
                 if rotation.is_some() && app.session.active_index().is_none() {
                     return Err("no document open".into());
                 }
@@ -586,6 +602,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                         let (Some(x), Some(y)) = (a.first().and_then(Value::as_f64), a.get(1).and_then(Value::as_f64)) else {
                             return Err("center must be [x, y] of two numbers".into());
                         };
+                        if !f32_range(&x) || !f32_range(&y) {
+                            return Err("center must be finite numbers within f32 range".into());
+                        }
                         Some([x as f32, y as f32])
                     }
                     None => None,
@@ -1200,6 +1219,11 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             ok(Value::Null)
         }
         "ui.gpu.simulateLoss" => {
+            if p.get("destroy").and_then(Value::as_bool).unwrap_or(false) {
+                let destroyed = app.destroy_window_device();
+                ctx.request_repaint();
+                return ok(json!({"destroyed": destroyed}));
+            }
             let error = p.get("error").and_then(Value::as_bool).unwrap_or(false);
             let fault = if error {
                 photocraft_gpu::Fault::Error("simulated error (ui.gpu.simulateLoss)".into())
@@ -1863,7 +1887,7 @@ mod tests {
         let ids: Vec<_> = entries.iter().filter_map(|row| row.get("id").and_then(Value::as_str)).collect();
         assert_eq!(
             ids,
-            ["view.zoomIn", "view.zoomOut", "view.fitOnScreen", "view.fillScreen", "view.actualPixels", "view.twoHundredPercent", "view.printSize"]
+            ["view.fitOnScreen", "view.fillScreen", "view.actualPixels", "view.twoHundredPercent", "view.printSize", "view.zoomIn", "view.zoomOut"]
         );
         assert_eq!(call(&mut app, &ctx, "ui.context.choose", json!({"id":"select.all"}))["ok"], false);
         assert_eq!(call(&mut app, &ctx, "ui.context.choose", json!({"id":"view.twoHundredPercent"}))["ok"], true);
@@ -2263,6 +2287,32 @@ mod tests {
     }
 
     #[test]
+    fn ui_set_rejects_view_numbers_beyond_f32_range() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.sync_views();
+        let r = call(&mut app, &ctx, "ui.set", json!({"rotation": 30, "zoom": 2, "center": [3, 4], "dockWidth": 300}));
+        assert_eq!(r["ok"], true, "{r}");
+        let dock = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<f32>(crate::panels::dock_width_id()));
+        let (rotation, zoom, center) = (app.ui.views[0].rotation, app.ui.views[0].zoom, app.ui.views[0].center);
+        // Finite in f64 but infinite as f32: an error, not a silent reset to 0°, 100% or the minimum dock width.
+        for params in
+            [json!({"rotation": 1e39}), json!({"zoom": 1e39}), json!({"center": [1e39, 0]}), json!({"center": [0, -1e39]}), json!({"dockWidth": 1e39})]
+        {
+            let r = call(&mut app, &ctx, "ui.set", params.clone());
+            assert_eq!(r["ok"], false, "{params}: {r}");
+            assert_eq!(app.ui.views[0].rotation, rotation, "{params}");
+            assert_eq!(app.ui.views[0].zoom, zoom, "{params}");
+            assert_eq!(app.ui.views[0].center, center, "{params}");
+            assert_eq!(dock(&ctx), Some(300.0), "{params}");
+        }
+        // Huge but representable still clamps to the top zoom level.
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"zoom": 1e38}))["ok"], true);
+        assert!(app.ui.views[0].zoom.is_finite() && app.ui.views[0].zoom > zoom, "{}", app.ui.views[0].zoom);
+    }
+
+    #[test]
     fn ui_set_theme_keeps_explicit_dock_tab_indices() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let ctx = egui::Context::default();
@@ -2281,6 +2331,20 @@ mod tests {
         assert!(app.ui.color_panel.background);
         assert_eq!(call(&mut app, &ctx, "ui.set", json!({"colorPanel": {"background": "yes"}}))["ok"], false);
         assert!(app.ui.color_panel.background, "a bad value changes nothing");
+    }
+
+    #[test]
+    fn ui_set_color_panel_slider_mode() {
+        use crate::state::ColorPanelSliderMode;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        assert_eq!(app.ui.color_panel.slider_mode, ColorPanelSliderMode::Hsb);
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"colorPanel": {"slider_mode": "rgb"}}))["ok"], true);
+        assert_eq!(app.ui.color_panel.slider_mode, ColorPanelSliderMode::Rgb);
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"colorPanel": {"slider_mode": "hsb"}}))["ok"], true);
+        assert_eq!(app.ui.color_panel.slider_mode, ColorPanelSliderMode::Hsb);
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"colorPanel": {"slider_mode": "cmyk"}}))["ok"], false);
+        assert_eq!(app.ui.color_panel.slider_mode, ColorPanelSliderMode::Hsb);
     }
 
     #[test]
