@@ -2140,6 +2140,11 @@ fn duplicate_to(id: &str, p: &Value) -> Option<Descriptor> {
     if id == "layer.duplicate" && jstr(p, "document") == Some("new") {
         return None;
     }
+    // Photoshop's Duplicate has no in-place flag: a plain one would place the artboard copy beside
+    // the original on playback.
+    if id == "layer.duplicate" && jbool(p, "inPlace") == Some(true) {
+        return None;
+    }
     let mut d = match id {
         "layer.duplicate" => desc("null").with("null", layer_ref(p)),
         "image.duplicate" => {

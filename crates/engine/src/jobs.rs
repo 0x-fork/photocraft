@@ -890,6 +890,7 @@ impl Session {
             let params = match id {
                 _ if self.actions.recording.is_none() => params,
                 "layer.select" => crate::layer_multi_cmds::recorded_selection(self, params),
+                "layer.duplicate" => crate::artboard_cmds::recorded_duplicate(self, params),
                 "layerComp.apply" => crate::comps_cmds::recorded_apply(self, params),
                 _ => params,
             };
