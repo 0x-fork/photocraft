@@ -13,7 +13,7 @@
 //! or sliders is one step too.
 
 use egui::{Context, Id};
-use photocraft_doc::LayerContent;
+use photocraft_doc::{Color, Fill, LayerContent};
 use serde_json::json;
 
 use crate::PhotocraftApp;
@@ -92,10 +92,28 @@ pub fn foreground_changed(app: &mut PhotocraftApp, gesture: Option<String>) {
         _ => return,
     };
     let Some(st) = app.session.active() else { return };
-    let (texts, shapes): (Vec<u64>, Vec<u64>) = {
+    let fg = app.session.tools.foreground;
+    let (texts, shapes): (Vec<u64>, Vec<(u64, f32)>) = {
         let selected: Vec<_> = st.selected_layers().into_iter().filter_map(|id| st.doc.layer(id)).collect();
-        let pick = |want: fn(&LayerContent) -> bool| selected.iter().filter(|l| want(&l.content)).map(|l| l.id.0).collect::<Vec<_>>();
-        (pick(|c| matches!(c, LayerContent::Text(_))), pick(|c| matches!(c, LayerContent::Shape(_))))
+        let texts = selected.iter().filter(|l| matches!(l.content, LayerContent::Text(_))).map(|l| l.id.0).collect();
+        // A shape keeps its fill's own opacity and takes the float colour as it is (#5568);
+        // locked shapes and ones already filled with it are left alone.
+        let shapes = selected
+            .iter()
+            .filter_map(|l| {
+                let LayerContent::Shape(sh) = &l.content else { return None };
+                let locks = st.doc.effective_locks(l.id);
+                if locks.all || locks.pixels {
+                    return None;
+                }
+                let alpha = match &sh.fill {
+                    Some(Fill::Solid(c)) => c.alpha,
+                    _ => 1.0,
+                };
+                (sh.fill != Some(Fill::Solid(Color::rgba(fg[0], fg[1], fg[2], alpha)))).then_some((l.id.0, alpha))
+            })
+            .collect();
+        (texts, shapes)
     };
     let texts = if do_texts { texts } else { Vec::new() };
     let shapes = if do_shapes { shapes } else { Vec::new() };
@@ -106,12 +124,11 @@ pub fn foreground_changed(app: &mut PhotocraftApp, gesture: Option<String>) {
         Some(g) => format!("apply-color-{g}"),
         None => format!("apply-color-{}", app.ui.alloc_id()),
     };
-    let color = hex(app.session.tools.foreground);
     let result = (|| {
         if !texts.is_empty() {
-            app.run("type.setStyle", json!({"layers": texts, "color": color, "coalesce": key}))?;
+            app.run("type.setStyle", json!({"layers": texts, "color": hex(fg), "coalesce": key}))?;
         }
-        shapes.iter().try_for_each(|id| app.run("shape.edit", json!({"layer": id, "fill": color, "coalesce": key})).map(|_| ()))
+        shapes.iter().try_for_each(|(id, alpha)| app.run("shape.edit", json!({"layer": id, "fill": [fg[0], fg[1], fg[2], alpha], "coalesce": key})).map(|_| ()))
     })();
     if let Err(e) = result {
         app.ui.status = e;
