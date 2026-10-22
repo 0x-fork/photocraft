@@ -1173,10 +1173,15 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             crate::anchor_tools::draw_hover(app, painter, &to_scr, accent, painter.ctx().input(|i| i.modifiers));
         }
     } else if paths {
-        // Paths remain visible as outlines with any tool. Path Selection and the Pen tools add
-        // anchor squares; Direct Selection has its own overlay above.
+        // The shape's or vector mask's path stays visible as an outline with any tool. Path
+        // Selection and the Pen tools add anchor squares; Direct Selection has its own overlay
+        // above. The Work Path is drawn only while it is the path selected in the Paths panel or
+        // a path tool is active, as in Photoshop: a Work Path left unselected (one a PSD arrived
+        // with, or after Ctrl-click Load as Selection) would otherwise cover the marching ants (#6551).
         let anchors = shows_anchors(tool);
-        if let Some(wp) = &doc.work_path {
+        if let Some(wp) = &doc.work_path
+            && (anchors || app.ui.selected_path.as_deref() == Some("work"))
+        {
             draw_path(wp, anchors);
         }
         // The saved path selected in the Paths panel is the target path (#6550).
@@ -2489,6 +2494,43 @@ mod tests {
             assert!(shows_anchors(tool), "{tool:?}");
         }
         assert!(!shows_anchors(Tool::Brush) && !shows_anchors(Tool::Move));
+    }
+
+    #[test]
+    fn an_unselected_work_path_is_not_drawn_over_the_canvas() {
+        // #6551: Ctrl-click Load as Selection leaves the Paths panel's selection alone, yet the Work
+        // Path stayed drawn over the new selection's edge. Photoshop draws it only while selected
+        // in the Paths panel (or a path tool is active).
+        let ctx = egui::Context::default();
+        let mut app = app();
+        let path = json!({"subpaths": [{"closed": true, "knots": [
+            {"anchor": [20, 20], "in": [20, 20], "out": [20, 20]},
+            {"anchor": [90, 20], "in": [90, 20], "out": [90, 20]},
+            {"anchor": [90, 90], "in": [90, 90], "out": [90, 90]}
+        ]}]});
+        app.run("path.set", json!({"name": "work", "path": path})).unwrap();
+        app.run("path.toSelection", json!({"name": "work", "mode": "replace"})).unwrap();
+        assert!(app.ui.selected_path.is_none());
+        for tool in [Tool::Move, Tool::Brush, Tool::Rectangle, Tool::Zoom] {
+            app.ui.tool = tool;
+            assert_eq!(overlay_shapes(&app, &ctx), 0, "{tool:?}: an unselected Work Path stays off the canvas");
+        }
+        // Selected in the Paths panel: drawn with any tool.
+        app.ui.selected_path = Some("work".into());
+        for tool in [Tool::Move, Tool::Brush] {
+            app.ui.tool = tool;
+            assert!(overlay_shapes(&app, &ctx) > 0, "{tool:?}: the selected Work Path is drawn");
+        }
+        // Another path selected: the Work Path is not the target path.
+        app.ui.selected_path = Some("Saved".into());
+        app.ui.tool = Tool::Move;
+        assert_eq!(overlay_shapes(&app, &ctx), 0);
+        // A path tool shows the Work Path it edits even when the panel selection was cleared.
+        app.ui.selected_path = None;
+        for tool in [Tool::Pen, Tool::PathSelection] {
+            app.ui.tool = tool;
+            assert!(overlay_shapes(&app, &ctx) > 0, "{tool:?}: path tools draw the Work Path");
+        }
     }
 
     #[test]
