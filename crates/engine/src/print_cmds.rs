@@ -545,7 +545,19 @@ pub struct PrintLayout {
     pub emulsion_down: bool,
 }
 
-/// The print layout for `doc` with Print parameters `p` (used by the dialog's preview too).
+/// Symmetric safety bound for manual Top/Left offsets, shared with the dialog (inches).
+pub const MAX_POSITION_INCHES: f64 = 10000.0;
+
+/// Resolves the shared preview/PDF layout without changing `doc`.
+///
+/// Paper and image bounds use points (72 per inch), with the image origin at bottom-left.
+/// Manual `top`/`left` are inches from the paper's top-left; negative values place artwork
+/// off-page. Center ignores these offsets. Scale to Fit preserves the aspect ratio and uses
+/// the available paper area after the existing mark margins, overriding percentage scale.
+/// Emulsion Down is recorded for rendering; the returned rectangle is not yet mirrored.
+///
+/// Returns an error for malformed manual offsets or offsets beyond [`MAX_POSITION_INCHES`],
+/// nonfinite geometry, geometry magnitudes above 1e9, or nonpositive image dimensions.
 pub fn layout(doc: &Document, p: &Value, cmd: &str) -> Result<PrintLayout> {
     let (pw, ph) = paper(p, cmd)?;
     let dpi = f64::from(doc.resolution_dpi.max(1.0));
@@ -582,10 +594,25 @@ pub fn layout(doc: &Document, p: &Value, cmd: &str) -> Result<PrintLayout> {
         ((pw - w) / 2.0, (ph - h) / 2.0)
     } else {
         // Top / left in inches from the paper's top-left corner (Photoshop's Position fields).
-        let top = p.get("top").and_then(Value::as_f64).unwrap_or(0.0) * 72.0;
-        let left = p.get("left").and_then(Value::as_f64).unwrap_or(0.0) * 72.0;
+        let position = |key: &str| -> Result<f64> {
+            let value = match p.get(key) {
+                None => 0.0,
+                Some(v) => v.as_f64().ok_or_else(|| bad(cmd, "print positions must be finite numbers in inches"))?,
+            };
+            if !value.is_finite() || value.abs() > MAX_POSITION_INCHES {
+                return Err(bad(cmd, "print positions must be within -10000 to 10000 inches"));
+            }
+            Ok(value * 72.0)
+        };
+        let top = position("top")?;
+        let left = position("left")?;
         (left, ph - top - h)
     };
+    // Guard geometry before converting to screen points or writing PDF operators. Even a
+    // finite JSON scale can overflow when multiplied by document dimensions.
+    if ![pw, ph, x, y, w, h, scale].into_iter().all(|v| v.is_finite() && v.abs() <= 1.0e9) || w <= 0.0 || h <= 0.0 {
+        return Err(bad(cmd, "print layout must have finite geometry within 1000000000 points and positive image dimensions"));
+    }
     let emulsion_down = p.get("emulsionDown").and_then(Value::as_bool).unwrap_or(false);
     Ok(PrintLayout { paper: (pw, ph), rect: (x, y, w, h), scale, marks, emulsion_down })
 }

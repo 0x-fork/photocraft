@@ -1,6 +1,68 @@
 use super::*;
 use photocraft_doc::{Knot, NamedPath, Path, Subpath};
 
+/// Compares signed-offset layout with actual PDF image operators and whole-page mirroring
+/// across scale/fit/orientation cases, while checking the source document stays unchanged.
+#[test]
+fn negative_print_positions_match_pdf_without_changing_the_document() {
+    let dir = tmp("negative-position");
+    for (scale, fit, landscape, mirrored) in
+        [(100.0, false, false, false), (175.0, false, true, false), (50.0, true, false, false), (100.0, false, false, true)]
+    {
+        let mut s = session("rgb", 8);
+        let before = s.active().unwrap().doc.clone();
+        let revision = s.active().unwrap().revision;
+        let path = format!("{dir}/{scale}-{fit}-{landscape}-{mirrored}.pdf");
+        let p = json!({"paper": "a4", "center": false, "left": -0.5, "top": -0.25,
+            "scale": scale, "scaleToFit": fit, "orientation": if landscape {"landscape"} else {"portrait"},
+            "emulsionDown": mirrored, "output": path, "send": false, "dryRun": true});
+        let preview = layout(&before, &p, "file.print").unwrap();
+        let (x, y, w, h) = preview.rect;
+        assert_eq!(x, -36.0);
+        assert!((preview.paper.1 - y - h + 18.0).abs() < 1e-9);
+        assert!((w / h - 2.0).abs() < 1e-9);
+        if !fit {
+            assert!((w - 300.0 * scale / 100.0).abs() < 1e-9);
+        } else {
+            assert!((w - (preview.paper.0 - 36.0)).abs() < 1e-9);
+        }
+        let result = s.execute("file.print", p).unwrap();
+        assert_eq!(result["sent"], false);
+        assert_eq!(result["imageRect"], json!([x, y, w, h]));
+        let pdf = std::fs::read(path).unwrap();
+        let content = pdf_content(&pdf);
+        assert!(content.contains(&format!("q {w:.3} 0 0 {h:.3} {x:.3} {y:.3} cm /Im0 Do Q")));
+        assert_eq!(content.contains(&format!("q -1 0 0 1 {:.2} 0 cm", preview.paper.0)), mirrored);
+        let after = s.active().unwrap();
+        assert_eq!(after.revision, revision);
+        assert_eq!(after.doc.size, before.size);
+        assert_eq!(after.doc.resolution_dpi, before.resolution_dpi);
+        assert_eq!(photocraft_compose::thumbnail(&before, 32).pixels, photocraft_compose::thumbnail(&after.doc, 32).pixels);
+    }
+}
+
+/// Checks inclusive signed inch limits, malformed manual offsets and overflow-prone scale
+/// or paper inputs at the shared layout boundary, without invoking a printer.
+#[test]
+fn print_position_and_geometry_bounds_reject_malformed_inputs() {
+    let s = session("rgb", 8);
+    let doc = &s.active().unwrap().doc;
+    for key in ["top", "left"] {
+        for value in [json!(-10000.0), json!(10000.0), json!(-0.125)] {
+            let mut p = json!({"center": false});
+            p[key] = value;
+            assert!(layout(doc, &p, "file.print").is_ok());
+        }
+        for value in [json!(1e308), json!(-10001.0), json!("NaN"), Value::Null] {
+            let mut p = json!({"center": false});
+            p[key] = value;
+            assert!(layout(doc, &p, "file.print").is_err());
+        }
+    }
+    assert!(layout(doc, &json!({"scale": 1e308}), "file.print").is_err());
+    assert!(layout(doc, &json!({"paper": [1e308, 792]}), "file.print").is_err());
+}
+
 fn tmp(name: &str) -> String {
     let d = std::env::temp_dir().join(format!("photocraft-print-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
