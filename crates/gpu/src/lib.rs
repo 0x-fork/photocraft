@@ -468,6 +468,10 @@ pub struct Compositor {
     resident_budget: u64,
     /// GPU memory the effect-map cache may hold ([`FX_BUDGET`] or less).
     fx_budget: u64,
+    /// Layer-page bytes the last full fit check asked for ([`Compositor::fit_layers`]).
+    layer_need: u64,
+    /// Bytes of `fx_budget` lent to `resident_budget` so those pages fit.
+    lent: u64,
     /// What the view shows: a full refresh draws these cells last, so their pages are the
     /// ones still resident for the edits that follow.
     focus: Option<Rect>,
@@ -738,6 +742,8 @@ impl Compositor {
             chunk: CHUNK,
             resident_budget: RESIDENT_BUDGET,
             fx_budget: (FX_BUDGET as u64).saturating_sub(prefix::MAX_BYTES),
+            layer_need: 0,
+            lent: 0,
             focus: None,
             frame: 0,
             stamp: 0,
@@ -784,9 +790,11 @@ impl Compositor {
         self.page
     }
 
-    /// Set the GPU memory resident layer pages may hold (default [`RESIDENT_BUDGET`]).
+    /// Set the GPU memory resident layer pages may hold (default [`RESIDENT_BUDGET`]), exactly:
+    /// nothing is lent to it ([`Self::fit_layers`]) until the next [`Self::set_memory_budget`].
     pub fn set_resident_budget(&mut self, bytes: u64) {
         self.resident_budget = bytes;
+        self.lent = 0;
     }
 
     /// Set the GPU memory the compositor may hold for layer pages and caches together
@@ -797,6 +805,35 @@ impl Compositor {
         self.prefix.set_budget((caches / 2).min(prefix::MAX_BYTES));
         self.fx_budget = caches.saturating_sub(self.prefix.budget());
         self.resident_budget = bytes.saturating_sub(caches);
+        self.lent = 0;
+        self.lend();
+    }
+
+    /// Record that a render needs `needed` bytes of layer pages and return the resident budget
+    /// they now have. A render of the `whole` document sets the need; a part of it only raises
+    /// it, so a large partial refresh never shrinks what the next full one keeps resident.
+    ///
+    /// Pages that miss their share by less than the effect-map share borrow from it: an evicted
+    /// effect map is rebuilt by the next refresh that draws it, but one page too many sends the
+    /// whole refresh to the CPU compositor, 10× slower (#5973, P60: 150 layers of 6 MP on an
+    /// integrated GPU missed by 5 % and took 680 ms instead of 62).
+    /// The lower-stack share is never lent: it is what keeps a mid-stack edit at half the work.
+    /// The loan holds across [`Self::set_memory_budget`] until a later call needs less or more.
+    pub fn fit_layers(&mut self, needed: u64, whole: bool) -> u64 {
+        self.layer_need = if whole { needed } else { self.layer_need.max(needed) };
+        self.lend();
+        self.resident_budget
+    }
+
+    /// Return the loan to the effect maps, then lend what [`Self::layer_need`] still lacks, if
+    /// the effect-map share covers it (lending part of it would fit nothing and only evict maps).
+    fn lend(&mut self) {
+        self.fx_budget = self.fx_budget.saturating_add(self.lent);
+        self.resident_budget = self.resident_budget.saturating_sub(self.lent);
+        let short = self.layer_need.saturating_sub(self.resident_budget);
+        self.lent = if short <= self.fx_budget { short } else { 0 };
+        self.fx_budget = self.fx_budget.saturating_sub(self.lent);
+        self.resident_budget = self.resident_budget.saturating_add(self.lent);
     }
 
     /// The budget of layer pages, effect maps and lower-stack chunks (bytes).

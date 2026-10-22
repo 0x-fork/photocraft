@@ -2842,6 +2842,38 @@ fn the_focused_view_stays_resident_after_a_full_refresh() {
     }
 }
 
+#[test]
+fn layer_pages_that_just_miss_borrow_the_effect_map_share() {
+    let _gamma = TEXT_GAMMA.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(g) = gpu() else { return };
+    let d = big_doc();
+    let mut comp = Compositor::try_new_with_format(&g.device, wgpu::TextureFormat::Rgba32Float).unwrap();
+    comp.set_texture_limit(PAGED_LIMIT);
+    let need = comp.working_set(&d, d.bounds());
+    // Pages get three quarters of the budget and effect maps an eighth: at 5/4 of the need the
+    // pages' own share misses by about 6 %, which the effect-map share covers (#5973, P60).
+    let budget = need / 4 * 5;
+    comp.set_memory_budget(budget);
+    let own = comp.resident_budget();
+    assert!(own < need && !comp.fits_budget(&d, d.bounds()));
+    assert_eq!(comp.fit_layers(need, true), need, "lends exactly the shortfall");
+    assert_eq!(comp.memory_budget(), budget, "the total stays");
+    comp.set_memory_budget(budget);
+    assert_eq!(comp.resident_budget(), need, "the loan holds across the budget set before every refresh");
+    assert_eq!(comp.fit_layers(need / 2, false), need, "a partial refresh doesn't shrink it");
+    photocraft_gpu::render_to_vec(&mut comp, &g.device, &g.queue, &d, d.bounds()).unwrap();
+    let (out, s) = photocraft_gpu::render_to_vec_stats(&mut comp, &g.device, &g.queue, &d, d.bounds()).unwrap();
+    // Every page stays resident; effect maps may be evicted and rebuilt, that's the loan.
+    assert_eq!(s.tiles_uploaded, 0, "{s:?}");
+    assert!(worst_diff(&photocraft_compose::render(&d, d.bounds()).px, &out).0 <= TOL);
+    // A need the effect-map share can't cover lends nothing (it would only evict maps), and a
+    // smaller need gives the loan back.
+    assert_eq!(comp.fit_layers(budget, true), own);
+    comp.fit_layers(need, true);
+    assert_eq!(comp.fit_layers(own, true), own);
+    assert_eq!(comp.memory_budget(), budget);
+}
+
 // A pass-through group holding an adjustment renders isolated when layers clip to it, on the GPU
 // as on the CPU (psd-tools passthrough_clipping_mask_adjustment).
 #[test]
