@@ -701,7 +701,7 @@ pub fn follows_target(id: &str) -> bool {
 }
 
 /// Commands whose target follows the Channels panel.
-fn routed(id: &str) -> bool {
+pub(crate) fn routed(id: &str) -> bool {
     id.starts_with("filter.")
         || id == "plugin.run"
         || id.starts_with("image.adjustments.")

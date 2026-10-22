@@ -877,7 +877,7 @@ impl Session {
         if let Some(st) = self.active_mut() {
             crate::mask_view_cmds::fix(st);
         }
-        crate::edit_menu_cmds::after_command(self, id);
+        crate::edit_menu_cmds::after_command(self, id, &params);
         crate::automate_cmds::after_command(self, id);
         self.sync_preset_store();
         if !journal {
