@@ -2327,6 +2327,9 @@ fn faux_bold_keeps_square_corners_square() {
             let a = alpha(x, top + 1);
             assert!(a > 0.9, "bold {bold}: the {corner} corner is cut away (alpha {a})");
         }
+    }
+}
+
 #[test]
 fn text_rebuild_preserves_imported_font_metadata() {
     use crate::engine_data::Value as E;
