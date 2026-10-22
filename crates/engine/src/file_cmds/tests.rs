@@ -121,6 +121,32 @@ fn a_developed_raw_opens_at_the_raw_defaults_resolution() {
     assert_eq!(doc(&s).resolution_dpi, 72.0, "not a raw");
 }
 
+/// The other ways a raw becomes a document of its own take Raw Defaults › Resolution too:
+/// File › Revert, Batch and Load Files into Stack (all of them opened a raw at 72 ppi).
+#[test]
+fn revert_batch_and_stack_open_a_raw_at_the_raw_defaults_resolution() {
+    use photocraft_raw::testgen::{DngSpec, mosaic, scene};
+    let (w, h) = (24, 16);
+    let dir = tmp("raw-defaults-siblings");
+    let path = join(&dir, "IMG_0003.dng");
+    std::fs::write(&path, DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535)).build()).unwrap();
+    let mut s = Session::new();
+    s.execute("prefs.set", json!({"path": "rawDefaults.resolution", "value": 240})).unwrap();
+    open_bytes_as(&mut s, &path, &std::fs::read(&path).unwrap(), None, Some(path.clone())).unwrap();
+    s.execute("image.imageSize", json!({"resolution": 150, "resample": "none"})).unwrap();
+    assert_eq!(doc(&s).resolution_dpi, 150.0);
+    s.execute("file.revert", json!({})).unwrap();
+    assert_eq!(doc(&s).resolution_dpi, 240.0, "File › Revert");
+    let out = join(&dir, "out");
+    let r = s.execute("file.automate.batch", json!({"steps": [], "input": [path.clone()], "output": out, "format": "psd"})).unwrap();
+    let files = r["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1, "{r}");
+    let psd = photocraft_io::import("IMG_0003.psd", &std::fs::read(files[0].as_str().unwrap()).unwrap()).unwrap().document;
+    assert_eq!(psd.resolution_dpi, 240.0, "Batch");
+    s.execute("file.scripts.loadFilesIntoStack", json!({"paths": [path]})).unwrap();
+    assert_eq!(doc(&s).resolution_dpi, 240.0, "Load Files into Stack");
+}
+
 #[test]
 fn revert_reloads_as_one_undoable_step() {
     let dir = tmp("revert");

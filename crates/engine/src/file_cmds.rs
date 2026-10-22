@@ -308,6 +308,24 @@ pub(crate) fn is_windows_device_name(component: &str) -> bool {
 }
 
 pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
+    import_result(name, bytes).map(|r| r.document)
+}
+
+/// [`import`] for a file that becomes a document of its own (Revert, Load Files into Stack;
+/// Batch's scratch sessions use [`import_at_raw_ppi`]): a developed raw gets Preferences › Raw
+/// Defaults › Resolution, as it does through File › Open.
+pub(crate) fn import_opened(s: &Session, name: &str, bytes: &[u8]) -> Result<Document> {
+    import_at_raw_ppi(s.prefs().raw_defaults.resolution, name, bytes)
+}
+
+fn import_at_raw_ppi(raw_ppi: f64, name: &str, bytes: &[u8]) -> Result<Document> {
+    let r = import_result(name, bytes)?;
+    let mut doc = r.document;
+    raw_resolution(raw_ppi, &r.warnings, &mut doc);
+    Ok(doc)
+}
+
+fn import_result(name: &str, bytes: &[u8]) -> Result<photocraft_io::ImportResult> {
     crate::allocation::checkpoint("importing document")?;
     let r = photocraft_io::import(name, bytes).map_err(|e| EngineError::Other(format!("{name}: {e}")))?;
     // Auxiliary imports return only a document and cannot surface the preview's fidelity warning.
@@ -317,7 +335,7 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
             "{name}: only this Affinity file's embedded preview could be read; open it with File › Open to see the warning, or export PSD or PNG from Affinity before using it here"
         )));
     }
-    Ok(r.document)
+    Ok(r)
 }
 
 /// What a headless save writes beyond the format: JPEG quality and format, TIFF layers, Targa
@@ -586,7 +604,7 @@ fn close_others(s: &mut Session, p: &Value) -> Result<Value> {
 fn revert(s: &mut Session) -> Result<Value> {
     let path = s.active().and_then(|d| d.path.clone()).ok_or(EngineError::Other("the document has never been saved".into()))?;
     let bytes = read_file(&path)?;
-    let fresh = import(&file_name(&path), &bytes)?;
+    let fresh = import_opened(s, &file_name(&path), &bytes)?;
     s.edit("Revert", |doc, active| {
         let (id, name) = (doc.id, doc.name.clone());
         *doc = fresh;
@@ -643,7 +661,10 @@ pub(crate) fn tag_exr_colorspace(s: &Session, name: &str, doc: &mut Document) {
 /// Camera Raw's workflow options set it (the raw itself states none). `warnings` are the
 /// import's notes, which say whether the raw was developed or only its preview opened.
 pub fn raw_defaults(s: &Session, warnings: &[String], doc: &mut Document) {
-    let ppi = s.prefs().raw_defaults.resolution;
+    raw_resolution(s.prefs().raw_defaults.resolution, warnings, doc);
+}
+
+fn raw_resolution(ppi: f64, warnings: &[String], doc: &mut Document) {
     if ppi.is_finite() && warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE)) {
         doc.resolution_dpi = ppi.clamp(1.0, 10_000.0) as f32;
     }
@@ -1279,9 +1300,17 @@ pub(crate) fn list_images_tree(dir: &str, _skip: &str, _cmd: &str) -> Result<Vec
 
 /// Opens each input in a scratch session, runs `f` on it and saves it to `output` as `format`
 /// (`"same"` keeps the input's extension). Errors per file are collected, not fatal.
-pub(crate) fn process_files(inputs: &[String], output: &str, format: &str, save: SaveOpts, suffix: &str, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+pub(crate) fn process_files(
+    s: &Session,
+    inputs: &[String],
+    output: &str,
+    format: &str,
+    save: SaveOpts,
+    suffix: &str,
+    f: &dyn Fn(&mut Session) -> Result<()>,
+) -> Value {
     let inputs: Vec<BatchInput> = inputs.iter().map(|path| BatchInput { path: path.clone(), rel_dir: String::new() }).collect();
-    process_tree(&inputs, output, format, save, suffix, &|s, _| f(s).map(|()| false))
+    process_tree(s, &inputs, output, format, save, suffix, &|scratch, _| f(scratch).map(|()| false))
 }
 
 /// [`process_files`] for inputs from subfolders: each result goes to its input's relative folder
@@ -1289,6 +1318,7 @@ pub(crate) fn process_files(inputs: &[String], output: &str, format: &str, save:
 /// output path and returns `true` when it wrote the result there itself (Batch writes what a
 /// recorded save marked); otherwise the active document is saved after it.
 pub(crate) fn process_tree(
+    s: &Session,
     inputs: &[BatchInput],
     output: &str,
     format: &str,
@@ -1300,7 +1330,7 @@ pub(crate) fn process_tree(
         let ext = if format == "same" { same_format(path) } else { format.trim_start_matches('.').to_ascii_lowercase() };
         (path.as_str(), join(&join(output, rel_dir), &format!("{}{suffix}.{ext}", stem(path))))
     });
-    process_outputs(outputs, save, f)
+    process_outputs(s, outputs, save, f)
 }
 
 /// The extension a batch output takes with Format "Same": the input's own, except for formats
@@ -1328,7 +1358,9 @@ fn same_format_takes_the_file_names_extension() {
     assert_eq!(same_format("/in/.hidden"), "png");
 }
 
-fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session, &str) -> Result<bool>) -> Value {
+fn process_outputs<'a>(s: &Session, outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session, &str) -> Result<bool>) -> Value {
+    // The scratch sessions have default preferences; a raw opens at the user's Raw Defaults.
+    let raw_ppi = s.prefs().raw_defaults.resolution;
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
@@ -1337,7 +1369,7 @@ fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, sav
             written.check(&out).map_err(EngineError::Other)?;
             let bytes = read_file(path)?;
             let mut scratch = Session::new();
-            let doc = import(&file_name(path), &bytes)?;
+            let doc = import_at_raw_ppi(raw_ppi, &file_name(path), &bytes)?;
             scratch.add_document(doc, Some(path.to_string()));
             if !f(&mut scratch, &out)? {
                 let d = scratch.active().ok_or(EngineError::NoDocument)?;
@@ -1449,8 +1481,8 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         }
     };
     let r = match names {
-        Some(names) => process_outputs(inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
-        None => process_tree(&inputs, &output, &format, save, "", &run),
+        Some(names) => process_outputs(s, inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
+        None => process_tree(s, &inputs, &output, &format, save, "", &run),
     };
     Ok(r)
 }
@@ -1465,7 +1497,7 @@ fn image_processor(s: &mut Session, p: &Value) -> Result<Value> {
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_tree(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch, _| {
+    let r = process_tree(s, &inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch, _| {
         if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
             scratch.execute("image.mode.rgb", json!({}))?;
         }
@@ -1490,7 +1522,7 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
     let mut docs = Vec::new();
     for path in &paths {
         let bytes = read_file(path)?;
-        docs.push((file_name(path), import(&file_name(path), &bytes)?));
+        docs.push((file_name(path), import_opened(s, &file_name(path), &bytes)?));
     }
     let first = &docs[0].1;
     let w = docs.iter().map(|(_, d)| d.size.width).max().unwrap_or(1);

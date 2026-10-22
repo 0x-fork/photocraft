@@ -312,7 +312,9 @@ fn convert(a: &Args, _out: &mut dyn Write, err: &mut dyn Write) -> R {
     };
     let opts = export_opts(a)?;
     refuse_overwriting_input(a, input, output)?;
-    let o = files::open(Path::new(input)).map_err(|e| e.to_string())?;
+    let mut o = files::open(Path::new(input)).map_err(|e| e.to_string())?;
+    // Preferences › Raw Defaults › Resolution at its default, as `run` and `info` open a raw.
+    photocraft_engine::file_cmds::raw_defaults(&photocraft_engine::Session::new(), &o.warnings, &mut o.document);
     warn_all(err, &o.warnings);
     warn_all(err, &photocraft_engine::type_extra_cmds::missing_font_warnings(&o.document));
     let ws = files::save(&o.document, Path::new(output), a.get("--format"), &opts, None).map_err(|e| e.to_string())?;

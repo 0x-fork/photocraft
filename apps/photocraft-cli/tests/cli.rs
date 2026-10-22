@@ -977,3 +977,18 @@ fn run_pairs_params_with_the_preceding_cmd() {
     assert_ne!(code, 0);
     assert!(err.contains("--params"), "{err}");
 }
+
+/// #7789: `convert` opens a developed raw at Raw Defaults › Resolution (default 300 ppi), as
+/// `run`, `info` and the app do; it wrote 72.
+#[test]
+fn convert_opens_a_raw_at_the_raw_defaults_resolution() {
+    use photocraft_raw::testgen::{DngSpec, mosaic, scene};
+    let d = tmp("convert-raw");
+    let (w, h) = (24, 16);
+    let (raw, psd) = (d.join("IMG_0001.dng"), d.join("IMG_0001.psd"));
+    std::fs::write(&raw, DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535)).build()).unwrap();
+    ok(bin().args(["convert"]).arg(&raw).arg(&psd));
+    let doc = photocraft_io::import("IMG_0001.psd", &std::fs::read(&psd).unwrap()).unwrap().document;
+    assert_eq!(doc.resolution_dpi, 300.0);
+    std::fs::remove_dir_all(d).unwrap();
+}
