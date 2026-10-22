@@ -94,8 +94,13 @@ fn main() {
             samples.push(ms);
             drop(out);
         }
-        let last = samples.last().copied().unwrap_or_default();
-        println!("{name:<18} {w}x{h} RGBA8: {last:.1} ms{reps_note}", reps_note = if reps > 1 { format!(" (median of {reps})") } else { String::new() });
+        let mut sorted = samples.clone();
+        sorted.sort_by(f64::total_cmp);
+        let median = match sorted.len() % 2 {
+            1 => sorted[sorted.len() / 2],
+            _ => (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0,
+        };
+        println!("{name:<18} {w}x{h} RGBA8: {median:.1} ms{reps_note}", reps_note = if reps > 1 { format!(" (median of {reps})") } else { String::new() });
         rows.push((name, samples));
     }
     if let Some(path) = value("--json") {
