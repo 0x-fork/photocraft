@@ -2186,7 +2186,7 @@ pub fn cursor(app: &PhotocraftApp, xf: &ViewXform, p: [f64; 2], quick_split: boo
     // A handle resizes the box away from the opposite handle.
     let resize = |from: [f64; 2], to: [f64; 2]| crate::tool_cursor::resize([to[0] - from[0], to[1] - from[1]], xf);
     Some(match h {
-        Hit::Corner(i) => resize(corner(i + 2), corner(i)),
+        Hit::Corner(i) => crate::tool_cursor::corner_resize(&t.quad, i, xf),
         Hit::Edge(i) => resize(edge_mid(i + 2), edge_mid(i)),
         Hit::Pivot => CursorIcon::Crosshair,
         Hit::Inside => CursorIcon::Move,
@@ -4859,6 +4859,21 @@ mod tests {
             let got: Vec<_> = (0..4).map(|i| cursor(&app, &xf, t.quad[i], false)).chain((0..4).map(|i| cursor(&app, &xf, mid(i), false))).collect();
             let want = [want[0], want[1], want[0], want[1], want[2], want[3], want[2], want[3]].map(Some);
             assert_eq!(got, want, "box {deg}°, view {view}°, flip {flip}");
+        }
+    }
+
+    /// The corners of a wide or tall box show the diagonal arrows, as in Photoshop, not the
+    /// horizontal or vertical one its long diagonal is nearest to.
+    #[test]
+    fn corner_cursors_stay_diagonal_on_a_long_box() {
+        use CursorIcon::{ResizeNeSw as NeSw, ResizeNwSe as NwSe};
+        for rect in [photocraft_geom::Rect::new(8, 112, 248, 144), photocraft_geom::Rect::new(112, 8, 144, 248)] {
+            let mut app = app_with_square(256, rect);
+            crate::menus::invoke(&mut app, &egui::Context::default(), "edit.freeTransform", json!({})).unwrap();
+            let t = app.ui.transform.clone().unwrap();
+            let xf = ViewXform::active(&app).unwrap();
+            let got: Vec<_> = (0..4).map(|i| cursor(&app, &xf, t.quad[i], false)).collect();
+            assert_eq!(got, [NwSe, NeSw, NwSe, NeSw].map(Some), "{rect:?}");
         }
     }
 
