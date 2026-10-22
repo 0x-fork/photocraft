@@ -191,3 +191,8 @@ sync_github_name = true
 
 [people.ha1des]
 sync_github_name = true
+
+[people.LorenzoFasolino]
+real_name = "Lorenzo Fasolino"
+display_name = "Lorenzo Fasolino"
+sync_github_name = false
