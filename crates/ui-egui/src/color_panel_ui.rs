@@ -471,8 +471,17 @@ fn ramp(app: &mut PhotocraftApp, ui: &mut egui::Ui, height: f32) {
     let bar = Rect::from_min_max(all.min, pos2(all.right() - BOXES_W - 2.0, all.bottom()));
     let boxes = Rect::from_min_max(pos2(all.right() - BOXES_W, all.top()), all.max);
     let cp = app.ui.color_panel;
-    let fg = rgb3(app.session.tools.foreground);
-    let bg = rgb3(app.session.tools.background);
+    let ramp_id = ui.id().with("color-panel-ramp");
+    // A pick changes the foreground or background, so a drag keeps the Current Colors ends it began
+    // with; otherwise the ramp would slide under the pointer and a held pick would drift.
+    let ends_id = ramp_id.with("ends");
+    let live = (rgb3(app.session.tools.foreground), rgb3(app.session.tools.background));
+    let (fg, bg) = if ui.ctx().is_being_dragged(ramp_id) {
+        ui.data(|d| d.get_temp::<([f32; 3], [f32; 3])>(ends_id)).unwrap_or(live)
+    } else {
+        ui.data_mut(|d| d.insert_temp(ends_id, live));
+        live
+    };
     let colors = ramp_colors(ui, cp.ramp, cp.web_safe_ramp, fg, bg);
     ui.painter().add(ramp_mesh(bar, &colors, cp.web_safe_ramp));
     ui.painter().rect_stroke(bar, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
@@ -481,7 +490,7 @@ fn ramp(app: &mut PhotocraftApp, ui: &mut egui::Ui, height: f32) {
     ui.painter().rect_filled(white, 0.0, Color32::WHITE);
     ui.painter().rect_filled(black, 0.0, Color32::BLACK);
     ui.painter().rect_stroke(boxes, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
-    let resp = ui.interact(bar, ui.id().with("color-panel-ramp"), Sense::click_and_drag());
+    let resp = ui.interact(bar, ramp_id, Sense::click_and_drag());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, ui.is_enabled(), "Color Ramp"));
     let mods = ui.input(|i| i.modifiers);
     let target = cp.background != mods.alt;
@@ -643,15 +652,21 @@ fn triangle_point([hue, white, black]: [Pos2; 3], s: f32, b: f32) -> Pos2 {
     black + (white - black) * b + (hue - white) * (b * s)
 }
 
-/// Saturation and brightness at `p`, clamped into the triangle; `None` for a degenerate one.
-fn triangle_sv([hue, white, black]: [Pos2; 3], p: Pos2) -> Option<(f32, f32)> {
+/// Saturation and brightness at `p`, clamped into the triangle; `None` for a degenerate one or a
+/// non-finite `p`.
+pub(crate) fn triangle_sv([hue, white, black]: [Pos2; 3], p: Pos2) -> Option<(f32, f32)> {
     let (a, c, d) = (white - black, hue - white, p - black);
     let det = a.x * c.y - a.y * c.x;
     if det.abs() < 1e-6 {
         return None;
     }
-    let b = ((d.x * c.y - d.y * c.x) / det).clamp(0.0, 1.0);
-    let bs = ((a.x * d.y - a.y * d.x) / det).clamp(0.0, b);
+    let (b, bs) = ((d.x * c.y - d.y * c.x) / det, (a.x * d.y - a.y * d.x) / det);
+    // A NaN `b` would panic as a clamp bound.
+    if !b.is_finite() || !bs.is_finite() {
+        return None;
+    }
+    let b = b.clamp(0.0, 1.0);
+    let bs = bs.clamp(0.0, b);
     Some((if b > 0.0 { bs / b } else { 0.0 }, b))
 }
 

@@ -247,6 +247,44 @@ fn ramp_picks_and_shift_click_cycles_and_alt_picks_the_other_colour() {
     assert!(bytes(h.state().session.tools.foreground).iter().all(|v| *v > 245));
 }
 
+/// A drag on the Current Colors ramp picks from the ends it began with: holding still keeps the
+/// colour under the pointer instead of drifting toward the background.
+#[test]
+fn current_colors_ramp_drag_keeps_its_ends() {
+    let mut h = color_tab(ThemeKind::BreezeDark, ColorPanelMode::RgbSliders, [0.0, 0.0, 0.0, 1.0]);
+    h.state_mut().session.tools.background = [1.0, 1.0, 1.0, 1.0];
+    h.state_mut().ui.color_panel.ramp = ColorRamp::CurrentColors;
+    h.run_steps(2);
+    let ramp: Rect = h.get_by_label("Color Ramp").rect();
+    let p = ramp.center();
+    h.hover_at(p);
+    h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    // Move away and back to start the drag, then hold still for a while.
+    for q in [p + vec2(12.0, 0.0), p] {
+        h.event(egui::Event::PointerMoved(q));
+        h.run_steps(1);
+    }
+    h.run_steps(20);
+    h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+    let expected = ramp_color(ColorRamp::CurrentColors, false, [0.0; 3], [1.0; 3], (p.x - ramp.left()) / ramp.width(), 0.5);
+    let got = bytes(h.state().session.tools.foreground);
+    for (g, e) in got.iter().zip(expected) {
+        assert!(i32::from(*g).abs_diff((e * 255.0).round() as i32) <= 3, "{got:?} vs {expected:?}");
+    }
+}
+
+/// A non-finite pointer (a huge synthetic `ui.move`) misses the triangle instead of panicking.
+#[test]
+fn triangle_ignores_non_finite_points() {
+    let tri = [pos2(100.0, 0.0), pos2(0.0, 0.0), pos2(0.0, 100.0)];
+    for p in [pos2(f32::INFINITY, f32::INFINITY), pos2(f32::NAN, 1.0), pos2(f32::NEG_INFINITY, f32::INFINITY)] {
+        assert_eq!(crate::color_panel_ui::triangle_sv(tri, p), None, "{p:?}");
+    }
+    assert!(crate::color_panel_ui::triangle_sv(tri, pos2(10.0, 10.0)).is_some());
+}
+
 #[test]
 fn color_wheel_ring_sets_hue_and_triangle_sets_saturation_and_brightness() {
     let mut h = color_tab(ThemeKind::Pro, ColorPanelMode::ColorWheel, [0.0, 0.0, 1.0, 1.0]);
