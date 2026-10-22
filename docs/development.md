@@ -385,6 +385,8 @@ cargo xtask perf --update-baseline   # also write perf/baseline.json from this r
   `cargo xtask perf --update-baseline`, with the machine (CPU, RAM, GPU adapter, OS), its machine
   class, commit, date and load average.
 - `crates/io/tests/corpus.rs`: the corpus floors (every `Source { .. }` constant).
+- `xtask/*-corpus.sha256`: file counts for pinned corpora, so stale counts in doc comments cannot
+  change the reported denominators. No downloaded corpus is needed to generate the scorecard.
 - The prefs audit: `Preferences` fields that no code reads (target 0, #204), plus counts taken
   from the tree (never-crash attribute coverage, `docs/parity-checklist.md`).
 
