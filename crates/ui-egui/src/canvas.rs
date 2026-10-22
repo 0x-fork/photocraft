@@ -3426,8 +3426,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // Select and Mask outlines its refined selection (on its preview proxy, reduced by `k`) in
         // the Marching Ants view and hides the ants in the others.
         let refined = crate::select_mask_view::ants(app, idx);
+        // A floating piece's ants hug the pixels being moved.
+        let floated = floating_outline(app, idx);
         let (outlined, k) = match &refined {
-            None => (doc.selection.as_ref(), 1),
+            None => (floated.as_ref().or(doc.selection.as_ref()), 1),
             Some(None) => (None, 1),
             Some(Some((proxy, k))) => (proxy.selection.as_ref(), (*k).max(1)),
         };
@@ -5091,11 +5093,12 @@ fn transform_controls_several(app: &PhotocraftApp) -> bool {
 /// layers, joined into one.
 fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> {
     let st = app.session.active()?;
-    let b = transform_controls_layers(app)
-        .into_iter()
-        .map(|l| photocraft_engine::transform_cmds::transform_frame(&st.doc, l))
-        .filter(|b| !b.is_empty())
-        .reduce(|a, b| a.union(&b))?;
+    let layers = transform_controls_layers(app);
+    let b = layers.iter().map(|l| photocraft_engine::transform_cmds::transform_frame(&st.doc, l)).filter(|b| !b.is_empty()).reduce(|a, b| a.union(&b))?;
+    // Floating selected pixels are framed by their outline, as their ants are (#7538), not by the
+    // selection they were cut with; a frame round other selected layers too keeps them all.
+    let alone = matches!(layers.as_slice(), [l] if photocraft_engine::float_cmds::floating(st).is_some_and(|f| f.layer == l.id));
+    let b = app.session.active_index().filter(|_| alone).and_then(|idx| floating_outline(app, idx)).map_or(b, |o| o.content_bounds());
     let (dx, dy) = crate::move_ui::floating_offset(app).unwrap_or((0, 0));
     let b = b.translate(dx, dy);
     if b.is_empty() {
@@ -5743,6 +5746,7 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
                     app.ui.status_error = true;
                     return;
                 }
+                crate::snap_ui::follow_cut(app);
                 let mut d = Drag::new(tool, [x, y], vec![[x, y, pressure as f64]], mods, false);
                 d.sel_move = Some(cut);
                 app.drag = Some(d);
@@ -5915,7 +5919,11 @@ fn hidden_target(app: &PhotocraftApp, tool: Tool) -> Option<&'static str> {
 
 /// Is document point `p` inside the active document's selection?
 fn inside_selection(app: &PhotocraftApp, p: [f64; 2]) -> bool {
-    let Some(sel) = app.session.active().and_then(|st| st.doc.selection.as_ref()) else { return false };
+    app.session.active().and_then(|st| st.doc.selection.as_ref()).is_some_and(|sel| covers(sel, p))
+}
+
+/// Does selection surface `sel` cover document point `p`?
+fn covers(sel: &photocraft_raster::Surface, p: [f64; 2]) -> bool {
     let mut v = [0.0f32];
     sel.read_pixel(p[0].floor() as i32, p[1].floor() as i32, &mut v);
     v[0] > 0.0
@@ -5936,7 +5944,10 @@ pub fn selection_drag_kind(app: &PhotocraftApp, tool: Tool, p: [f64; 2], mods: e
     // ⌘ cuts, ⌘⌥ copies (`select.float`'s `copy`).
     let cut = mods.command && !mods.shift;
     if let Some(f) = app.session.active().and_then(photocraft_engine::float_cmds::floating) {
-        let on = inside_selection(app, [p[0] - f64::from(f.offset.0), p[1] - f64::from(f.offset.1)]);
+        // A press on the piece's outline (where its ants are) drags it; one in the margin the cut
+        // left of the selection starts a new selection (#7538).
+        let at = [p[0] - f64::from(f.offset.0), p[1] - f64::from(f.offset.1)];
+        let on = f.parts.outline().map_or_else(|| inside_selection(app, at), |o| covers(o, at));
         return (on && !mods.shift && (!mods.alt || mods.command) && (cut || !clicky)).then_some(true);
     }
     if !inside_selection(app, p) {
@@ -6037,10 +6048,31 @@ pub(crate) fn selection_drag_delta(app: &PhotocraftApp) -> Option<(i32, i32)> {
     Some(((end[0] - d.start[0]).round().clamp(-1e7, 1e7) as i32, (end[1] - d.start[1]).round().clamp(-1e7, 1e7) as i32))
 }
 
+/// The selection a floating piece on document `idx` shows its ants for, before its offset: the
+/// moved pixels' outline, as in Photoshop (#7538); `None` outlines the document's selection. The
+/// surface's tiles are shared, so the clone is cheap.
+pub(crate) fn floating_outline(app: &PhotocraftApp, idx: usize) -> Option<photocraft_raster::Surface> {
+    if app.session.active_index() != Some(idx) {
+        return None;
+    }
+    photocraft_engine::float_cmds::floating(app.session.active()?)?.parts.outline().cloned()
+}
+
 /// Where the selection is drawn relative to where it is: a floating piece's offset plus a drag
 /// in progress.
 fn selection_shown_offset(app: &PhotocraftApp) -> Option<(i32, i32)> {
-    crate::move_ui::floating_offset(app).or_else(|| selection_drag_delta(app))
+    crate::move_ui::floating_offset(app).or_else(|| selection_drag_delta(app)).or_else(|| carried_selection_delta(app))
+}
+
+/// Whole-pixel offset of a Move drag of several layers, which carries the selection along
+/// (`move_ui::carries_selection`): their ants follow the layers while they move (#7538).
+fn carried_selection_delta(app: &PhotocraftApp) -> Option<(i32, i32)> {
+    let d = app.drag.as_ref().filter(|d| d.tool == Tool::Move && d.sel_move.is_none())?;
+    if !crate::move_ui::carries_selection(app) {
+        return None;
+    }
+    let end = d.points.last().map_or(d.start, |p| [p[0], p[1]]);
+    Some(((end[0] - d.start[0]).round().clamp(-1e7, 1e7) as i32, (end[1] - d.start[1]).round().clamp(-1e7, 1e7) as i32))
 }
 
 /// End of a selection drag: move the outline, or the floating piece. A click without moving
@@ -8677,6 +8709,130 @@ mod tests {
 mod transform_controls_tests {
     use super::*;
     use serde_json::json;
+
+    /// #7538: as in Photoshop, the box frames a loose selection until its pixels are moved, then
+    /// the pixels themselves, while they float and once dropped.
+    #[test]
+    fn transform_controls_frame_the_moved_pixels_not_the_marquee() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200, "background": "transparent"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 40, "y": 40, "width": 50, "height": 40})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.sync_views();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_show_transform = true;
+        let xf =
+            ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        let frame = |app: &PhotocraftApp| {
+            let r = transform_controls_rect(app, &xf).unwrap();
+            let (lt, rb) = (xf.to_doc(r.left_top()), xf.to_doc(r.right_bottom()));
+            [lt[0], lt[1], rb[0], rb[1]].map(|v| v.round() as i32)
+        };
+        assert_eq!(frame(&app), [20, 20, 120, 110], "the selection, before anything moves");
+        app.run("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        assert_eq!(frame(&app), [50, 45, 100, 85], "the floating pixels");
+        app.run("select.drop", json!({})).unwrap();
+        assert_eq!(frame(&app), [50, 45, 100, 85], "dropped");
+    }
+
+    /// #7538: with several layers selected the Move tool moves them whole, and the selection goes
+    /// with them, as in Photoshop: its ants follow the drag and it lands with them in one step.
+    #[test]
+    fn moving_several_layers_carries_the_selection() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200, "background": "transparent"})).unwrap();
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.session.execute("select.rect", json!({"x": 40, "y": 40, "width": 50, "height": 40})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        app.session.execute("select.rect", json!({"x": 120, "y": 120, "width": 30, "height": 30})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        app.session.execute("layer.select", json!({"layer": a.0, "mode": "add"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.sync_views();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_auto_select = false;
+        app.ui.extras.snap = false;
+        app.ui.view.show.smart_guides = false;
+        let steps = app.session.active().unwrap().history.past_len();
+        let m = egui::Modifiers::NONE;
+        tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, m);
+        tool_event(&mut app, ToolEvent::Move { x: 72.0, y: 68.0, pressure: 1.0 }, m);
+        assert_eq!(selection_shown_offset(&app), Some((12, 8)), "the ants follow the layers");
+        tool_event(&mut app, ToolEvent::Up { x: 72.0, y: 68.0 }, m);
+        let st = app.session.active().unwrap();
+        assert!(photocraft_engine::float_cmds::floating(st).is_none(), "whole layers moved, nothing floats");
+        assert_eq!(st.doc.selection.as_ref().map(|s| s.content_bounds()), Some(photocraft_geom::Rect::new(32, 28, 132, 118)));
+        assert_eq!(st.doc.layer(a).unwrap().surface().unwrap().content_bounds(), photocraft_geom::Rect::new(52, 48, 102, 88));
+        assert_eq!(st.history.past_len(), steps + 1, "one Move step");
+        assert!(app.session.undo());
+        let sel = app.session.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds());
+        assert_eq!(sel, Some(photocraft_geom::Rect::new(20, 20, 120, 110)), "Undo takes the selection back too");
+
+        // A piece floating (a marquee ⌘-drag with both selected) when the layers are dragged: the
+        // press drops it first, so the ants follow the drag from where it was dropped.
+        app.run("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        let outline = photocraft_engine::float_cmds::floating(app.session.active().unwrap()).unwrap().parts.outline().unwrap().content_bounds();
+        tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, m);
+        let st = app.session.active().unwrap();
+        assert!(photocraft_engine::float_cmds::floating(st).is_none(), "the press dropped the piece");
+        assert_eq!(st.doc.selection.as_ref().map(|s| s.content_bounds()), Some(outline.translate(10, 5)), "at its offset");
+        tool_event(&mut app, ToolEvent::Move { x: 72.0, y: 68.0, pressure: 1.0 }, m);
+        assert_eq!(selection_shown_offset(&app), Some((12, 8)), "then the ants follow the drag");
+        tool_event(&mut app, ToolEvent::Up { x: 72.0, y: 68.0 }, m);
+        let sel = app.session.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds());
+        assert_eq!(sel, Some(outline.translate(22, 13)), "released where the ants were");
+    }
+
+    /// A transparent 200² document: a red square (40..90, 40..80) on its layer, a loose marquee
+    /// (20..120, 20..110) round it, cut and floated 10, 5 to the right and down.
+    fn floating_square() -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200, "background": "transparent"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 40, "y": 40, "width": 50, "height": 40})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.sync_views();
+        app.session.execute("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        app
+    }
+
+    /// #7538: a selection tool's press on a floating piece's ants drags it; one in the margin its
+    /// cut left of the loose marquee draws a new selection, as the ants say.
+    #[test]
+    fn a_press_in_the_margin_of_a_floating_piece_starts_a_new_selection() {
+        let app = floating_square();
+        let none = egui::Modifiers::NONE;
+        for tool in [Tool::RectMarquee, Tool::Lasso] {
+            assert_eq!(selection_drag_kind(&app, tool, [70.0, 60.0], none), Some(true), "{tool:?}: on the square drags it");
+            assert_eq!(selection_drag_kind(&app, tool, [33.0, 28.0], none), None, "{tool:?}: in the old marquee's margin");
+        }
+    }
+
+    /// Several selected layers keep one frame round them all while the active one's pixels float:
+    /// the piece's outline frames it only when it is the only layer framed.
+    #[test]
+    fn a_floating_piece_among_several_selected_layers_keeps_the_shared_frame() {
+        let mut app = floating_square();
+        app.session.execute("select.drop", json!({})).unwrap();
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        app.session.execute("select.rect", json!({"x": 150, "y": 150, "width": 20, "height": 20})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        app.session.execute("layer.select", json!({"layer": a.0, "mode": "add"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_show_transform = true;
+        assert!(transform_controls_several(&app), "two layers framed");
+        app.session.execute("select.float", json!({"dx": 5, "dy": 0})).unwrap();
+        assert!(photocraft_engine::float_cmds::floating(app.session.active().unwrap()).is_some());
+        let xf =
+            ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        let r = transform_controls_rect(&app, &xf).unwrap();
+        let (lt, rb) = (xf.to_doc(r.left_top()), xf.to_doc(r.right_bottom()));
+        assert!(rb[0] - lt[0] > 60.0 && rb[1] - lt[1] > 60.0, "the frame isn't shrunk to the one piece: {lt:?} {rb:?}");
+    }
 
     #[test]
     fn several_selected_layers_share_one_frame_without_handles() {
