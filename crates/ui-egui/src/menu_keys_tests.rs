@@ -356,3 +356,59 @@ fn alt_held_through_a_shortcut_does_not_put_the_keyboard_on_the_bar() {
     alt_up(&mut h);
     assert_eq!(Keys::current(&h.ctx).focus, Some(0), "a lone tap still focuses the bar");
 }
+
+/// #8113: Alt pressed during a drag (Free Transform's scale from the centre) is a modifier for the
+/// drag, not a tap: with the mouse button let go before or after Alt, the keyboard stays where
+/// it was, so Enter commits the transform instead of opening File. A lone tap still works.
+#[test]
+fn alt_held_during_a_drag_is_no_tap() {
+    let mut h = bar();
+    let at = egui::pos2(640.0, 400.0);
+    let button = |h: &mut Harness<'static, PhotocraftApp>, pressed: bool, mods: egui::Modifiers| {
+        h.event_modifiers(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: mods }, mods);
+        h.run_steps(2);
+    };
+    for mouse_up_first in [true, false] {
+        h.hover_at(at);
+        button(&mut h, true, egui::Modifiers::NONE);
+        h.key_down(egui::Key::AltLeft);
+        h.run_steps(2);
+        if mouse_up_first {
+            button(&mut h, false, egui::Modifiers::ALT);
+            h.key_up(egui::Key::AltLeft);
+        } else {
+            h.key_up(egui::Key::AltLeft);
+            h.run_steps(2);
+            button(&mut h, false, egui::Modifiers::NONE);
+        }
+        h.run_steps(3);
+        assert_eq!(Keys::current(&h.ctx).focus, None, "mouse up first: {mouse_up_first}");
+        key(&mut h, egui::Key::Enter);
+        assert!(!is_open(&h.ctx), "Enter opens no menu (mouse up first: {mouse_up_first})");
+    }
+    // The whole gesture within one frame: press, Alt down, Alt up, release.
+    let (alt, none) = (egui::Modifiers::ALT, egui::Modifiers::NONE);
+    h.event_modifiers(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: none }, none);
+    h.event_modifiers(egui::Event::Key { key: egui::Key::AltLeft, physical_key: None, pressed: true, repeat: false, modifiers: alt }, alt);
+    h.event_modifiers(egui::Event::Key { key: egui::Key::AltLeft, physical_key: None, pressed: false, repeat: false, modifiers: none }, none);
+    h.event_modifiers(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: none }, none);
+    h.run_steps(3);
+    assert_eq!(Keys::current(&h.ctx).focus, None, "one frame");
+    // Two buttons: the right one let go while the left is still down. Alt pressed then is still
+    // pressed during the left-button drag.
+    let btn = |h: &mut Harness<'static, PhotocraftApp>, button: egui::PointerButton, pressed: bool| {
+        h.event_modifiers(egui::Event::PointerButton { pos: at, button, pressed, modifiers: none }, none);
+        h.run_steps(2);
+    };
+    btn(&mut h, egui::PointerButton::Primary, true);
+    btn(&mut h, egui::PointerButton::Secondary, true);
+    btn(&mut h, egui::PointerButton::Secondary, false);
+    h.key_down(egui::Key::AltLeft);
+    h.run_steps(2);
+    h.key_up(egui::Key::AltLeft);
+    h.run_steps(3);
+    assert_eq!(Keys::current(&h.ctx).focus, None, "the left button is still down");
+    btn(&mut h, egui::PointerButton::Primary, false);
+    alt_tap(&mut h);
+    assert!(Keys::current(&h.ctx).focus.is_some(), "a lone tap still focuses the bar");
+}

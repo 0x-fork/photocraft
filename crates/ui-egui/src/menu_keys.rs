@@ -42,6 +42,9 @@ pub struct Keys {
     alt_down: bool,
     /// Alt went down and nothing else was pressed since: releasing it is a tap.
     alt_tap: bool,
+    /// The mouse buttons that are down, one bit each, from the button events in order (the
+    /// frame's pointer state is its end state, which a whole click within one frame doesn't show).
+    buttons_held: u8,
     /// A menu was just opened from the keyboard: light its first row once it is drawn.
     first_row: bool,
 }
@@ -251,18 +254,34 @@ impl Keys {
             match e {
                 Event::Key { key: Key::AltLeft | Key::AltRight, pressed: true, .. } => {
                     self.alt_down = true;
-                    self.alt_tap = true;
+                    // Alt pressed while a mouse button is down is a modifier for that drag
+                    // (Free Transform's scale-from-centre), never a tap (#8113).
+                    self.alt_tap = self.buttons_held == 0;
                 }
                 Event::Key { key: Key::AltLeft | Key::AltRight, pressed: false, .. } => {
                     self.alt_down = false;
                     tap |= std::mem::take(&mut self.alt_tap);
                 }
-                // Alt+wheel (zoom, brush size…) or Alt going to the desktop is no tap either.
-                Event::Key { pressed: true, .. }
-                | Event::Text(_)
-                | Event::PointerButton { pressed: true, .. }
-                | Event::MouseWheel { .. }
-                | Event::WindowFocused(false) => self.alt_tap = false,
+                // A click or the end of a drag while Alt is held is no tap. It also cancels a tap
+                // taken earlier in this frame: a whole drag can arrive in one frame (press, Alt
+                // down, Alt up, release).
+                Event::PointerButton { button, pressed, .. } => {
+                    let bit = 1u8 << (*button as u8);
+                    if *pressed {
+                        self.buttons_held |= bit;
+                    } else {
+                        self.buttons_held &= !bit;
+                    }
+                    self.alt_tap = false;
+                    tap = false;
+                }
+                // Alt going to the desktop is no tap, and a button let go out there is up.
+                Event::WindowFocused(false) => {
+                    self.alt_tap = false;
+                    self.buttons_held = 0;
+                }
+                // Alt+wheel (zoom, brush size…) is no tap either.
+                Event::Key { pressed: true, .. } | Event::Text(_) | Event::MouseWheel { .. } => self.alt_tap = false,
                 _ => {}
             }
         }
