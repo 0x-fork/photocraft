@@ -2799,14 +2799,18 @@ fn levels_event_to(id: &str, p: &Value) -> Option<Descriptor> {
     })
 }
 
-/// A direct adjustment event (Image › Adjustments › …).
+/// A direct adjustment event (Image › Adjustments › …). The command id is `image.adjustments.<name>`
+/// unless it is given.
 macro_rules! adjustment_event {
     ($code:literal, $class:literal, $name:literal, $label:literal) => {
+        adjustment_event!($code, $class, $name, $label, concat!("image.adjustments.", $name))
+    };
+    ($code:literal, $class:literal, $name:literal, $label:literal, $id:expr) => {
         Event {
             code: $code,
             name: $name,
             label: $label,
-            ids: &[concat!("image.adjustments.", $name)],
+            ids: &[$id],
             from: |d| match adjustment_by_class($class) {
                 Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
                 None => Mapped::Unsupported { harmless: false },
@@ -2993,6 +2997,13 @@ fn clipping_to(_: &str, p: &Value) -> Option<Descriptor> {
     Some(desc("null").with("null", layer_ref(p)))
 }
 
+/// A clipping mask event: `clipping_from` / `clipping_to` with one command id.
+macro_rules! clipping_event {
+    ($code:literal, $name:literal, $label:literal, $id:literal) => {
+        Event { code: $code, name: $name, label: $label, ids: &[$id], from: |d| clipping_from(d, $id), to: clipping_to }
+    };
+}
+
 /// Every Photoshop event PhotoCraft maps. The order matters only for the panel label.
 const EVENTS: &[Event] = &[
     // Filters.
@@ -3086,17 +3097,7 @@ const EVENTS: &[Event] = &[
     },
     adjustment_event!("Crvs", "Crvs", "curves", "Curves"),
     adjustment_event!("HStr", "HStr", "hueSaturation", "Hue/Saturation"),
-    Event {
-        code: "BrgC",
-        name: "brightnessEvent",
-        label: "Brightness/Contrast",
-        ids: &["image.adjustments.brightnessContrast"],
-        from: |d| match adjustment_by_class("BrgC") {
-            Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
-            None => Mapped::Unsupported { harmless: false },
-        },
-        to: |_, p| adjustment_by_class("BrgC").and_then(|a| (a.to)(p)),
-    },
+    adjustment_event!("BrgC", "BrgC", "brightnessEvent", "Brightness/Contrast", "image.adjustments.brightnessContrast"),
     adjustment_event!("Thrs", "Thrs", "threshold", "Threshold"),
     adjustment_event!("Pstr", "Pstr", "posterize", "Posterize"),
     adjustment_event!("Invr", "Invr", "invert", "Invert"),
@@ -3104,29 +3105,9 @@ const EVENTS: &[Event] = &[
     adjustment_event!("Vbrn", "Vbrn", "vibrance", "Vibrance"),
     adjustment_event!("Exps", "Exps", "exposure", "Exposure"),
     adjustment_event!("PhtF", "PhtF", "photoFilter", "Photo Filter"),
-    Event {
-        code: "",
-        name: "blackAndWhite",
-        label: "Black & White",
-        ids: &["image.adjustments.blackWhite"],
-        from: |d| match adjustment_by_class("BlnW") {
-            Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
-            None => Mapped::Unsupported { harmless: false },
-        },
-        to: |_, p| adjustment_by_class("BlnW").and_then(|a| (a.to)(p)),
-    },
+    adjustment_event!("", "BlnW", "blackAndWhite", "Black & White", "image.adjustments.blackWhite"),
     adjustment_event!("ChnM", "ChnM", "channelMixer", "Channel Mixer"),
-    Event {
-        code: "GdMp",
-        name: "gradientMapEvent",
-        label: "Gradient Map",
-        ids: &["image.adjustments.gradientMap"],
-        from: |d| match adjustment_by_class("GdMp") {
-            Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
-            None => Mapped::Unsupported { harmless: false },
-        },
-        to: |_, p| adjustment_by_class("GdMp").and_then(|a| (a.to)(p)),
-    },
+    adjustment_event!("GdMp", "GdMp", "gradientMapEvent", "Gradient Map", "image.adjustments.gradientMap"),
     adjustment_event!("SlcC", "SlcC", "selectiveColor", "Selective Color"),
     ev!("Dstt", "desaturate", "Desaturate", "image.adjustments.desaturate", &[]),
     ev!("Eqlz", "equalize", "Equalize", "image.adjustments.equalize", &[]),
@@ -3316,27 +3297,13 @@ const EVENTS: &[Event] = &[
         to: merge_visible_to,
     },
     ev!("Mrg2", "mergeLayersNew", "Merge Layers", "layer.mergeLayers", &[]),
-    Event {
-        code: "Ungr",
-        name: "ungroup",
-        label: "Release Clipping Mask",
-        ids: &["layer.releaseClippingMask"],
-        from: |d| clipping_from(d, "layer.releaseClippingMask"),
-        to: clipping_to,
-    },
+    clipping_event!("Ungr", "ungroup", "Release Clipping Mask", "layer.releaseClippingMask"),
     ev!("CpTL", "copyToLayer", "Layer Via Copy", "layer.new.layerViaCopy", &[]),
     ev!("CtTL", "cutToLayer", "Layer Via Cut", "layer.new.layerViaCut", &[]),
     ev!("", "rasterizeLayer", "Rasterize", "layer.rasterize.layer", &[]),
     ev!("", "selectAllLayers", "Select All Layers", "select.allLayers", &[]),
     ev!("", "selectNoLayers", "Deselect Layers", "select.deselectLayers", &[]),
-    Event {
-        code: "GrpL",
-        name: "groupEvent",
-        label: "Create Clipping Mask",
-        ids: &["layer.createClippingMask"],
-        from: |d| clipping_from(d, "layer.createClippingMask"),
-        to: clipping_to,
-    },
+    clipping_event!("GrpL", "groupEvent", "Create Clipping Mask", "layer.createClippingMask"),
     ev!("", "ungroupLayersEvent", "Ungroup Layers", "layer.ungroupLayers", &[]),
     ev!("", "copyEffects", "Copy Layer Style", "layer.layerStyle.copyLayerStyle", &[]),
     ev!("", "pasteEffects", "Paste Layer Style", "layer.layerStyle.pasteLayerStyle", &[]),
@@ -3664,12 +3631,34 @@ pub fn export(
 
 // ------------------------------------------------------------------ commands
 
-/// A name not used by any action in `taken`: `name`, `name 2`, `name 3`…
-fn unique(name: &str, taken: &[String]) -> String {
-    if !taken.iter().any(|t| t == name) {
-        return name.to_string();
+/// Assigns names not already used, as `name`, `name 2`, `name 3`… A plain linear scan of the
+/// taken list per candidate is cubic when an action file repeats one base name many times, so
+/// membership uses a set and the next suffix to try is cached per base name.
+struct UniqueNames {
+    taken: std::collections::HashSet<String>,
+    next_suffix: std::collections::HashMap<String, u32>,
+}
+
+impl UniqueNames {
+    fn new<I: IntoIterator<Item = String>>(existing: I) -> Self {
+        UniqueNames { taken: existing.into_iter().collect(), next_suffix: std::collections::HashMap::new() }
     }
-    (2..).map(|i| format!("{name} {i}")).find(|n| !taken.contains(n)).unwrap_or_else(|| name.to_string())
+
+    /// Reserves and returns a unique name derived from `name`, recording it as taken.
+    fn claim(&mut self, name: &str) -> String {
+        if self.taken.insert(name.to_string()) {
+            return name.to_string();
+        }
+        let mut i = self.next_suffix.get(name).copied().unwrap_or(2);
+        loop {
+            let candidate = format!("{name} {i}");
+            i += 1;
+            if self.taken.insert(candidate.clone()) {
+                self.next_suffix.insert(name.to_string(), i);
+                return candidate;
+            }
+        }
+    }
 }
 
 fn load(s: &mut Session, p: &Value) -> Result<Value> {
@@ -3697,19 +3686,18 @@ fn load(s: &mut Session, p: &Value) -> Result<Value> {
     if replace {
         s.actions.list.retain(|a| a.set.as_deref() != Some(imp.set.as_str()));
     }
-    let mut taken: Vec<String> = s.actions.list.iter().map(|a| a.name.clone()).collect();
+    let mut taken = UniqueNames::new(s.actions.list.iter().map(|a| a.name.clone()));
     let mut names = Vec::with_capacity(imp.actions.len());
     // The file's name of each action that had to be renamed, and its new name.
     let mut renamed: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut steps = 0usize;
     let mut added = Vec::with_capacity(imp.actions.len());
     for mut a in imp.actions {
-        let name = unique(&a.name, &taken);
+        let name = taken.claim(&a.name);
         if name != a.name {
             renamed.entry(a.name.clone()).or_insert_with(|| name.clone());
         }
         a.name = name.clone();
-        taken.push(name.clone());
         steps = steps.saturating_add(a.steps.len());
         names.push(name);
         added.push(a);
