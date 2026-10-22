@@ -127,6 +127,8 @@ pub fn clipping(p: [f32; 4]) -> (u8, u8) {
 mod tests {
     use super::*;
 
+    // The parallel path, and its threshold, exist only off wasm32.
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn matches_the_single_pass_on_every_domain_and_across_block_edges() {
         // Every special value at every channel, plus a dense ramp through each bin's rounding
