@@ -1650,46 +1650,124 @@ fn psd_round_trips_antialias_opentype_and_warp() {
     }
 }
 
-/// #1469: Some older PSD writers combine a zero PointBase with an enormous local ink origin.
-/// The TySh transform cancels that origin, so importing it as a zero-based layout puts text far
-/// off-canvas. Fold the descriptor origin into the imported transform and preserve it on a TySh
-/// round trip so every editing and export path uses the same position.
-#[test]
-fn legacy_tysh_point_origin_imports_and_round_trips_on_canvas() {
+/// A legacy-signature `TySh` (#1469): zero PointBase, `bounds` (the layout box) and `boundingBox`
+/// (the ink box, as Photoshop writes it) both around `anchor` in a remote local space, and a
+/// `transform` that cancels the remote origin.
+fn legacy_tysh(source: &TextLayer, transform: Affine, anchor: [f64; 2], engine: &mut TextEngine) -> Vec<u8> {
     use photocraft_psd::descriptor::{Descriptor, Id, Value as D};
-
-    let source = styled("Name", CharStyle { font_family: "Inter".into(), size_pt: 120.0, ..Default::default() });
-    let mut tysh = crate::psd::parse_tysh(&crate::psd::build_tysh(&source, 72.0, None)).unwrap();
-    tysh.transform = Affine { m: [4.1667, 0.0, 0.0, 4.1667, -32375.0, -32887.5] };
-    let ink = [8050.0, 8160.0, 8220.0, 8300.0];
-    let rect = |class| {
+    let layout = engine.layout(source, 72.0);
+    let logical = layout.bounds().unwrap().map(f64::from);
+    let ink = crate::render::ink_bounds(&layout).unwrap();
+    let rect = |class, r: [f64; 4]| {
         D::Descriptor(
             Descriptor::new(class)
-                .with("Left", D::UnitFloat { unit: *b"#Pnt", value: ink[0] })
-                .with("Top ", D::UnitFloat { unit: *b"#Pnt", value: ink[1] })
-                .with("Rght", D::UnitFloat { unit: *b"#Pnt", value: ink[2] })
-                .with("Btom", D::UnitFloat { unit: *b"#Pnt", value: ink[3] }),
+                .with("Left", D::UnitFloat { unit: *b"#Pnt", value: anchor[0] + r[0] })
+                .with("Top ", D::UnitFloat { unit: *b"#Pnt", value: anchor[1] + r[1] })
+                .with("Rght", D::UnitFloat { unit: *b"#Pnt", value: anchor[0] + r[2] })
+                .with("Btom", D::UnitFloat { unit: *b"#Pnt", value: anchor[1] + r[3] }),
         )
     };
+    let mut tysh = crate::psd::parse_tysh(&crate::psd::build_tysh(source, 72.0, None)).unwrap();
+    tysh.transform = transform;
     tysh.text.items.retain(|(key, _)| !key.is("bounds") && !key.is("boundingBox"));
-    tysh.text.items.push((Id::new("bounds"), rect("bounds")));
-    tysh.text.items.push((Id::new("boundingBox"), rect("boundingBox")));
-    let data = crate::psd::write_tysh(&tysh);
+    tysh.text.items.push((Id::new("bounds"), rect("bounds", logical)));
+    tysh.text.items.push((Id::new("boundingBox"), rect("boundingBox", ink)));
+    crate::psd::write_tysh(&tysh)
+}
 
-    let imported = crate::psd::text_layer_from_tysh(&data, 72.0).unwrap();
-    let expected = [4.1667, 0.0, 0.0, 4.1667, 1166.935, 1112.772];
-    for (got, want) in imported.transform.m.iter().zip(expected) {
-        assert!((got - want).abs() < 0.001, "{:?}", imported.transform.m);
-    }
-    let (_, rendered) = TextEngine::new().render(&imported, 72.0, PixelFormat::RGBA8);
-    let placed = rendered.surface.content_bounds();
-    assert!(!placed.is_empty(), "the normalized layer renders");
-    assert!((1000..3000).contains(&placed.x0) && (500..2000).contains(&placed.y0), "{placed:?}");
+fn assert_transform_near(got: Affine, want: Affine, tolerance: f64, what: &str) {
+    assert!(got.m.iter().zip(want.m).all(|(g, w)| (g - w).abs() < tolerance), "{what}: {:?} vs {:?}", got.m, want.m);
+}
 
-    let round_trip = crate::psd::text_layer_from_tysh(&crate::psd::build_tysh(&imported, 72.0, Some(ink.map(|v| v as f32))), 72.0).unwrap();
-    for (got, want) in round_trip.transform.m.iter().zip(expected) {
-        assert!((got - want).abs() < 0.001, "{:?}", round_trip.transform.m);
+/// #1469: Some older PSD writers combine a zero PointBase with an enormous local ink origin.
+/// The layout's own ink box is lined up with the saved ink box, so point alignment anchors stay
+/// fixed for left, centered and right text through import and a TySh round trip.
+#[test]
+fn legacy_tysh_point_origin_imports_and_round_trips_on_canvas() {
+    use photocraft_psd::descriptor::Value as D;
+
+    let original = Affine { m: [4.1667, 0.0, 0.0, 4.1667, -32375.0, -32887.5] };
+    // The file's layout origin (the anchor on the first baseline) in its local space.
+    let anchor = [8050.0, 8160.0];
+    let expected = original.mul(&Affine::translate(anchor[0], anchor[1]));
+    for align in [TextAlign::Left, TextAlign::Center, TextAlign::Right] {
+        let mut source = styled("Name", CharStyle { font_family: "Inter".into(), size_pt: 120.0, ..Default::default() });
+        source.paragraphs = vec![ParagraphRun { len: source.text.len(), style: ParagraphStyle { align, ..Default::default() } }];
+        let mut engine = TextEngine::new();
+        let data = legacy_tysh(&source, original, anchor, &mut engine);
+
+        let mut imported = crate::psd::text_layer_from_tysh(&data, 72.0).unwrap();
+        imported.psd_raw = Some(std::sync::Arc::new(data.clone()));
+        crate::psd::refine_legacy_point_origin(&mut imported, 72.0, &mut engine, None);
+        assert_eq!(imported.paragraph_runs()[0].style.align, align);
+        assert_transform_near(imported.transform, expected, 1e-6, &format!("{align:?}: anchor"));
+
+        let (_, rendered) = engine.render(&imported, 72.0, PixelFormat::RGBA8);
+        let placed = rendered.surface.content_bounds();
+        assert!(!placed.is_empty(), "{align:?}: no rendered pixels");
+        let mut want = source.clone();
+        want.transform = expected;
+        let (_, expected_pixels) = engine.render(&want, 72.0, PixelFormat::RGBA8);
+        assert_eq!(placed, expected_pixels.surface.content_bounds(), "{align:?}: raster placement");
+
+        let native = engine.layout(&imported, 72.0).bounds();
+        let round_trip = crate::psd::text_layer_from_tysh(&crate::psd::build_tysh(&imported, 72.0, native), 72.0).unwrap();
+        assert_transform_near(round_trip.transform, expected, 0.01, &format!("{align:?}: round trip"));
+
+        // A valid frame may equal the old ink-corner estimate. It must still win over refinement.
+        let t = crate::psd::parse_tysh(&data).unwrap();
+        let Some(D::Descriptor(ink_box)) = t.text.get("boundingBox") else { panic!("boundingBox") };
+        let corner = |k| match ink_box.get(k) {
+            Some(D::UnitFloat { value, .. }) => *value,
+            _ => panic!("{k}"),
+        };
+        let framed = with_text_index(&data, 0);
+        let txt2 = crate::psd::parse_txt2(&txt2_with_frame("Name", Some([corner("Left"), corner("Top ")]), [1.0, 0.0, 0.0, 1.0, 0.0, 0.0])).unwrap();
+        let mut with_frame = crate::psd::text_layer_from_tysh(&framed, 72.0).unwrap();
+        with_frame.psd_raw = Some(std::sync::Arc::new(framed.clone()));
+        crate::psd::apply_txt2_frame(&mut with_frame, &framed, &txt2);
+        let authoritative = with_frame.transform;
+        crate::psd::refine_legacy_point_origin(&mut with_frame, 72.0, &mut engine, Some(&txt2));
+        assert_eq!(with_frame.transform, authoritative, "{align:?}: exact frame wins");
     }
+}
+
+/// #6094 review: `boundingBox` is the tight ink box (a Photoshop-saved Arial 120 pt "..." has
+/// `bounds` top -102.98 but `boundingBox` top -11). Text whose ink starts well below the ascent
+/// line keeps its baseline: lining the layout box up with the ink box put "..." and "_" about
+/// 116 pt too low.
+#[test]
+fn legacy_origin_lines_up_ink_with_the_ink_bounding_box() {
+    let original = Affine { m: [1.0, 0.0, 0.0, 1.0, -7900.0, -7550.0] };
+    for text in ["Name", "...", "_"] {
+        let source = styled(text, CharStyle { font_family: "Inter".into(), size_pt: 120.0, ..Default::default() });
+        let mut engine = TextEngine::new();
+        let data = legacy_tysh(&source, original, [8000.0, 8000.0], &mut engine);
+        let mut imported = crate::psd::text_layer_from_tysh(&data, 72.0).unwrap();
+        imported.psd_raw = Some(std::sync::Arc::new(data));
+        crate::psd::refine_legacy_point_origin(&mut imported, 72.0, &mut engine, None);
+        let baseline = imported.transform.apply(photocraft_geom::Point::new(0.0, 0.0));
+        assert!((baseline.x - 100.0).abs() < 1e-6 && (baseline.y - 450.0).abs() < 1e-6, "{text:?}: {baseline:?}");
+    }
+}
+
+#[test]
+fn legacy_origin_uses_the_rendering_engines_registered_face() {
+    let mut engine = TextEngine::new();
+    let mut style = CharStyle { font_family: "JetBrains Mono".into(), font_style: "Regular".into(), size_pt: 100.0, ..Default::default() };
+    // This exact-face alias exists only in this engine, like a user-registered font.
+    engine.fonts.select_named_face(&mut style);
+    assert!(style.font_family.starts_with(".PhotoCraft-face-"));
+    let source = with_para(styled("Name", style), ParagraphStyle { align: TextAlign::Right, ..Default::default() });
+    let raw = legacy_tysh(&source, Affine::translate(-8000.0, -8000.0), [8100.0, 8200.0], &mut engine);
+    let mut imported = crate::psd::text_layer_from_tysh(&raw, 72.0).unwrap();
+    // Import preparation has resolved the face before refining placement.
+    imported.runs = source.runs.clone();
+    imported.sync_summary();
+    imported.psd_raw = Some(std::sync::Arc::new(raw));
+    crate::psd::refine_legacy_point_origin(&mut imported, 72.0, &mut engine, None);
+    let placed = imported.transform.apply(photocraft_geom::Point::new(0.0, 0.0));
+    assert!((placed.x - 100.0).abs() < 1e-6 && (placed.y - 200.0).abs() < 1e-6, "{placed:?}");
 }
 
 /// Regression: a PSD whose text engine data has no `EngineDict` (or isn't a dictionary)

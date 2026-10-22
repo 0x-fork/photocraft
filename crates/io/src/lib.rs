@@ -384,7 +384,8 @@ fn import_psd(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, dama
     let (mut document, warnings, psd_damaged) = psd_import::psd_to_document_decoded_integrity(&file, ctl, merged).ok_or(IoError::Cancelled)?;
     *damaged = psd_damaged;
     document.name = name.to_string();
-    text_import::prepare(&mut document);
+    let txt2 = file.global_blocks.iter().find(|b| &b.key == b"Txt2").and_then(|b| photocraft_text::psd::parse_txt2(&b.data));
+    text_import::prepare(&mut document, txt2.as_ref());
     Ok(ImportResult { document, warnings, source_read_only: false, preview_only: false })
 }
 
