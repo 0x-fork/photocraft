@@ -1838,6 +1838,50 @@ impl PhotocraftApp {
         Ok(Some((path, warnings)))
     }
 
+    /// After `saver` was written to `path`, any other open document bound to that file no longer
+    /// matches it: it loses the file and is marked unsaved, so it can't stay "saved" while its file
+    /// holds something else, closing it asks first, and its own Save asks for a name instead of
+    /// writing over the new file (#6597). Paths are compared as files, so another letter case on a
+    /// case-insensitive volume or a hard link counts. A notice names the documents affected.
+    pub(crate) fn detach_others_from_file(&mut self, path: &str, saver: DocId) {
+        let others: Vec<(DocId, String)> = self
+            .session
+            .documents()
+            .iter()
+            .filter(|st| st.doc.id != saver && st.path.as_deref().is_some_and(|p| photocraft_engine::file_cmds::same_file(p, path)))
+            .map(|st| (st.doc.id, st.doc.name.clone()))
+            .collect();
+        let mut detached = Vec::new();
+        for (id, name) in others {
+            let done = self.with_document(id, |app| {
+                let st = app.session.active_mut().ok_or("no document")?;
+                st.path = None;
+                // No revision ever equals this, so the document reads as unsaved until saved again.
+                st.saved_revision = u64::MAX;
+                Ok(())
+            });
+            if done.is_ok() {
+                detached.push(name);
+            }
+        }
+        if detached.is_empty() {
+            return;
+        }
+        let name = file_open::display_name(path);
+        let title = {
+            let template = "{name} was saved over from another tab";
+            crate::i18n::fmt(tl!(template), &[("name", name.as_str())])
+        };
+        let lines = detached
+            .iter()
+            .map(|doc| {
+                let template = "\"{doc}\" no longer has a file and is marked unsaved: save it under a new name to keep it";
+                crate::i18n::fmt(tl!(template), &[("doc", doc.as_str())])
+            })
+            .collect();
+        notices::post(self, title, lines, false, None);
+    }
+
     /// Record a written save of document `doc` as it was at `revision`: its name, path and saved
     /// state (unless a copy), the status, script events and the warnings.
     pub(crate) fn saved(&mut self, doc: DocId, revision: u64, path: &str, warnings: &[String], copy: bool) {
@@ -1860,6 +1904,8 @@ impl PhotocraftApp {
             }
         };
         self.ui.status = crate::i18n::fmt(tl!("Saved {name}"), &[("name", path)]);
+        // The file was written, copy or not: another tab bound to it no longer matches it.
+        self.detach_others_from_file(path, doc);
         if !copy {
             // A background save may finish while another document is active (or after its
             // document was closed, when there is nothing left to record).
