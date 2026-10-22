@@ -145,7 +145,8 @@ fn play_owned(app: &mut PhotocraftApp, params: &Value, suspended: Option<Value>)
             let token = app.paused_playbacks.pause(action.name.clone(), i + 1, app.session.authorize);
             if let Some(d) = app.ui.dialog_mut(dialog) {
                 if let Some(o) = p.as_object() {
-                    d.fields.extend(o.iter().map(|(k, v)| (k.clone(), v.clone())));
+                    // `__` keys are the dialog's own markers (`params_of` drops them), not step values.
+                    d.fields.extend(o.iter().filter(|(k, _)| !k.starts_with("__")).map(|(k, v)| (k.clone(), v.clone())));
                 }
                 d.fields.insert(RESUME.into(), json!(token));
             }
@@ -2039,6 +2040,20 @@ mod tests {
         let app = h.state_mut();
         app.run("actions.stop", json!({})).unwrap();
         assert_eq!(app.session.actions.list[1].steps, child_call());
+    }
+
+    #[test]
+    fn a_step_dialog_takes_only_the_steps_values() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 16, "height": 16})).unwrap();
+        let mut a = Action::new("Blur", vec![("filter.blur.gaussianBlur".into(), json!({"radius": 2, "__command": "select.all", "__label": "Other"}))]);
+        a.dialogs.insert(0);
+        app.session.actions.list.push(a);
+        let v = play(&mut app, &json!({"action": "Blur"})).unwrap();
+        let d = app.ui.dialog_mut(v["paused"]["dialog"].as_u64().unwrap()).unwrap();
+        assert_eq!(d.fields["radius"], 2);
+        assert_eq!(d.fields["__command"], "filter.blur.gaussianBlur");
+        assert_ne!(d.fields["__label"], "Other");
     }
 
     fn deny_blur(id: &str, _: &Value) -> photocraft_engine::Result<()> {
