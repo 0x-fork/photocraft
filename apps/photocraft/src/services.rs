@@ -414,6 +414,17 @@ fn recovery_services(dir: Option<PathBuf>) -> Services {
     }
 }
 
+/// The OS clipboard read and write run under the crash guard, like Open and Export (#7582): a
+/// panic in arboard, or in decoding a copied file, becomes the paste's (or copy's) error and the
+/// app keeps its documents.
+fn guarded_clipboard_get(mut read: impl FnMut() -> Result<Option<(u32, u32, Vec<u8>)>, String> + 'static) -> photocraft_ui_egui::ClipboardGetFn {
+    Box::new(move || crate::crash_guard::guard("Paste", &mut read))
+}
+
+fn guarded_clipboard_set(mut write: impl FnMut(u32, u32, &[u8]) -> Result<(), String> + 'static) -> photocraft_ui_egui::ClipboardSetFn {
+    Box::new(move |w: u32, h: u32, px: &[u8]| crate::crash_guard::guard("Copy", || write(w, h, px)))
+}
+
 /// The pixels to paste when the clipboard holds copied files rather than an image (Copy in
 /// Files, Finder or Explorer puts paths on the clipboard, #338): the first file that decodes,
 /// upright, as RGBA8. Files that aren't images are skipped after reading only their header.
@@ -558,7 +569,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         beep: Some(platform_beep),
         clipboard_set_image: Some({
             let clip = clip.clone();
-            Box::new(move |w: u32, h: u32, px: &[u8]| {
+            guarded_clipboard_set(move |w: u32, h: u32, px: &[u8]| {
                 let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
                 let cb = match slot.as_mut() {
                     Some(c) => c,
@@ -570,7 +581,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         clipboard_get_image: Some({
             let clip = clip.clone();
             let unreadable = clip_unreadable.clone();
-            Box::new(move || {
+            guarded_clipboard_get(move || {
                 let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
                 let cb = match slot.as_mut() {
                     Some(c) => c,
@@ -1233,5 +1244,30 @@ mod tests {
         std::fs::write(&bin, tga_1x1()).unwrap();
         assert_eq!(image_from_files(&[tga]), Some((1, 1, vec![255, 0, 0, 255])));
         assert!(image_from_files(&[bin]).is_none());
+    }
+
+    /// #7582: a panic while reading the OS clipboard (in arboard, or decoding a copied file) is
+    /// the paste's error in the status bar, not a crash: the document stays and the next paste
+    /// works. The same for a panic while writing it.
+    #[test]
+    fn a_panicking_clipboard_read_is_reported_not_a_crash() {
+        let panics = Rc::new(Cell::new(true));
+        let p = panics.clone();
+        let get = guarded_clipboard_get(move || if p.get() { panic!("clipboard decoder bug") } else { Ok(Some((2, 2, [0u8, 0, 255, 255].repeat(4)))) });
+        let mut app = PhotocraftApp::new(Session::new(), Services { clipboard_get_image: Some(get), ..Default::default() });
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let layers = app.session.active().unwrap().doc.layers.len();
+
+        let error = app.run("edit.paste", json!({})).unwrap_err();
+        assert!(error.contains("Paste failed"), "{error}");
+        assert!(app.ui.status_error && app.ui.status.contains("Paste failed"), "{}", app.ui.status);
+        assert_eq!(app.session.active().unwrap().doc.layers.len(), layers, "the document is unchanged");
+
+        panics.set(false);
+        app.run("edit.paste", json!({})).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.layers.len(), layers + 1, "the next paste works");
+
+        let mut set = guarded_clipboard_set(|_: u32, _: u32, _: &[u8]| panic!("clipboard writer bug"));
+        assert!(set(1, 1, &[0; 4]).unwrap_err().contains("Copy failed"));
     }
 }
