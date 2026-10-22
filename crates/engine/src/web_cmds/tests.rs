@@ -704,6 +704,38 @@ fn image_assets_keep_full_artboards() {
     assert_eq!(decode(&format!("{dir}/logo.png")).dimensions(), (8, 6), "a layer on the board is still trimmed");
 }
 
+/// An artboard asset with nothing on the board (empty, or its contents all outside it) is
+/// refused like an empty layer, not written as a blank board: Photoshop's Generator refuses a
+/// zero-bounds pixmap before it pads to the board.
+#[test]
+fn image_assets_refuse_empty_artboards() {
+    let dir = tmp("asset-empty-artboards");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 64, "height": 48, "name": "boards.psd", "background": "transparent"})).unwrap();
+    s.edit("boards", |doc, _| {
+        let fmt = doc.pixel_format();
+        let mut outside = Layer::raster("outside", fmt);
+        outside.surface_mut().unwrap().fill_rect(Rect::new(50, 40, 60, 46), &photocraft_raster::from_rgba(&fmt, [1.0, 0.0, 0.0, 1.0]));
+        let board = |x0| photocraft_doc::Artboard {
+            rect: Rect::new(x0, 0, x0 + 20, 20),
+            background: photocraft_doc::ArtboardBackground::Transparent,
+            preset: String::new(),
+        };
+        let empty = photocraft_doc::Group { children: vec![], expanded: true, artboard: Some(board(0)) };
+        let off = photocraft_doc::Group { children: vec![outside], expanded: true, artboard: Some(board(24)) };
+        doc.layers = vec![Layer::new("empty.png", LayerContent::Group(empty)), Layer::new("off.png", LayerContent::Group(off))];
+        Ok(())
+    })
+    .unwrap();
+    let r = s.execute("file.generate.imageAssets", json!({"on": true, "dir": dir})).unwrap();
+    assert_eq!(r["files"], json!([]), "{r}");
+    let errors = r["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 2, "{r}");
+    assert!(errors.iter().all(|e| e["error"].as_str().unwrap().contains("the layer is empty")), "{r}");
+    assert!(!std::path::Path::new(&format!("{dir}/empty.png")).exists());
+    assert!(!std::path::Path::new(&format!("{dir}/off.png")).exists());
+}
+
 /// #6614: two layers, or two default variants, naming one file never overwrite each other: the
 /// layer higher in the Layers panel keeps the file, whatever the case of its name, and the
 /// others are reported.
