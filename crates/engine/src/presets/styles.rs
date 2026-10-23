@@ -212,7 +212,9 @@ fn apply(s: &mut Session, p: &Value) -> Result<Value> {
             }
             l.effects.psd_raw = None;
             l.effects.enabled = true;
-            if !add || style.blend.is_some() {
+            // Adding keeps the layer's blending unless the preset carries some: a blend mode, or
+            // an Opacity saved on its own (`style.presets.new` with `includeBlending: false`).
+            if !add || style.blend.is_some() || style.opacity.is_some() {
                 if let Some(b) = style.blend {
                     l.blend = b;
                 }
