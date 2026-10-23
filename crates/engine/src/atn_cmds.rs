@@ -1949,7 +1949,15 @@ fn transform_from(d: &Descriptor) -> Mapped {
     let whole_pixels = ["dx", "dy"].iter().all(|k| p.get(*k).and_then(Value::as_f64).is_none_or(|v| v.fract() == 0.0));
     let geometry_only = p.keys().all(|k| k == "dx" || k == "dy") && whole_pixels;
     // The resampling applies to a selection as much as to a layer (#7515).
-    let interpolation = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).filter(|i| matches!(*i, "bicubic" | "bilinear" | "nearest"));
+    // Photoshop's bicubic variants are kept (the transforms render them as Bicubic, and they export
+    // back unchanged); Automatic and Preserve Details become the nearest bicubic choice. Dropping
+    // them fell back to the command's default, bilinear for a selection (#8697).
+    let interpolation = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).and_then(|i| match i {
+        "bicubic" | "bilinear" | "nearest" | "bicubicSharper" | "bicubicSmoother" | "bicubicAutomatic" => Some(i),
+        "automatic" => Some("bicubicAutomatic"),
+        "preserveDetails" => Some("bicubic"),
+        _ => None,
+    });
     match (ref_class(r).as_deref(), target(r)) {
         (Some("Chnl"), Target::Property(prop)) if prop == "fsel" => {
             if let Some(i) = interpolation {

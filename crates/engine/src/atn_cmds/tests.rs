@@ -2053,6 +2053,28 @@ fn options_the_descriptors_cannot_carry_refuse_strict_export() {
     }
 }
 
+/// #8697: Photoshop's other transform interpolation modes survive import: its bicubic variants
+/// are kept (they render as Bicubic and export back unchanged), Automatic becomes Bicubic
+/// Automatic and Preserve Details Bicubic; before, they fell back to the command's default.
+#[test]
+fn photoshop_transform_interpolation_modes_survive_import() {
+    let one = |id: &str, p: Value| Action { name: "Probe".into(), steps: vec![(id.into(), p)], ..Default::default() };
+    for id in ["select.transformSelection", "edit.transform"] {
+        for (mode, imported) in [
+            ("bicubicSharper", "bicubicSharper"),
+            ("bicubicSmoother", "bicubicSmoother"),
+            ("bicubicAutomatic", "bicubicAutomatic"),
+            ("automatic", "bicubicAutomatic"),
+            ("preserveDetails", "bicubic"),
+        ] {
+            let (bytes, _) = export("Audit8", &[&one(id, json!({"scaleX": 140, "interpolation": mode}))], &[], false).unwrap();
+            let steps = import(&bytes).unwrap().actions[0].steps.clone();
+            let got = steps.first().and_then(|(_, p)| p.get("interpolation")).and_then(Value::as_str).map(str::to_owned);
+            assert_eq!(got.as_deref(), Some(imported), "{id} {mode}: {steps:?}");
+        }
+    }
+}
+
 /// #8531: a partial `layer.setAdjustment` of Color Balance or Hue/Saturation can't be written
 /// (their descriptors carry every setting, filling absent ones with defaults), so strict export
 /// refuses it instead of replaying an edit that also resets the rest. Complete ones still export.
