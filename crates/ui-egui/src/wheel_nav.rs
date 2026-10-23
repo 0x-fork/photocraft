@@ -498,6 +498,14 @@ mod tests {
         (a - b).length() < 0.01
     }
 
+    /// Points per wheel notch in a context set up like the app's (egui's `line_scroll_speed`:
+    /// 40 natively, 8 in a browser).
+    fn configured_notch() -> f32 {
+        let ctx = Context::default();
+        configure(&ctx);
+        ctx.options(|o| o.input_options.line_scroll_speed)
+    }
+
     /// #5721: with smoothing off a wheel notch pans the whole notch in the frame it arrives and
     /// nothing after; smoothed (the default) it glides, reaching the same total over later frames.
     #[test]
@@ -559,13 +567,14 @@ mod tests {
                 .collect()
         };
         let total = |pans: &[Vec2]| pans.iter().fold(Vec2::ZERO, |sum, d| sum + *d);
+        let notch = configured_notch();
         for (modifiers, zoom_with_wheel, want) in [
-            (Modifiers::NONE, false, Vec2::new(0.0, -40.0)),
-            (Modifiers::SHIFT, false, Vec2::new(-40.0, 0.0)),
-            (CTRL, false, Vec2::new(-40.0, 0.0)),
-            (CMD, false, Vec2::new(-40.0, 0.0)),
-            (CTRL, true, Vec2::new(-40.0, 0.0)),
-            (Modifiers::ALT, true, Vec2::new(0.0, -40.0)),
+            (Modifiers::NONE, false, Vec2::new(0.0, -notch)),
+            (Modifiers::SHIFT, false, Vec2::new(-notch, 0.0)),
+            (CTRL, false, Vec2::new(-notch, 0.0)),
+            (CMD, false, Vec2::new(-notch, 0.0)),
+            (CTRL, true, Vec2::new(-notch, 0.0)),
+            (Modifiers::ALT, true, Vec2::new(0.0, -notch)),
         ] {
             let direct = pans(modifiers, zoom_with_wheel, false);
             assert!(near(direct[0], want), "{modifiers:?}: the whole notch at once: {:?}", direct[0]);
@@ -844,24 +853,25 @@ mod tests {
     /// instead of gliding there over the frames that follow.
     #[test]
     fn animations_off_scrolls_a_wheel_notch_at_once() {
-        let notch = || vec![vec![], vec![wheel(Vec2::new(0.0, -1.0), Modifiers::NONE)]];
+        let notch = configured_notch();
+        let one_notch_down = || vec![vec![], vec![wheel(Vec2::new(0.0, -1.0), Modifiers::NONE)]];
         // egui by itself: part of the notch on the frame it arrives, the rest over the next ones.
-        let glide = scrolled(notch(), false);
-        assert!(glide[1].y < 0.0 && glide[1].y > -30.0, "the notch starts gliding: {:?}", glide[1]);
+        let glide = scrolled(one_notch_down(), false);
+        assert!(glide[1].y < 0.0 && glide[1].y > -0.75 * notch, "the notch starts gliding: {:?}", glide[1]);
         assert!(glide[2..8].iter().all(|d| d.y < 0.0), "and keeps gliding: {:?}", &glide[2..8]);
-        assert!(near(total(&glide), Vec2::new(0.0, -40.0)), "{:?}", total(&glide));
+        assert!(near(total(&glide), Vec2::new(0.0, -notch)), "{:?}", total(&glide));
         // Off: all of it at once, and nothing after.
-        let jump = scrolled(notch(), true);
-        assert_eq!(jump[1], Vec2::new(0.0, -40.0));
+        let jump = scrolled(one_notch_down(), true);
+        assert_eq!(jump[1], Vec2::new(0.0, -notch));
         assert!(jump.iter().enumerate().all(|(n, d)| n == 1 || *d == Vec2::ZERO), "{jump:?}");
         // Sideways (⇧ or ⌘/Ctrl + wheel), two notches in one frame, a fraction of a notch each
         // way, a page and a coarse pixel step (a wheel on Wayland or the web) jump the same way.
         let sent = |unit, y: f32| Event::MouseWheel { unit, delta: Vec2::new(0.0, y), phase: TouchPhase::Move, modifiers: Modifiers::NONE };
         for (events, want) in [
-            (vec![wheel(Vec2::new(0.0, 1.0), Modifiers::SHIFT)], Vec2::new(40.0, 0.0)),
-            (vec![wheel(Vec2::new(0.0, 1.0), CTRL)], Vec2::new(40.0, 0.0)),
-            (vec![wheel(Vec2::new(0.0, 1.0), Modifiers::NONE), wheel(Vec2::new(0.0, 1.0), Modifiers::NONE)], Vec2::new(0.0, 80.0)),
-            (vec![wheel(Vec2::new(-0.5, 0.25), Modifiers::NONE)], Vec2::new(-20.0, 10.0)),
+            (vec![wheel(Vec2::new(0.0, 1.0), Modifiers::SHIFT)], Vec2::new(notch, 0.0)),
+            (vec![wheel(Vec2::new(0.0, 1.0), CTRL)], Vec2::new(notch, 0.0)),
+            (vec![wheel(Vec2::new(0.0, 1.0), Modifiers::NONE), wheel(Vec2::new(0.0, 1.0), Modifiers::NONE)], Vec2::new(0.0, 2.0 * notch)),
+            (vec![wheel(Vec2::new(-0.5, 0.25), Modifiers::NONE)], Vec2::new(-0.5 * notch, 0.25 * notch)),
             (vec![sent(MouseWheelUnit::Page, -1.0)], Vec2::new(0.0, -600.0)),
             (vec![sent(MouseWheelUnit::Point, 53.0)], Vec2::new(0.0, 53.0)),
         ] {
@@ -911,11 +921,12 @@ mod tests {
                 })
                 .collect()
         };
+        let notch = configured_notch();
         let (glide, jump) = (offsets(false), offsets(true));
-        assert!(glide[3] > 0.0 && glide[3] < 30.0 && glide[4] > glide[3], "it glides: {:?}", &glide[..8]);
-        assert!((glide[39] - 40.0).abs() < 0.01, "to one notch down: {}", glide[39]);
+        assert!(glide[3] > 0.0 && glide[3] < 0.75 * notch && glide[4] > glide[3], "it glides: {:?}", &glide[..8]);
+        assert!((glide[39] - notch).abs() < 0.01, "to one notch down: {}", glide[39]);
         assert_eq!(jump[..3], [0.0; 3]);
-        assert!(jump[3..].iter().all(|y| *y == 40.0), "off, it is there at once: {:?}", &jump[..8]);
+        assert!(jump[3..].iter().all(|y| *y == notch), "off, it is there at once: {:?}", &jump[..8]);
     }
 
     /// A trackpad gesture (begin and end phases) is already applied as it arrives, with its
@@ -938,7 +949,7 @@ mod tests {
         let (on, off) = (scrolled(gesture(), false), scrolled(gesture(), true));
         assert_eq!(on[..5], off[..5], "the gesture reads the same");
         assert_eq!(on[2], Vec2::new(30.0, 0.0), "sideways for the whole gesture");
-        assert_eq!(off[5], Vec2::new(0.0, 40.0));
+        assert_eq!(off[5], Vec2::new(0.0, configured_notch()));
         assert!(off[6..].iter().all(|d| *d == Vec2::ZERO));
     }
 

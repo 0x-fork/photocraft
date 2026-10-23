@@ -489,12 +489,21 @@ fn the_wheel_reaches_12800_percent_and_stops_dead_there() {
     assert!((d2[0] - d0[0]).abs() < 0.02 && (d2[1] - d0[1]).abs() < 0.02, "{d0:?} -> {d2:?}");
 }
 
+/// The zoom [`notch_pan`] pans at: 800 %.
+const NOTCH_PAN_ZOOM: f32 = 8.0;
+
+/// How far one wheel notch moves the view at [`NOTCH_PAN_ZOOM`], in document pixels: egui's
+/// points per notch (`line_scroll_speed`) over the zoom.
+fn notch_pan_distance(h: &Harness<'static, PhotocraftApp>) -> f32 {
+    h.ctx.options(|o| o.input_options.line_scroll_speed) / NOTCH_PAN_ZOOM
+}
+
 /// One wheel notch (with `modifiers` held) over the canvas at 800 %: the view's centre before it,
 /// on the frame the notch arrives, and once any glide has settled.
 fn notch_pan(h: &mut Harness<'static, PhotocraftApp>, modifiers: Modifiers) -> ([f32; 2], [f32; 2], [f32; 2]) {
     {
         let v = &mut h.state_mut().ui.views[0];
-        (v.zoom, v.center, v.fit_pending) = (8.0, [200.0, 150.0], false);
+        (v.zoom, v.center, v.fit_pending) = (NOTCH_PAN_ZOOM, [200.0, 150.0], false);
     }
     h.run_steps(4);
     h.hover_at(h.state().last_canvas_rect.center());
@@ -515,7 +524,8 @@ fn animation_effects_off_pans_a_wheel_notch_at_once() {
         let mut h = app_window();
         h.state_mut().run("prefs.set", json!({"path": "interface.animationEffects", "value": choice})).unwrap();
         let (c0, c1, c2) = notch_pan(&mut h, Modifiers::NONE);
-        assert!((c2[1] - c0[1] - 5.0).abs() < 0.01 && c2[0] == c0[0], "{choice}: one notch is 40 points, 5 px at 800%: {c0:?} -> {c2:?}");
+        let notch = notch_pan_distance(&h);
+        assert!((c2[1] - c0[1] - notch).abs() < 0.01 && c2[0] == c0[0], "{choice}: one notch is {notch} px at 800%: {c0:?} -> {c2:?}");
         assert_eq!(c1 == c2, at_once, "{choice}: {c0:?} -> {c1:?} -> {c2:?}");
     }
 }
@@ -551,7 +561,8 @@ fn animation_effects_off_stops_the_canvas_glide_without_unsmooth() {
     for (modifiers, axis) in [(Modifiers::NONE, 1), (Modifiers::SHIFT, 0), (ctrl, 0)] {
         let (c0, c1, c2) = notch_pan(&mut h, modifiers);
         let moved = [c2[0] - c0[0], c2[1] - c0[1]];
-        assert!((moved[axis] - 5.0).abs() < 0.01 && moved[1 - axis] == 0.0, "{modifiers:?}: one notch is 40 points, 5 px at 800%: {moved:?}");
+        let notch = notch_pan_distance(&h);
+        assert!((moved[axis] - notch).abs() < 0.01 && moved[1 - axis] == 0.0, "{modifiers:?}: one notch is {notch} px at 800%: {moved:?}");
         assert_eq!(c1, c2, "{modifiers:?}: there on the frame the notch arrives: {c0:?} -> {c1:?} -> {c2:?}");
     }
 }
