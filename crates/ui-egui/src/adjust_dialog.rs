@@ -279,6 +279,33 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     Some(app.ui.open_dialog(crate::state::DialogKind::Command, fields))
 }
 
+/// Opens the dialog for `command` at the settings last confirmed in it (Photoshop's ⌥ plus the
+/// adjustment's shortcut, ⌥⌘L / ⌥⌘M, #8900), or at the neutral ones when there are none or they
+/// don't fit the current colour mode.
+pub fn open_last(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
+    let id = open(app, command)?;
+    let kind = command.strip_prefix(PREFIX).unwrap_or_default();
+    let mode = curve_mode(app, kind);
+    let Some(last) = app.session.prefs().dialogs.get(command).cloned() else { return Some(id) };
+    let Ok(adjustment) = photocraft_engine::adjust_params::from_params(kind, &last, None, mode) else { return Some(id) };
+    if let (Some(dialog), Value::Object(values)) = (app.ui.dialog_mut(id), photocraft_engine::adjust_params::to_params(&adjustment)) {
+        dialog.fields.retain(|k, _| k.starts_with("__"));
+        dialog.fields.extend(values);
+    }
+    Some(id)
+}
+
+/// Remember an adjustment dialog's settings after a successful OK, for [`open_last`]. Editing a
+/// smart filter's settings is not a use of the dialog's own (as `filter_dialog::remember`).
+pub(crate) fn remember(app: &mut PhotocraftApp, fields: &Map<String, Value>) {
+    if fields.contains_key("__smartFilter") {
+        return;
+    }
+    let Some(command) = fields.get("__command").and_then(Value::as_str).filter(|c| has_dialog(c)) else { return };
+    let values = crate::filter_dialog::params_of(fields);
+    app.session.prefs.edit(|prefs| prefs.dialogs.insert(command.into(), values));
+}
+
 /// The Curves dialog's single-channel target: the Channels panel's, plus the Layers panel's mask
 /// selection — both ways of selecting a mask must give the same dropdown (#5335).
 fn isolated(app: &PhotocraftApp) -> Option<photocraft_engine::channel_cmds::IsolatedCurveChannel> {

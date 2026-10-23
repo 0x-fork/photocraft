@@ -255,5 +255,12 @@ sync_github_name = true
 [people.benandez]
 real_name = "Martin Ball"
 
+[people.ronibalthazar]
+sync_github_name = true
+
+[people.batuhangozegu]
+real_name = "Batuhan Gözegü"
+sync_github_name = false
+
 [people.drunkeninja42]
 real_name = "Kushagra Sharma"
