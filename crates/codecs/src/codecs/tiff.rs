@@ -1373,12 +1373,26 @@ macro_rules! write_extras {
     };
 }
 
-fn bytes_as_u16(b: &[u8]) -> Vec<u16> {
-    b.as_chunks::<2>().0.iter().map(|c| u16::from_ne_bytes(*c)).collect()
+/// An empty buffer with room for `len` elements, allocated fallibly: a save too large for memory
+/// is an error, not an abort.
+fn try_with_capacity<T>(len: usize) -> io::Result<Vec<T>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len).map_err(|_| io::Error::new(io::ErrorKind::OutOfMemory, format!("cannot allocate {len} samples for the extra samples")))?;
+    Ok(v)
 }
 
-fn bytes_as_f32(b: &[u8]) -> Vec<f32> {
-    b.as_chunks::<4>().0.iter().map(|c| f32::from_ne_bytes(*c)).collect()
+fn bytes_as_u16(b: &[u8]) -> io::Result<Vec<u16>> {
+    let chunks = b.as_chunks::<2>().0;
+    let mut v = try_with_capacity(chunks.len())?;
+    v.extend(chunks.iter().map(|c| u16::from_ne_bytes(*c)));
+    Ok(v)
+}
+
+fn bytes_as_f32(b: &[u8]) -> io::Result<Vec<f32>> {
+    let chunks = b.as_chunks::<4>().0;
+    let mut v = try_with_capacity(chunks.len())?;
+    v.extend(chunks.iter().map(|c| f32::from_ne_bytes(*c)));
+    Ok(v)
 }
 
 /// Interleaves colour (and alpha) samples with [`Metadata::extra_samples`].
@@ -1390,7 +1404,9 @@ fn interleave_extras(img: &Image) -> Result<Vec<u8>, String> {
     let extras = &img.meta.extra_samples;
     let total = ch.checked_add(extras.len()).ok_or_else(|| "too many samples".to_string())?;
     let px = total.checked_mul(sb).ok_or_else(|| "sample size overflows".to_string())?;
-    let mut out = vec![0u8; n.checked_mul(px).ok_or_else(|| "image size overflows".to_string())?];
+    let len = n.checked_mul(px).ok_or_else(|| "image size overflows".to_string())?;
+    let mut out = try_with_capacity::<u8>(len).map_err(|e| e.to_string())?;
+    out.resize(len, 0);
     let base = img.data();
     let base_px = ch.saturating_mul(sb);
     for i in 0..n {
@@ -1429,12 +1445,12 @@ fn write_with_extras<K: TiffKind>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>
         return match (file.layout(), file.sample_type()) {
             (L::Lab, S::U8) => write_extras!(n, enc, w, h, &bytes, tags, u8, 8, 8, 3),
             (L::Lab, _) => {
-                let v = bytes_as_u16(&bytes);
+                let v = bytes_as_u16(&bytes)?;
                 write_extras!(n, enc, w, h, &v, tags, u16, 8, 16, 3)
             }
             (_, S::U8) => write_extras!(n, enc, w, h, &bytes, tags, u8, 8, 8, 4),
             _ => {
-                let v = bytes_as_u16(&bytes);
+                let v = bytes_as_u16(&bytes)?;
                 write_extras!(n, enc, w, h, &v, tags, u16, 8, 16, 4)
             }
         };
@@ -1443,56 +1459,56 @@ fn write_with_extras<K: TiffKind>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>
     match (img.layout(), img.sample_type()) {
         (L::Gray, S::U8) => write_extras!(n, enc, w, h, &bytes, tags, u8, 1, 8, 1),
         (L::Gray, S::U16) => {
-            let v = bytes_as_u16(&bytes);
+            let v = bytes_as_u16(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, u16, 1, 16, 1)
         }
         (L::Gray, S::F32) => {
-            let v = bytes_as_f32(&bytes);
+            let v = bytes_as_f32(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, f32, 1, 32, 1)
         }
         (L::GrayA, S::U8) => write_extras!(n, enc, w, h, &bytes, tags, u8, 1, 8, 2),
         (L::GrayA, S::U16) => {
-            let v = bytes_as_u16(&bytes);
+            let v = bytes_as_u16(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, u16, 1, 16, 2)
         }
         (L::GrayA, S::F32) => {
-            let v = bytes_as_f32(&bytes);
+            let v = bytes_as_f32(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, f32, 1, 32, 2)
         }
         (L::Rgb, S::U8) => write_extras!(n, enc, w, h, &bytes, tags, u8, 2, 8, 3),
         (L::Rgb, S::U16) => {
-            let v = bytes_as_u16(&bytes);
+            let v = bytes_as_u16(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, u16, 2, 16, 3)
         }
         (L::Rgb, S::F32) => {
-            let v = bytes_as_f32(&bytes);
+            let v = bytes_as_f32(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, f32, 2, 32, 3)
         }
         (L::Rgba, S::U8) => write_extras!(n, enc, w, h, &bytes, tags, u8, 2, 8, 4),
         (L::Rgba, S::U16) => {
-            let v = bytes_as_u16(&bytes);
+            let v = bytes_as_u16(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, u16, 2, 16, 4)
         }
         (L::Rgba, S::F32) => {
-            let v = bytes_as_f32(&bytes);
+            let v = bytes_as_f32(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, f32, 2, 32, 4)
         }
         (L::Cmyk, S::U8) => write_extras!(n, enc, w, h, &bytes, tags, u8, 5, 8, 4),
         (L::Cmyk, S::U16) => {
-            let v = bytes_as_u16(&bytes);
+            let v = bytes_as_u16(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, u16, 5, 16, 4)
         }
         (L::Cmyk, S::F32) => {
-            let v = bytes_as_f32(&bytes);
+            let v = bytes_as_f32(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, f32, 5, 32, 4)
         }
         (L::CmykA, S::U8) => write_extras!(n, enc, w, h, &bytes, tags, u8, 5, 8, 5),
         (L::CmykA, S::U16) => {
-            let v = bytes_as_u16(&bytes);
+            let v = bytes_as_u16(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, u16, 5, 16, 5)
         }
         (L::CmykA, S::F32) => {
-            let v = bytes_as_f32(&bytes);
+            let v = bytes_as_f32(&bytes)?;
             write_extras!(n, enc, w, h, &v, tags, f32, 5, 32, 5)
         }
         _ => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unsupported extra samples ({n})")).into()),
@@ -1725,5 +1741,20 @@ mod bits_len {
         assert_eq!(<Extras<u8, 2, 8, 5> as TiffColorType>::BITS_PER_SAMPLE.len(), 5);
         assert_eq!(<Extras<u8, 2, 8, 19> as TiffColorType>::BITS_PER_SAMPLE.len(), 19);
         assert_eq!(<Extras<u16, 5, 16, 6> as TiffColorType>::SAMPLE_FORMAT.len(), 6);
+    }
+}
+
+#[cfg(test)]
+mod extra_sample_buffers {
+    use super::try_with_capacity;
+
+    /// The extra-sample writer's buffers are allocated fallibly: a size no allocation can serve
+    /// is an out-of-memory error the save reports, not an abort.
+    #[test]
+    fn an_impossible_buffer_is_an_error() {
+        let err = try_with_capacity::<u8>(usize::MAX).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::OutOfMemory);
+        assert!(try_with_capacity::<u16>(usize::MAX / 2).is_err());
+        assert!(try_with_capacity::<f32>(64).is_ok_and(|v| v.is_empty() && v.capacity() >= 64));
     }
 }
