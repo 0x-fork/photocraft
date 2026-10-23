@@ -823,6 +823,7 @@
 	Split Warp Vertically	垂直分割变形
 	Statistics…	统计…
 	Refine Strokes	调整描边
+	Edits	编辑
 # Counted status and panel messages
 @plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	已将 {n} 个色板导出到 {file}
 @plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	已从 {file} 导入 {n} 个色板
@@ -2998,7 +2999,7 @@ curves	Smooth	平滑
 	Next Brush	下一个画笔
 	First Brush	第一个画笔
 	Last Brush	最后一个画笔
-	Preview size	Preview size
+	Preview size	预览大小
 	Memory Usage	内存使用
 	Per-document RAM limit (MB)	每个文档的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安装 RAM：{ram} MB；此上限：{percent}%
@@ -3039,4 +3040,11 @@ curves	Smooth	平滑
 	Not rendered: this adjustment ({key}) is kept as imported.	未渲染：此调整（{key}）按导入时的原样保留。
 
 # Print preview image (#8236)
-	Print preview image	Print preview image
+	Print preview image	打印预览图像
+
+# File opening, export status and graphics driver information
+	Couldn't open {name}: {error}	无法打开 {name}：{error}
+	Exported {path} ({size})	已导出 {path}（{size}）
+	Exported {path}	已导出 {path}
+	Exported {n} files	已导出 {n} 个文件
+	Driver: {driver}	驱动程序：{driver}

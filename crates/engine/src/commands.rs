@@ -282,6 +282,10 @@ pub(crate) fn color_param(cmd: &str, p: &Value, key: &str, default: [f32; 4]) ->
 }
 pub(crate) fn parse_hex(s: &str) -> Option<[f32; 4]> {
     let s = s.trim_start_matches('#');
+    // `from_str_radix` accepts a leading '+', so "+f" would read as 0x0f.
+    if !s.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
     let b = |i: usize| u8::from_str_radix(s.get(i..i + 2)?, 16).ok().map(|v| v as f32 / 255.0);
     match s.len() {
         6 => Some([b(0)?, b(2)?, b(4)?, 1.0]),
@@ -1135,7 +1139,7 @@ fn build() -> Vec<CommandSpec> {
             "Reorder Layer",
             [],
             None,
-            r##"{"layer":id?| "layers":[id,…]?, "target":id,"position":"above|below|into"="above","copy":bool=false} (layers: one undoable move, document order preserved; copy: place duplicates there and leave the layers, as ⌥-dragging a Layers panel row)"##,
+            r##"{"layer":id?| "layers":[id,…]?, "target":id|name,"targetOccurrence":n? (which of several layers named `target`, in document order),"position":"above|below|into"="above","copy":bool=false} (layers: one undoable move, document order preserved; copy: place duplicates there and leave the layers, as ⌥-dragging a Layers panel row; a recorded action keeps the target by name)"##,
             has_layer,
             crate::layer_multi_cmds::move_to
         ),
@@ -1837,5 +1841,20 @@ mod set_props_tests {
         }
         s.execute("layer.setProps", json!({"opacity": 0, "fill": 1})).unwrap();
         assert_eq!(layer(&s), (0.0, 1.0));
+    }
+}
+
+#[cfg(test)]
+mod parse_hex_tests {
+    use super::parse_hex;
+
+    #[test]
+    fn signs_and_other_non_hex_characters_are_rejected() {
+        for bad in ["#+f+f+f", "+f+f+f+f", "#-f0000", "#gg0000", "#0f0f+f"] {
+            assert_eq!(parse_hex(bad), None, "{bad:?} is not hex digits");
+        }
+        let g = 15.0 / 255.0;
+        assert_eq!(parse_hex("#0f0f0f"), Some([g, g, g, 1.0]));
+        assert_eq!(parse_hex("#0f0f0fff"), Some([g, g, g, 1.0]));
     }
 }

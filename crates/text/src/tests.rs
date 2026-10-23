@@ -847,6 +847,38 @@ fn variable_font_axes() {
     assert!(heavy > light * 1.5, "{light} → {heavy}");
 }
 
+/// #8797: a style that carries the PostScript name of a variable font's named condensed light
+/// instance lays out as wide as that instance's axis values, not at the default instance. Uses
+/// Bahnschrift (Windows) or Ubuntu Sans (Ubuntu) when installed, and skips otherwise; the
+/// synthesized-font tests in `font_names_tests` cover the instance lookup and its layout width
+/// everywhere.
+#[test]
+fn postscript_name_of_a_variable_instance_lays_out_at_that_instance() {
+    use photocraft_doc::text::FontVariation;
+    let candidates = [
+        ("C:\\Windows\\Fonts\\bahnschrift.ttf", "Bahnschrift-LightCondensed"),
+        ("/usr/share/fonts/truetype/ubuntu/UbuntuSans[wdth,wght].ttf", "UbuntuSans-CondensedLight"),
+    ];
+    let Some((bytes, ps)) = candidates.iter().find_map(|(p, ps)| std::fs::read(p).ok().map(|b| (b, *ps))) else {
+        return;
+    };
+    let mut e = TextEngine::new();
+    let Some(fam) = e.fonts.register_font_data(bytes).first().cloned() else {
+        return;
+    };
+    let width = |e: &mut TextEngine, style: CharStyle| {
+        let l = e.layout(&styled("Hamburgefonstiv 0123", style), 96.0);
+        l.lines[0].x1 - l.lines[0].x0
+    };
+    let base = CharStyle { font_family: fam.clone(), size_pt: 72.0, weight: 300, ..Default::default() };
+    let axes = vec![FontVariation { axis: "wght".into(), value: 300.0 }, FontVariation { axis: "wdth".into(), value: 75.0 }];
+    let family = width(&mut e, base.clone());
+    let instance = width(&mut e, CharStyle { postscript_name: Some(ps.into()), ..base.clone() });
+    let explicit = width(&mut e, CharStyle { variations: axes, ..base });
+    assert!(explicit < family * 0.9, "the condensed light axes are narrower: {explicit} vs {family}");
+    assert!((instance - explicit).abs() < 0.5, "{ps}: {instance} px, its axes: {explicit} px, default instance: {family} px");
+}
+
 #[test]
 fn warp_bends_rendered_text_and_outlines() {
     use photocraft_doc::text::TextWarp;
@@ -2665,4 +2697,53 @@ fn a_word_wider_than_the_paragraph_box_breaks_at_the_box_edge() {
     let l = e.layout(&spaced, 72.0);
     assert_eq!(l.lines.len(), 2, "{:?}", l.lines);
     assert_eq!(l.lines[1].range.start, 3, "{:?}", l.lines);
+}
+
+/// #8602: each colour is rasterised only over its own glyphs instead of the whole text, and the
+/// pixels match a full-size pass per colour (plain, faux bold, underlined, rotated and warped
+/// text; RGB and CMYK), up to float rounding in the coverage sums.
+#[test]
+fn per_colour_passes_match_full_size_passes() {
+    use photocraft_doc::text::TextWarp;
+    let mut e = TextEngine::new();
+    let text = "Many coloured runs of text, one colour a letter, across two lines\nof a point text layer";
+    let colours = [Color::rgb(0.9, 0.1, 0.1), Color::rgb(0.1, 0.7, 0.2), Color::rgb(0.1, 0.2, 0.9), Color::rgb(0.6, 0.6, 0.1)];
+    let runs = |bold: bool| {
+        text.char_indices()
+            .map(|(i, ch)| {
+                let colour = colours[i % colours.len()];
+                let style = CharStyle { size_pt: 28.0, color: colour, faux_bold: bold && i % 3 == 0, underline: i % 5 == 0, ..Default::default() };
+                TextRun { len: ch.len_utf8(), style }
+            })
+            .collect::<Vec<_>>()
+    };
+    let cases = [
+        TextLayer { text: text.into(), runs: runs(false), transform: Affine::translate(10.0, 40.0), ..Default::default() },
+        TextLayer { text: text.into(), runs: runs(true), transform: Affine::rotate(0.3).then(&Affine::translate(30.0, 90.0)), ..Default::default() },
+        TextLayer {
+            text: text.into(),
+            runs: runs(true),
+            transform: Affine::translate(10.0, 60.0),
+            warp: Some(TextWarp { style: "warpArc".into(), value: 40.0, horizontal_distortion: 0.0, vertical_distortion: 0.0, horizontal: true }),
+            ..Default::default()
+        },
+    ];
+    for (k, t) in cases.iter().enumerate() {
+        let l = e.layout(t, 72.0);
+        let warp = crate::render::layout_deform(&l, t);
+        for format in [PixelFormat::RGBA8, PixelFormat::CMYKA8] {
+            let fast = crate::render::rasterize_passes(&l, &t.transform, format, t.antialias, warp.as_ref(), true);
+            let full = crate::render::rasterize_passes(&l, &t.transform, format, t.antialias, warp.as_ref(), false);
+            assert_eq!(fast.rect, full.rect, "case {k}");
+            let (a, b) = (fast.surface.read_region(fast.rect), full.surface.read_region(full.rect));
+            assert!(!a.is_empty());
+            // Compare what shows: colour weighted by alpha (a fully transparent pixel's colour is moot).
+            let ch = format.channels();
+            let shown = |px: &[f32]| {
+                px.chunks_exact(ch).flat_map(|p| p[..ch - 1].iter().map(|c| c * p[ch - 1]).chain([p[ch - 1]]).collect::<Vec<_>>()).collect::<Vec<_>>()
+            };
+            let worst = shown(&a).iter().zip(&shown(&b)).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+            assert!(worst <= 1.0 / 255.0, "case {k} {format:?}: largest difference {worst}");
+        }
+    }
 }

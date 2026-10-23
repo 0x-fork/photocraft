@@ -377,13 +377,11 @@ fn channel_key(d: &Descriptor) -> Option<Option<&'static str>> {
     })
 }
 
+/// A Levels or Curves entry's channel: `Chnl.Cmps` for the composite, as Photoshop records it.
+/// Photoshop silently skips a Set whose composite is `Ordn.Trgt` (#8543).
 fn channel_ref(key: Option<&str>) -> D {
     let value = key.and_then(|k| lookup_back(CHANNELS, k));
-    D::Reference(vec![ReferenceItem::Enumerated {
-        class: class("Chnl"),
-        type_id: code(if value.is_some() { "Chnl" } else { "Ordn" }),
-        value: code(value.unwrap_or("Trgt")),
-    }])
+    D::Reference(vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: code("Chnl"), value: code(value.unwrap_or("Cmps")) }])
 }
 
 // ------------------------------------------------------------------ field tables
@@ -766,46 +764,32 @@ fn selective_from(d: &Descriptor) -> Option<Value> {
 }
 
 fn selective_to(p: &Value) -> Option<Descriptor> {
-    // Each range, as the command reads it (`adjust_cmds::selective_from_params`): the array form
-    // `"reds": [c, m, y, k]` first, then the scalar form, which names one range in `"colors"` and
-    // gives the channels it changes. Writing only the arrays dropped the scalar form's values, and
-    // the step exported as an adjustment that changes nothing (#7672).
-    let mut rows: Vec<Option<[f64; 4]>> = vec![None; SELECTIVE_RANGES.len()];
-    for (row, (_, name)) in rows.iter_mut().zip(SELECTIVE_RANGES) {
-        if let Some(a) = p.get(*name).and_then(Value::as_array) {
-            let v = |i: usize| a.get(i).and_then(Value::as_f64).unwrap_or(0.0);
-            *row = Some([v(0), v(1), v(2), v(3)]);
-        }
-    }
-    if let Some(named) = jstr(p, "colors") {
-        let i = SELECTIVE_RANGES.iter().position(|(_, name)| *name == named)?;
-        let row = rows.get_mut(i)?;
-        let mut v = row.unwrap_or([0.0; 4]);
-        for (slot, key) in v.iter_mut().zip(["cyan", "magenta", "yellow", "black"]) {
-            // A channel that is given but is not a number is an error in the command
-            // (`adjust_cmds::selective_from_params`), so a step carrying one cannot be written
-            // either: ignoring it would export a different adjustment than the one recorded.
-            // `null` counts as absent there, and so here.
-            match p.get(key) {
-                None | Some(Value::Null) => {}
-                Some(_) => *slot = jnum(p, key)?,
-            }
-        }
-        *row = Some(v);
-    }
+    // Match command execution: scalar components override only the selected range, `relative`
+    // takes precedence over `method`, and invalid values must not become a different edit.
+    let photocraft_doc::Adjustment::SelectiveColor { relative, adjustments } = crate::adjust_cmds::selective_from_params(p, None).ok()? else {
+        return None;
+    };
     let mut list = Vec::new();
-    for (row, (ps, _)) in rows.iter().zip(SELECTIVE_RANGES) {
-        if let Some(v) = row {
+    for (name, row) in crate::adjust_cmds::RANGES.into_iter().zip(adjustments) {
+        if p.get(name).is_some_and(|v| !v.is_null()) || jstr(p, "colors") == Some(name) {
+            let ps = lookup_back(SELECTIVE_RANGES, name)?;
+            let [cyan, magenta, yellow, black] = row.map(f64::from);
             list.push(D::Descriptor(
-                desc("ClrC").with("Clrs", enm("Clrs", ps)).with("Cyn ", pct(v[0])).with("Mgnt", pct(v[1])).with("Yllw", pct(v[2])).with("Blck", pct(v[3])),
+                desc("ClrC")
+                    .with("Clrs", enm("Clrs", ps))
+                    .with("Cyn ", pct(cyan))
+                    .with("Mgnt", pct(magenta))
+                    .with("Yllw", pct(yellow))
+                    .with("Blck", pct(black)),
             ));
         }
     }
-    let mut d = desc("SlcC").with("presetKind", enm("presetKindType", "presetKindCustom"));
-    if let Some(m) = jstr(p, "method") {
-        d = d.with("Mthd", enm("CrcM", if m == "absolute" { "Absl" } else { "Rltv" }));
-    }
-    Some(d.with("ClrC", D::List(list)))
+    Some(
+        desc("SlcC")
+            .with("presetKind", enm("presetKindType", "presetKindCustom"))
+            .with("Mthd", enm("CrcM", if relative { "Rltv" } else { "Absl" }))
+            .with("ClrC", D::List(list)),
+    )
 }
 
 /// Gradient Map: the gradient's colour stops at 0..4096 → `stops: [[0..1, "#rrggbb"], …]`.
@@ -1661,7 +1645,37 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
         "layer.setAdjustment" => {
             // The adjustment kind isn't in the params: Photoshop needs it, so only steps that
             // name one (`kind`) export.
-            let a = adjustment_by_suffix(jstr(p, "kind")?)?;
+            let kind = jstr(p, "kind")?;
+            // `layer.setAdjustment` changes only the settings it names. Color Balance and
+            // Hue/Saturation descriptors carry every setting, filling absent ones with defaults,
+            // so a partial edit would replay as one that also resets the rest (#8531).
+            // Present and of the shape the writer reads: anything else it would write as 0.
+            let number = |p: &Value, k: &str| p.get(k).and_then(Value::as_f64).is_some_and(f64::is_finite);
+            let numbers = |p: &Value, keys: &[&str]| keys.iter().all(|k| number(p, k));
+            let flag = |k: &str| p.get(k).is_some_and(Value::is_boolean);
+            let triplet =
+                |k: &str| p.get(k).and_then(Value::as_array).is_some_and(|a| a.len() == 3 && a.iter().all(|v| v.as_f64().is_some_and(f64::is_finite)));
+            let complete = match kind {
+                "colorBalance" => ["shadows", "midtones", "highlights"].iter().all(|k| triplet(k)) && flag("preserveLuminosity"),
+                // Every colour range written carries its own hue, saturation and lightness too.
+                "hueSaturation" => {
+                    flag("colorize")
+                        && numbers(p, &["hue", "saturation", "lightness"])
+                        && HUE_RANGES.iter().filter_map(|r| p.get(*r).filter(|v| !v.is_null())).all(|r| {
+                            // Bounds, when given, are the four whole numbers `hue_entry` writes (as integers);
+                            // otherwise it drops or rounds them.
+                            let bounds = r.get("range").filter(|v| !v.is_null()).is_none_or(|v| {
+                                v.as_array().is_some_and(|a| a.len() == 4 && a.iter().all(|b| b.as_f64().is_some_and(|b| b.is_finite() && b.fract() == 0.0)))
+                            });
+                            r.is_object() && numbers(r, &["hue", "saturation", "lightness"]) && bounds
+                        })
+                }
+                _ => true,
+            };
+            if !complete {
+                return None;
+            }
+            let a = adjustment_by_suffix(kind)?;
             desc("null").with("null", target_ref("AdjL")).with("T   ", D::Descriptor((a.to)(p)?))
         }
         _ => return None,
@@ -1921,7 +1935,15 @@ fn transform_from(d: &Descriptor) -> Mapped {
     let whole_pixels = ["dx", "dy"].iter().all(|k| p.get(*k).and_then(Value::as_f64).is_none_or(|v| v.fract() == 0.0));
     let geometry_only = p.keys().all(|k| k == "dx" || k == "dy") && whole_pixels;
     // The resampling applies to a selection as much as to a layer (#7515).
-    let interpolation = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).filter(|i| matches!(*i, "bicubic" | "bilinear" | "nearest"));
+    // Photoshop's bicubic variants are kept (the transforms render them as Bicubic, and they export
+    // back unchanged); Automatic and Preserve Details become the nearest bicubic choice. Dropping
+    // them fell back to the command's default, bilinear for a selection (#8697).
+    let interpolation = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).and_then(|i| match i {
+        "bicubic" | "bilinear" | "nearest" | "bicubicSharper" | "bicubicSmoother" | "bicubicAutomatic" => Some(i),
+        "automatic" => Some("bicubicAutomatic"),
+        "preserveDetails" => Some("bicubic"),
+        _ => None,
+    });
     match (ref_class(r).as_deref(), target(r)) {
         (Some("Chnl"), Target::Property(prop)) if prop == "fsel" => {
             if let Some(i) = interpolation {
@@ -3037,13 +3059,14 @@ macro_rules! adjustment_event {
 
 const RIPPLE_SIZE: &[(&str, &str)] = &[("Sml", "small"), ("Mdm", "medium"), ("Lrg", "large")];
 
-/// Whether a Select and Mask step carries Refine Edge Brush strokes, which no descriptor holds.
+/// Whether a Select and Mask step carries Refine Edge Brush strokes or the workspace's tool
+/// edits (Quick Selection, Brush, Lasso…), which no descriptor holds.
 fn has_refine_strokes(p: &Value) -> bool {
-    p.get("refineStrokes").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()))
+    p.get("refineStrokes").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty())) || crate::select_mask_edits::has_edits(p)
 }
 
-/// Select and Mask to Photoshop. The descriptor has no field for the Refine Edge Brush, so a
-/// step with `refineStrokes` can't be exported faithfully. One with `sampleAllLayers` is not
+/// Select and Mask to Photoshop. The descriptor has no field for the Refine Edge Brush or the
+/// workspace's tools, so a step with `refineStrokes` or `edits` can't be exported faithfully. One with `sampleAllLayers` is not
 /// exported here either: it exports as `smartBrushWorkspace`.
 fn refine_edge_to(_: &str, p: &Value) -> Option<Descriptor> {
     if !pixel_target(p) || p.get("sampleAllLayers").is_some() || has_refine_strokes(p) {
