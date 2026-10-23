@@ -182,6 +182,10 @@ fn err(e: impl std::fmt::Display) -> CodecError {
     CodecError::malformed(F, e)
 }
 
+/// Most pixels one byte of a truncated file may account for. Even a flat image costs a few bits
+/// per 8×8 block, and truncated photographs are far above this.
+const MAX_TRUNCATED_PIXELS_PER_BYTE: u64 = 2048;
+
 pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     let end = data_end(bytes);
     if end == DataEnd::Empty {
@@ -204,6 +208,11 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
         _ => (ColorSpace::RGB, ChannelLayout::Rgb),
     };
     limits.check(w, h, layout, SampleType::U8)?;
+    // The backend fills whatever the scan no longer describes, so a short scan under a large
+    // frame is a gigabyte of synthesized output from a few kilobytes of file.
+    if end == DataEnd::Truncated && u64::from(w) * u64::from(h) / MAX_TRUNCATED_PIXELS_PER_BYTE > bytes.len() as u64 {
+        return Err(err("the truncated scan is too short for the frame it declares"));
+    }
     dec.set_options(dec.options().jpeg_set_out_colorspace(out_cs));
     let mut px = dec.decode().map_err(err)?;
     let expected = w as usize * h as usize * layout.channels();
@@ -433,6 +442,22 @@ mod tests {
     /// Return whether the JPEG begins with a JFIF APP0 segment.
     fn has_jfif_app0(bytes: &[u8]) -> bool {
         bytes.get(2..11) == Some(b"\xff\xe0\0\x10JFIF\0")
+    }
+
+    /// A tiny truncated scan under a frame patched to 20000×20000 is refused before the backend
+    /// fills 400 million pixels from it; the same file with its real size still recovers.
+    #[test]
+    fn a_short_truncated_scan_cannot_declare_a_huge_frame() {
+        let img = Image::from_raw(16, 16, ChannelLayout::Rgb, SampleType::U8, vec![128; 16 * 16 * 3]).unwrap();
+        let full = crate::encode(&img, Format::Jpeg, &EncodeOptions::default()).unwrap();
+        let cut = &full[..full.len() - 4];
+        assert_eq!(data_end(cut), DataEnd::Truncated);
+        assert!(crate::decode_as(Format::Jpeg, cut).is_ok());
+        let sof = cut.windows(2).position(|w| w == [0xFF, 0xC0] || w == [0xFF, 0xC2]).unwrap();
+        let mut huge = cut.to_vec();
+        huge[sof + 5..sof + 9].copy_from_slice(&[0x4E, 0x20, 0x4E, 0x20]);
+        let e = crate::decode_as(Format::Jpeg, &huge).unwrap_err();
+        assert!(e.to_string().contains("too short"), "{e}");
     }
 
     /// CMYK JPEG output must omit JFIF while retaining Adobe's CMYK marker.
