@@ -431,10 +431,20 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
         let start = if target_mask { mask_surf.or(doc.selection.as_ref()) } else { doc.selection.as_ref().or(mask_surf) };
         // The workspace's tool edits change the selection before its edge is refined.
         let edited = if edits.is_empty() { None } else { select_mask_edits::apply(doc, active, start.cloned(), &edits) };
-        let sel = if edits.is_empty() { start } else { edited.as_ref() }?;
+        let Some(sel) = (if edits.is_empty() { start } else { edited.as_ref() }) else { return Ok(None) };
         let brush = matting::EdgeBrush::new(&strokes, doc.bounds());
-        matting::refine_mask_brushed(smp, &matting::surface_reader(sel), sel.content_bounds(), doc.bounds(), &params, brush.as_ref())
-    })?;
+        // The refined result is dense over the selection's bounds: refuse what would not fit
+        // rather than allocate it (a thin edit across a huge canvas; the #8783 review).
+        let content = sel.content_bounds();
+        let area = matting::refine_area(content, doc.bounds(), &params, brush.as_ref());
+        if u64::from(area.width()) * u64::from(area.height()) > matting::MAX_REFINE_AREA {
+            return Err(bad(
+                "select.refineEdge",
+                &format!("the selection is too large to refine ({} × {} px; at most {} px in all)", area.width(), area.height(), matting::MAX_REFINE_AREA),
+            ));
+        }
+        Ok(matting::refine_mask_brushed(smp, &matting::surface_reader(sel), content, doc.bounds(), &params, brush.as_ref()))
+    })??;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let active = d.active_layer.filter(|id| d.doc.layer(*id).is_some());
     match output.as_str() {
@@ -1077,6 +1087,34 @@ mod tests {
     /// The selection as 8-bit coverage over `w × h`, to compare two selections exactly.
     fn sel_bytes(s: &Session, w: i32, h: i32) -> Vec<u8> {
         (0..h).flat_map(|y| (0..w).map(move |x| (cov(s, x, y) * 255.0).round() as u8)).collect()
+    }
+
+    /// The #8783 review: a refine whose result would be dense over more than
+    /// [`matting::MAX_REFINE_AREA`] pixels is refused, not allocated: a thin Brush edit across a
+    /// huge canvas (its edited selection spans the canvas) and a selection of the whole canvas.
+    /// The selection stays as it was.
+    #[test]
+    fn refine_edge_refuses_a_selection_too_large_to_refine() {
+        let mut s = Session::new();
+        s.add_document(
+            Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8),
+            None,
+        );
+        s.execute("select.rect", json!({"x": 10, "y": 60, "width": 10, "height": 10})).unwrap();
+        let small = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
+        let diagonal = json!({"edits": [{"tool": "brush", "points": [[0, 0], [99_999, 99_999]], "size": 1}]});
+        let t = std::time::Instant::now();
+        let e = s.execute("select.refineEdge", diagonal).expect_err("too large to refine");
+        assert!(e.to_string().contains("too large to refine"), "{e}");
+        assert!(s.active().and_then(|d| d.doc.selection.as_ref()) == Some(&small), "the selection is unchanged");
+        // The small selection itself still refines.
+        s.execute("select.refineEdge", json!({"radius": 4})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        s.execute("select.all", json!({})).unwrap();
+        let all = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
+        assert!(s.execute("select.refineEdge", json!({"radius": 4})).is_err());
+        assert!(s.active().and_then(|d| d.doc.selection.as_ref()) == Some(&all));
+        assert!(t.elapsed() < std::time::Duration::from_secs(20), "{:?}", t.elapsed());
     }
 
     /// The #8783 review: Brush and Lasso edits and Refine Edge Brush strokes that would paint
