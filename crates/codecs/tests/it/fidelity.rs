@@ -99,13 +99,14 @@ fn exif_xmp_dpi_text_dropped_for_qoi() {
         assert!(w.contains(&x), "{x:?}");
     }
 }
+/// WebP keeps the resolution in EXIF (#2399); only free-form text has nowhere to go.
 #[test]
-fn webp_drops_dpi_and_text_only() {
+fn webp_drops_text_only() {
     let mut img = test_image(ChannelLayout::Rgb, SampleType::U8);
     img.meta =
         Metadata { exif: Some(sample_exif()), xmp: Some("x".into()), dpi: Some((72.0, 72.0)), text: vec![("a".into(), "b".into())], ..Default::default() };
     let w = warns(&img, Format::WebP);
-    assert_eq!(w, vec![W::DpiDropped, W::TextDropped]);
+    assert_eq!(w, vec![W::TextDropped]);
 }
 #[test]
 fn float_to_png_reduces_and_clips() {

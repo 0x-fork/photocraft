@@ -268,7 +268,7 @@ pub fn fidelity_warnings_with(image: &Image, format: Format, opts: &EncodeOption
                 w.push(W::MetadataTooLarge { what: "XMP", bytes: xmp.len() });
             }
         }
-        if m.dpi.is_some() && !c.dpi {
+        if m.dpi.is_some() && (!c.dpi || (format == Format::WebP && !crate::codecs::webp::keeps_dpi(image))) {
             w.push(W::DpiDropped);
         }
         // DPX keeps its own header fields, not free-form text.
