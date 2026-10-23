@@ -226,6 +226,10 @@ pub struct DetailTexture {
 pub(crate) struct CpuTextures {
     pub texture: egui::TextureId,
     pub scale: f32,
+    /// The document area the texture covers: the document's bounds, or for a filter preview that
+    /// changes the canvas's dimensions (Image › Rotation) its result centred on the document, as
+    /// the GPU canvas draws it.
+    pub bounds: DRect,
     /// The detail texture and the document area it covers (x0, y0, x1, y1 in document pixels).
     pub detail: Option<(egui::TextureId, [f32; 4])>,
 }
@@ -1611,11 +1615,25 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     ensure_texture_in_view(app, ctx, idx, display, None).map(|t| (t.texture, t.scale))
 }
 
-/// Whether a filter preview of `preview` size shows a `doc` sized document reduced by `k` (its
-/// proxy factor), so the CPU canvas can draw it over the document's bounds unstretched.
-fn preview_fits(doc: photocraft_geom::Size, preview: photocraft_geom::Size, k: u32) -> bool {
+/// The document area a filter preview of `preview` size covers, for a `doc` sized document
+/// previewed at proxy factor `k`: the document's bounds when it is the document's size (reduced by
+/// `k`), else its own size (times `k`) centred on the document's centre, as the GPU canvas centres
+/// a size-changing preview (Image › Rotation).
+fn preview_bounds(doc: photocraft_geom::Size, preview: photocraft_geom::Size, k: u32) -> DRect {
     let k = k.max(1);
-    doc.width.div_ceil(k) == preview.width && doc.height.div_ceil(k) == preview.height
+    let full = DRect::from_size(doc);
+    if doc.width.div_ceil(k) == preview.width && doc.height.div_ceil(k) == preview.height {
+        return full;
+    }
+    let side = |p: u32, d: u32| {
+        let covered = i64::from(p) * i64::from(k);
+        let x0 = (i64::from(d) - covered).div_euclid(2);
+        let clamp = |v: i64| v.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        (clamp(x0), clamp(x0 + covered))
+    };
+    let (x0, x1) = side(preview.width, doc.width);
+    let (y0, y1) = side(preview.height, doc.height);
+    DRect::new(x0, y0, x1, y1)
 }
 
 /// [`ensure_texture`], and for a canvas showing `view` of a document too large for one
@@ -1637,15 +1655,18 @@ pub(crate) fn ensure_texture_in_view(
     // canvas (no usable GPU, a flipped or pixel-aspect-corrected view, a GPU fallback) showed the
     // document unfiltered. Its result is drawn here instead, as the channel views draw it.
     // A preview reduced for a zoomed-out view (a proxy, factor `k`) covers the whole document at
-    // its own size. One whose dimensions change otherwise (Image › Rotation) would be stretched
-    // over the document's bounds here, so the CPU canvas keeps the document for it, as before.
+    // its own size. One whose dimensions change otherwise (Image › Rotation) covers its own area,
+    // centred on the document's, as the GPU canvas draws it (`preview_bounds`).
+    let committed = app.session.documents().get(idx).map(|st| st.doc.bounds()).unwrap_or(doc.bounds());
+    let mut bounds = committed;
     let mut reduced = false;
     if let Some((preview, key)) = filter_channel_preview(app, idx, ctx) {
         let k = app.filter_preview.as_ref().map_or(1, |p| p.key.k.max(1));
-        if app.session.documents().get(idx).is_some_and(|st| preview_fits(st.doc.size, preview.size, k)) {
-            (doc, preview_key, reduced) = (preview, key, k > 1);
-        }
+        bounds = preview_bounds(committed.size(), preview.size, k);
+        (doc, preview_key, reduced) = (preview, key, k > 1);
     }
+    // Detail textures and partial redraws work in the document's own pixels.
+    let reduced = reduced || bounds != committed;
     let view = view.filter(|_| !reduced);
     // A flipped view draws a GPU machine's canvas through here: an adjustment dialog's preview of
     // a large document (taken by the GPU path) would cost a full-size CPU composite per change.
@@ -1714,10 +1735,10 @@ pub(crate) fn ensure_texture_in_view(
     let texture = cache.texture.as_ref()?.id();
     let scale = cache.scale;
     // Without a view (the Navigator's call) the views' detail textures stay as they are.
-    let Some(view) = view else { return Some(CpuTextures { texture, scale, detail: None }) };
+    let Some(view) = view else { return Some(CpuTextures { texture, scale, bounds, detail: None }) };
     let old = cache.detail.iter().position(|(k, _)| *k == view.key).map(|i| cache.detail.remove(i).1);
     let Some(plan) = detail_plan([doc.size.width, doc.size.height], texture_side(ctx), view.zoom, view.visible) else {
-        return Some(CpuTextures { texture, scale, detail: None });
+        return Some(CpuTextures { texture, scale, bounds, detail: None });
     };
     let t0 = crate::gpu_canvas::now_ms();
     let name = format!("canvas-detail-{}-{}", id.0, cache_key(id, output).1);
@@ -1725,7 +1746,7 @@ pub(crate) fn ensure_texture_in_view(
     if detail.as_ref().is_some_and(|d| d.rendered) {
         app.perf.span("canvas detail", crate::gpu_canvas::now_ms() - t0);
     }
-    let Some(mut detail) = detail else { return Some(CpuTextures { texture, scale, detail: None }) };
+    let Some(mut detail) = detail else { return Some(CpuTextures { texture, scale, bounds, detail: None }) };
     detail.rendered = false;
     // Where its texels lie in the document: reduced texel t covers [t·W/w, (t+1)·W/w).
     let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
@@ -1737,7 +1758,7 @@ pub(crate) fn ensure_texture_in_view(
     if cache.detail.len() > MAX_DETAIL_VIEWS {
         cache.detail.remove(0);
     }
-    Some(CpuTextures { texture, scale, detail: Some(shown) })
+    Some(CpuTextures { texture, scale, bounds, detail: Some(shown) })
 }
 
 /// Most CPU canvas views of one document on one display that keep a detail texture.
@@ -3596,23 +3617,26 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             paint_gpu_view(&painter, rect, params, &pattern);
         } else {
             app.navigator_gpu.remove(&doc.id);
-            if !crate::theme::Tokens::get(&ctx).bevel && drop_shadow {
-                painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(img_rect, 0));
-            }
-            let rotated = view.rotation.abs() > 0.05;
-            let checkerboard = app.session.prefs().transparency_and_gamut.square().map(|square| (checker(app, &ctx), square));
             // A document too large for one full-resolution texture also gets the part in view at
             // the screen's resolution, drawn over the reduced whole (#7568).
             let in_view =
                 InView { visible: visible_doc_rect(&xf), zoom: view.zoom, key: egui::Id::new(("pc-canvas-detail", ctx.viewport_id(), idx, primary)).value() };
             let textures = ensure_texture_in_view(app, &ctx, idx, output, Some(in_view));
             let tex = textures.as_ref().map(|t| t.texture);
-            paint_cpu_document(&painter, &xf, doc.bounds(), rotated, checkerboard, tex);
+            // The area the image covers: a size-changing preview's own (Image › Rotation).
+            let area = textures.as_ref().map_or(doc.bounds(), |t| t.bounds);
+            if !crate::theme::Tokens::get(&ctx).bevel && drop_shadow {
+                let shadow_rect = if area == doc.bounds() { img_rect } else { xf.doc_rect(area) };
+                painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(shadow_rect, 0));
+            }
+            let rotated = view.rotation.abs() > 0.05;
+            let checkerboard = app.session.prefs().transparency_and_gamut.square().map(|square| (checker(app, &ctx), square));
+            paint_cpu_document(&painter, &xf, area, rotated, checkerboard, tex);
             if let Some((detail, area)) = textures.and_then(|t| t.detail) {
                 paint_cpu_detail(&painter, &xf, doc.bounds(), rotated, checkerboard, detail, area);
             }
             for &c in &pattern {
-                paint_cpu_document(&painter, &pattern_xf(&xf, c, size), doc.bounds(), rotated, checkerboard, tex);
+                paint_cpu_document(&painter, &pattern_xf(&xf, c, size), area, rotated, checkerboard, tex);
             }
         }
         // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
@@ -4851,8 +4875,13 @@ fn zoom_about(view: &mut View, xf: &ViewXform, p: Pos2, new_zoom: f32, center_on
 
 /// Textured document quad whose corners follow [`ViewXform`] (rotation + flip).
 fn paint_mapped_image(painter: &egui::Painter, xf: &ViewXform, tex: egui::TextureId, uv: Rect, size: [f32; 2], tint: Color32) {
-    let [w, h] = size;
-    let pts = [xf.to_screen(0.0, 0.0), xf.to_screen(w, 0.0), xf.to_screen(w, h), xf.to_screen(0.0, h)];
+    paint_mapped_image_at(painter, xf, tex, uv, [0.0, 0.0], size, tint);
+}
+
+/// [`paint_mapped_image`] over the `size` document area starting at `origin`.
+fn paint_mapped_image_at(painter: &egui::Painter, xf: &ViewXform, tex: egui::TextureId, uv: Rect, origin: [f32; 2], size: [f32; 2], tint: Color32) {
+    let ([x, y], [w, h]) = (origin, size);
+    let pts = [xf.to_screen(x, y), xf.to_screen(x + w, y), xf.to_screen(x + w, y + h), xf.to_screen(x, y + h)];
     let uvs = [uv.min, pos2(uv.max.x, uv.min.y), uv.max, pos2(uv.min.x, uv.max.y)];
     let mut mesh = Mesh::with_texture(tex);
     for i in 0..4 {
@@ -4897,12 +4926,13 @@ fn paint_cpu_document(
     tex: Option<egui::TextureId>,
 ) {
     let size = [bounds.width() as f32, bounds.height() as f32];
+    let origin = [bounds.x0 as f32, bounds.y0 as f32];
     let img_rect = xf.doc_rect(bounds);
     match checker {
         Some((checker_id, square)) => {
             if rotated {
                 let tiles = vec2(size[0], size[1]) / (2.0 * square);
-                paint_mapped_image(painter, xf, checker_id, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), size, Color32::WHITE);
+                paint_mapped_image_at(painter, xf, checker_id, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), origin, size, Color32::WHITE);
             } else {
                 let tiles = img_rect.size() / (2.0 * square);
                 painter.image(checker_id, img_rect, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), Color32::WHITE);
@@ -4910,7 +4940,7 @@ fn paint_cpu_document(
         }
         None => {
             if rotated {
-                paint_mapped_quad(painter, xf, size, Color32::WHITE);
+                paint_mapped_quad(painter, xf, origin, size, Color32::WHITE);
             } else {
                 painter.rect_filled(img_rect, 0.0, Color32::WHITE);
             }
@@ -4918,7 +4948,7 @@ fn paint_cpu_document(
     }
     if let Some(tex) = tex {
         if rotated {
-            paint_mapped_image(painter, xf, tex, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), size, Color32::WHITE);
+            paint_mapped_image_at(painter, xf, tex, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), origin, size, Color32::WHITE);
         } else {
             let uv = if xf.flip { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)) };
             painter.image(tex, img_rect, uv, Color32::WHITE);
@@ -4968,9 +4998,9 @@ fn paint_cpu_detail(
     quad(tex, [pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(1.0, 1.0), pos2(0.0, 1.0)]);
 }
 
-fn paint_mapped_quad(painter: &egui::Painter, xf: &ViewXform, size: [f32; 2], color: Color32) {
-    let [w, h] = size;
-    let pts = vec![xf.to_screen(0.0, 0.0), xf.to_screen(w, 0.0), xf.to_screen(w, h), xf.to_screen(0.0, h)];
+fn paint_mapped_quad(painter: &egui::Painter, xf: &ViewXform, origin: [f32; 2], size: [f32; 2], color: Color32) {
+    let ([x, y], [w, h]) = (origin, size);
+    let pts = vec![xf.to_screen(x, y), xf.to_screen(x + w, y), xf.to_screen(x + w, y + h), xf.to_screen(x, y + h)];
     painter.add(egui::Shape::convex_polygon(pts, color, Stroke::NONE));
 }
 
@@ -6855,13 +6885,41 @@ mod tests {
             assert_eq!(shown, expected.pixels, "{size:?}: the canvas shows the preview");
             assert_ne!(shown.first(), plain.first(), "{size:?}: not the unfiltered document");
         }
-        // A preview that changes the canvas's dimensions (a 90° rotation) isn't stretched over the
-        // document's bounds: only one the document's size (reduced by its factor) is drawn.
+        // A preview that changes the canvas's dimensions covers its own area, centred on the
+        // document's (as the GPU canvas centres it), rather than being stretched over it.
         let size = |w, h| photocraft_geom::Size::new(w, h);
-        assert!(preview_fits(size(64, 32), size(64, 32), 1));
-        assert!(preview_fits(size(2401, 2200), size(1201, 1100), 2), "a proxy");
-        assert!(!preview_fits(size(64, 32), size(32, 64), 1), "rotated");
-        assert!(!preview_fits(size(64, 32), size(80, 40), 1), "canvas grown");
+        assert_eq!(preview_bounds(size(64, 32), size(64, 32), 1), DRect::new(0, 0, 64, 32));
+        assert_eq!(preview_bounds(size(2401, 2200), size(1201, 1100), 2), DRect::new(0, 0, 2401, 2200), "a proxy");
+        assert_eq!(preview_bounds(size(64, 32), size(32, 64), 1), DRect::new(16, -16, 48, 48), "rotated");
+        assert_eq!(preview_bounds(size(64, 32), size(80, 40), 1), DRect::new(-8, -4, 72, 36), "canvas grown");
+        assert_eq!(preview_bounds(size(4000, 2000), size(1000, 2000), 2), DRect::new(1000, -1000, 3000, 3000), "a rotated proxy");
+
+        // Image › Image Rotation › Arbitrary 90° on a 64×32 document: its 32×64 preview is drawn over
+        // the centred 32×64 area.
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.background_jobs = false;
+        app.run("file.new", json!({"width": 64, "height": 32, "background": "white"})).unwrap();
+        let id = crate::filter_dialog::open(&mut app, "image.rotation.arbitrary").unwrap();
+        let d = app.ui.dialogs.iter_mut().find(|d| d.id == id).unwrap();
+        d.fields.insert("angle".into(), json!(90.0));
+        d.fields.insert("__preview".into(), json!(true));
+        let ctx = egui::Context::default();
+        let t = ensure_texture_in_view(&mut app, &ctx, 0, None, None).unwrap();
+        let (size, _) = pixels(&ctx, t.texture);
+        assert_eq!(size, [32, 64], "the rotated preview's texture");
+        assert_eq!(t.bounds, DRect::new(16, -16, 48, 48), "centred on the document");
+        let centre = |r: DRect| (r.x0 + r.x1, r.y0 + r.y1);
+        assert_eq!(centre(t.bounds), centre(app.session.active().unwrap().doc.bounds()), "the same centre, so the view's pan holds");
+        // Preview off, then Cancel: the document again, unchanged.
+        let revision = app.session.active().unwrap().revision;
+        app.ui.dialogs.iter_mut().find(|d| d.id == id).unwrap().fields.insert("__preview".into(), json!(false));
+        let t = ensure_texture_in_view(&mut app, &ctx, 0, None, None).unwrap();
+        assert_eq!(t.bounds, DRect::new(0, 0, 64, 32), "Preview off");
+        crate::dialogs::cancel(&mut app, id).unwrap();
+        let t = ensure_texture_in_view(&mut app, &ctx, 0, None, None).unwrap();
+        assert_eq!(t.bounds, DRect::new(0, 0, 64, 32), "after Cancel");
+        assert_eq!(app.session.active().unwrap().revision, revision, "the document untouched");
+        assert_eq!(app.session.active().unwrap().doc.size, photocraft_geom::Size::new(64, 32));
     }
 
     #[test]
