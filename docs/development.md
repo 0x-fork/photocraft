@@ -40,7 +40,7 @@ cargo run --release -p photocraft -- --control 7878 --control-token-file .privat
   --automation-read-root work --automation-write-root work
 cargo test --workspace                                     # everything
 cargo xtask test                                           # tests (nextest when installed) + doctests
-cargo xtask ci                                             # the CI gate: fmt, clippy, layers, scorecard, tests, panic_hunt, doctests, wasm
+cargo xtask ci                                             # the CI gate: fmt, clippy, layers, scorecard, tests, panic_hunt, doctests, wasm, i18n report
 cargo xtask stats                                          # tests and lines per crate
 cargo xtask parity                                         # Photoshop menu coverage -> docs/parity-checklist.md
 ```
@@ -331,7 +331,11 @@ the live command registry (`menus::is_live`) and rewrites [`docs/parity-checklis
 `crates/ui-egui/src/i18n/mod.rs` registry, in stable language-code order. Its English-key set is
 derived from UI `tl!` literals, the menu catalog and UI command table, and menu command labels in
 the engine source. Catalog rows are validated for malformed and duplicate keys; unused legacy
-translations do not affect the denominator. Unregistered locale TSV files are ignored.
+translations do not affect the denominator. Unregistered locale TSV files are ignored. After the
+counts it lists, per language, the source keys the catalog lacks (one line for a language with
+none). A missing translation shows in English and fails nothing: `cargo xtask ci` runs the report
+as its last step so the list appears in the log, and only prints a warning if the report itself
+can't run.
 
 ## Testing strategy
 

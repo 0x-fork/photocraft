@@ -28,7 +28,7 @@ commands:
   test            workspace tests (cargo nextest when installed, else cargo test), then doctests
   ci              the CI gate: fmt --check, clippy -D warnings, layers, scorecard --check, tests
                   (nextest --profile ci), panic_hunt, doctests and wasm, with --locked --features heif
-                  (stops at first failure)
+                  (stops at first failure), then the i18n-coverage report
   corpus [--all | --pngsuite | --psd | --psd-tools | --pixls | --atn | --photoshop | --gimp] [--local] [--update-manifest]
                   show where test corpora live and their pins (xtask/src/corpus_pins.rs), or fetch
                   them into corpus/ (pinned commits, sha256-verified; --all = every corpus but pixls,
@@ -40,7 +40,8 @@ commands:
                   --local takes corpus/photoshop and corpus/gimp from the photocraft-corpus authoring clone
   stats [--exact] count tests and lines per crate (--exact: ask the test harness via `-- --list`)
   parity          Photoshop menu parity; rewrites docs/parity-checklist.md
-  i18n-coverage   report stable UI translation coverage for registered languages
+  i18n-coverage   report UI translation coverage and the missing strings per registered language
+                  (the last `ci` step; it never fails)
   perf [--quick] [--update-baseline] [--threshold PCT] [--bench NAME]... [--skip-build] [--reuse]
                   run the release benches, merge them by scenario id into target/perf/results.json,
                   check perf/budgets.toml and perf/baseline.json (non-zero on a broken budget or regression)
@@ -285,6 +286,16 @@ fn cmd_ci() -> Result<(), String> {
             }),
         ),
         ("wasm", Box::new(cmd_wasm)),
+        (
+            "i18n",
+            Box::new(|| {
+                // Lists missing translations for the log; a missing string shows in English, so it never fails CI.
+                if let Err(e) = i18n_coverage::run(&root()) {
+                    eprintln!("warning: i18n coverage report failed: {e}");
+                }
+                Ok(())
+            }),
+        ),
     ];
     let mut done = Vec::new();
     for (name, f) in &steps {
