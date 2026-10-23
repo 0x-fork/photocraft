@@ -204,7 +204,9 @@ pub(crate) fn retarget_move(app: &mut PhotocraftApp, p: [f64; 2], mods: egui::Mo
 fn begin(app: &mut PhotocraftApp, p: [f64; 2], mods: egui::Modifiers) {
     app.prefs_rt.snap = None;
     app.prefs_rt.snap_lines.clear();
-    if app.session.active().is_none() {
+    // Puppet Warp's pins and Perspective Warp's quads go where they are dragged, as in Photoshop:
+    // the press is theirs, not the tool's (with the Move tool it took a layer move's Smart Guides).
+    if app.session.active().is_none() || app.distort.active() {
         return;
     }
     // The tool the press acts as: ⌘ makes a painting tool the Move tool, and a selection tool
@@ -709,6 +711,30 @@ mod tests {
         crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 323.0, y: 100.0 }, m);
         assert_eq!(mover_bounds(&app).x0, 300);
         assert!(app.prefs_rt.snap.is_none());
+    }
+
+    /// Puppet Warp's pins go where they are dragged: they don't snap, with View › Snap on or
+    /// off, whatever tool was active when it started. With the Move tool a pin drag took the
+    /// layer move's Smart Guides and jumped to the other layer's edges.
+    #[test]
+    fn puppet_warp_pins_never_snap() {
+        for (tool, snap) in [(Tool::Move, false), (Tool::Move, true), (Tool::RectMarquee, true), (Tool::Brush, false)] {
+            let mut app = app_with_box();
+            app.ui.tool = tool;
+            app.ui.extras.snap = snap;
+            app.ui.view.show.smart_guides = true;
+            app.run("view.newGuide", json!({"orientation": "vertical", "position": 321})).unwrap();
+            let ctx = egui::Context::default();
+            crate::distort_ui::menu(&mut app, &ctx, "edit.puppetWarp", &json!({})).unwrap().unwrap();
+            let m = egui::Modifiers::NONE;
+            crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, m);
+            // The mover's left edge 3 px right of the target's, the pin 2 px from the guide.
+            crate::canvas::tool_event(&mut app, ToolEvent::Move { x: 323.0, y: 100.0, pressure: 1.0 }, m);
+            assert!(app.prefs_rt.snap_lines.is_empty(), "{tool:?}, snap {snap}: {:?}", app.prefs_rt.snap_lines);
+            crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 323.0, y: 100.0 }, m);
+            let pins = &app.distort.puppet.as_ref().unwrap().warp.pins;
+            assert_eq!(pins.iter().map(|p| p.dst).collect::<Vec<_>>(), vec![[323.0, 100.0]], "{tool:?}, snap {snap}");
+        }
     }
 
     /// ⌘ turns a painting tool, or a marquee outside the selection, into the Move tool for the
