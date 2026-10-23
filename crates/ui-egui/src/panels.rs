@@ -4755,9 +4755,10 @@ fn start_fx_drag(ctx: &egui::Context, layer: LayerId, effect: Option<usize>) {
 fn fx_drag_feedback(ctx: &egui::Context, doc: &photocraft_doc::Document) {
     let Some((from, effect)) = ctx.data(|d| d.get_temp::<FxDrag>(fx_drag_key())) else { return };
     let Some(p) = ctx.input(|i| i.pointer.interact_pos()) else { return };
+    // `Effect::label` is the English key; translate for the drag ghost like the Layers panel rows.
     let label = match effect {
-        Some(i) => doc.layer(LayerId(from)).and_then(|l| l.effects.items.get(i)).map_or("", |e| e.label()),
-        None => "Effects",
+        Some(i) => doc.layer(LayerId(from)).and_then(|l| l.effects.items.get(i)).map(|e| tl!(e.label())).unwrap_or_default(),
+        None => tl!("Effects"),
     };
     crate::layer_transfer::ghost(ctx, p, label);
     if ctx.input(|i| i.modifiers.alt) {
@@ -4797,10 +4798,12 @@ fn fx_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect, actions: &
 fn effect_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth: usize, actions: &mut Vec<(String, Value)>) {
     let t = Tokens::get(ui.ctx());
     let indent = 30.0 + depth as f32 * 14.0 + 34.0;
-    let mut rows: Vec<(String, bool, Option<&'static str>)> = vec![("Effects".into(), l.effects.enabled, None)];
+    // English `Effect::label` keys stay for kind matching; display goes through `tl!` (catalogs
+    // already have Drop Shadow → 投影, Effects → 效果, …).
+    let mut rows: Vec<(String, bool, Option<&'static str>)> = vec![(tl!("Effects").into(), l.effects.enabled, None)];
     for e in &l.effects.items {
         let kind = crate::layer_style::KINDS.iter().find(|k| k.1 == e.label()).map(|k| k.0);
-        rows.push((e.label().to_string(), e.enabled(), kind));
+        rows.push((tl!(e.label()).into(), e.enabled(), kind));
     }
     for (i, (name, on, kind)) in rows.into_iter().enumerate() {
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
