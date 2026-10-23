@@ -2186,7 +2186,7 @@ mod tests {
             .with("useLegacy", Value::Boolean(false));
         let cged = VersionedDescriptor::new(d).to_bytes();
         let adjustment = crate::adjust_map::parse(b"brit", &brit, Some(&cged), crate::adjust_map::Channels::Rgb);
-        assert_eq!(adjustment, photocraft_doc::Adjustment::Unsupported { psd_key: "brit".into(), raw: brit.clone() });
+        assert_eq!(adjustment, photocraft_doc::Adjustment::Unsupported { psd_key: "brit".into(), raw: brit.clone().into() });
         let mut doc = Document::with_background("Light", photocraft_geom::Size::new(8, 8), ColorMode::Rgb, SampleType::U8, photocraft_doc::Color::WHITE);
         let mut layer = Layer::new("Light 1", LayerContent::Adjustment(adjustment));
         layer.psd_blocks = vec![(*b"brit", std::sync::Arc::new(brit.clone())), (*b"CgEd", std::sync::Arc::new(cged.clone()))];
