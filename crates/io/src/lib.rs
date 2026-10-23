@@ -366,7 +366,8 @@ fn import_psd(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt) -> R
     psd_import::check_group_depth(&file)?;
     ctl.check().map_err(|_| IoError::Cancelled)?;
     ctl.progress(0.05);
-    let (mut document, warnings) = psd_import::psd_to_document_decoded(&file, ctl, merged, psd_import::PsdImportOptions::default()).ok_or(IoError::Cancelled)?;
+    let (mut document, warnings) =
+        psd_import::psd_to_document_decoded(&file, ctl, merged, psd_import::PsdImportOptions::default()).ok_or(IoError::Cancelled)?;
     document.name = name.to_string();
     text_import::prepare(&mut document);
     Ok(ImportResult { document, warnings, source_read_only: false, preview_only: false })
