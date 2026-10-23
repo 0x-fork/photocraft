@@ -231,8 +231,9 @@ fn cmd_gate_tests(panic_hunt: bool) -> Result<(), String> {
             c.args(["--run-ignored", "only", "-E", "binary_id(photocraft-engine::panic_hunt)"]);
         }
     } else if panic_hunt {
-        // `-- --ignored` across the workspace would run every ignored test, not only the hunt.
-        c.args(["test", "-p", "photocraft-engine", "--locked", "--test", "panic_hunt", "--", "--ignored"]);
+        // `-- --ignored` across the workspace would run every ignored test, not only the hunt. The
+        // engine has no `heif` feature of its own; it reaches the decoder through photocraft-io.
+        c.args(["test", "-p", "photocraft-engine", "--locked", "--features", "photocraft-io/heif", "--test", "panic_hunt", "--", "--ignored"]);
     } else {
         eprintln!("note: cargo-nextest is not installed, running cargo test (cargo install cargo-nextest --locked)");
         c.arg("test").args(GATE_ARGS).args(&TEST_TARGETS[1..]);
