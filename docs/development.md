@@ -39,14 +39,15 @@ cargo run --release -p photocraft -- path/to/image.psd      # desktop app
 cargo run --release -p photocraft -- --control 7878 --control-token-file .private/control.token \
   --automation-read-root work --automation-write-root work
 cargo test --workspace                                     # everything
-cargo xtask ci                                             # fmt + clippy + tests + layers + wasm
+cargo xtask test                                           # tests (nextest when installed) + doctests
+cargo xtask ci                                             # fmt + clippy + tests + doctests + layers + wasm
 cargo xtask stats                                          # tests and lines per crate
 cargo xtask parity                                         # Photoshop menu coverage -> docs/parity-checklist.md
 ```
 
 Image code is slow at `opt-level 0`, so the workspace profile builds dependencies at `opt-level 2`. Use `--release` for anything interactive. Test builds compile ui-egui itself at `opt-level 0` (`[profile.test.package.photocraft-ui-egui]` in `Cargo.toml`): it was one of the biggest test-build units, and its tests run no heavy pixel code of their own.
 
-The dev profile builds with `debug = "line-tables-only"`: panic backtraces keep file and line, and test binaries link about twice as fast. To inspect local variables in a debugger, build with `CARGO_PROFILE_DEV_DEBUG=true`.
+The dev profile builds PhotoCraft's crates with `debug = "line-tables-only"` and dependencies with no debug info: panic backtraces keep file and line in PhotoCraft code, and test binaries link about twice as fast. To inspect local variables in a debugger, build with `CARGO_PROFILE_DEV_DEBUG=true`.
 
 ### Faster test loops
 
@@ -54,7 +55,7 @@ Most of a `cargo test` run is linking test binaries and running them one after a
 
 ```sh
 cargo test -p <crate> --lib --tests        # skip examples and doctests (ui-egui has 11 examples)
-cargo test -p <crate> --test <file>        # one integration-test file
+cargo test -p <crate> --test it <module>:: # one integration-test module (tests/it/<module>.rs)
 cargo nextest run --workspace              # parallel across binaries (cargo install cargo-nextest --locked)
 cargo test --doc --workspace               # nextest does not run doctests
 ```
