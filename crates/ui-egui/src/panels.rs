@@ -2648,6 +2648,62 @@ fn opacity_row_layout(available: f32, label_width: f32, gap: f32) -> (f32, bool)
     ((available - reserved).max(40.0), show_label)
 }
 
+/// Blend mode, Opacity, the locks and Fill with no layer selected: Photoshop keeps them in place,
+/// greyed out at Normal, 100% and unlocked, instead of removing them (#8880). Same layout as the
+/// active layer's rows in `layers`.
+fn inactive_blend_rows(ui: &mut egui::Ui, pro: bool) {
+    ui.add_enabled_ui(false, |ui| {
+        ui.horizontal(|ui| {
+            let opacity_label = if pro { tl!("Opacity:") } else { tl!("Opacity") };
+            let (blend_width, show_opacity_label) = opacity_row_layout(ui.available_width(), body_text_width(ui, opacity_label), ui.spacing().item_spacing.x);
+            let mut m = BlendMode::Normal;
+            let options = blend_options(false, m);
+            widgets::dropdown_wheel_hovered(ui, "blend", &mut m, &options, blend_width);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut o = 100.0;
+                widgets::popup_value_field(ui, opacity_label, &mut o, 0.0..=100.0, "%", LAYER_PCT_W);
+                if show_opacity_label {
+                    scrub_pct_label(ui, opacity_label, &mut o, ui.available_width());
+                }
+            });
+        });
+        ui.add_space((theme::ROW_GAP - ui.spacing().item_spacing.y).max(0.0));
+        ui.horizontal(|ui| {
+            let lock_label = if pro { tl!("Lock:") } else { tl!("Lock") };
+            let lang = crate::i18n::current();
+            let fill_label = if pro { crate::i18n::tr_ctx(lang, "layers", "Fill:") } else { crate::i18n::tr_ctx(lang, "layers", "Fill") };
+            let gap = ui.spacing().item_spacing.x;
+            let icons_w = if pro { 5.0 * 20.0 + gap } else { 22.0 + gap };
+            let fits = body_text_width(ui, lock_label) + icons_w + body_text_width(ui, fill_label) + LAYER_PCT_W + 2.0 * gap <= ui.available_width();
+            if fits {
+                label(ui, lock_label);
+            }
+            if pro {
+                ui.scope(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    for (icon, tip) in [
+                        ("grid-3x3", tl!("Lock transparent pixels")),
+                        ("brush", tl!("Lock image pixels")),
+                        ("move", tl!("Lock position")),
+                        ("scan", tl!("Prevent auto-nesting in and out of Artboards and Frames")),
+                        ("lock", tl!("Lock all")),
+                    ] {
+                        icons::button(ui, icon, 20.0, false, tip);
+                    }
+                });
+            } else {
+                icons::button(ui, "lock-open", 22.0, false, tl!("Lock layer"));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut f = 100.0;
+                widgets::popup_value_field(ui, fill_label, &mut f, 0.0..=100.0, "%", LAYER_PCT_W);
+                scrub_pct_label(ui, fill_label, &mut f, ui.available_width());
+            });
+        });
+        ui.add_space(2.0);
+    });
+}
+
 fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // A new active layer opens its parent groups and is scrolled into view (#152).
     let reveal = crate::layer_reveal::track(app, ui.ctx());
@@ -2776,6 +2832,8 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         });
         ui.add_space(2.0);
+    } else {
+        inactive_blend_rows(ui, t.pro);
     }
 
     // Top of the stack first, groups above their contents, closed groups' contents hidden (#126).
