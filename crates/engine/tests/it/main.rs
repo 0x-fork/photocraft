@@ -14,6 +14,7 @@ mod clipping_semantics;
 mod close_document;
 mod command_lookup;
 mod convert_keeps_references;
+mod copy_shape_placement;
 mod corpus_atn;
 mod crop_content_aware;
 mod current_affinity_artboards;

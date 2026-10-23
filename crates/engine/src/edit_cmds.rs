@@ -416,7 +416,7 @@ fn paste_layers(s: &mut Session, layers: &Document, dx: i32, dy: i32) -> Result<
         *l = l.duplicate();
     }
     crate::layer_copy_cmds::adapt_copies(s, &mut copies, &d.doc)?;
-    crate::layer_copy_cmds::translate_copies(&mut copies, dx, dy);
+    crate::layer_copy_cmds::translate_copies(&mut copies, &d.doc, dx, dy);
     let patterns: Vec<_> = copies.patterns.iter().filter(|pat| !d.doc.patterns.iter().any(|q| q.id == pat.id)).cloned().collect();
     // A copied smart object may name a PSD-embedded linked file; land its `lnk` block too (#3584).
     let mut linked = Vec::new();
@@ -1930,6 +1930,78 @@ mod tests {
         assert!(matches!(shape.content, LayerContent::Shape(_)), "the shape stays a shape");
         assert_ne!(shape.id, src.children[0].id, "fresh ids");
         assert_eq!(shape.surface().map(|c| c.format().sample), Some(s.active().unwrap().doc.depth), "converted to 16 bits");
+    }
+
+    #[test]
+    fn cross_document_group_paste_renders_shapes_on_destination_canvas() {
+        for (copy_to_document, depth) in [(false, 8), (true, 16)] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width":100,"height":100})).unwrap();
+            let mut ids = Vec::new();
+            for x in [10, 50] {
+                s.execute("shape.create", json!({"kind":"rect","rect":[x,20,20,30],"fill":"#ff0000"})).unwrap();
+                s.execute("layer.layerStyle.dropShadow", json!({"size":4,"distance":3})).unwrap();
+                ids.push(s.active().unwrap().active_layer.unwrap());
+            }
+            s.active_mut().unwrap().selected_layers = ids;
+            s.execute("layer.groupLayers", json!({})).unwrap();
+            s.execute("edit.copy", json!({})).unwrap();
+            s.execute("file.new", json!({"width":800,"height":600,"depth":depth})).unwrap();
+            if copy_to_document {
+                s.execute("layer.copyToDocument", json!({"source":0,"document":1,"center":true})).unwrap();
+            } else {
+                s.execute("edit.paste", json!({"center":[400,300]})).unwrap();
+            }
+            let st = s.active().unwrap();
+            let group = st.doc.layer(st.active_layer.unwrap()).unwrap();
+            assert!(!crate::transform_cmds::transform_bounds(&st.doc, group).is_empty());
+            assert_eq!(group.children().unwrap().len(), 2);
+            for child in group.children().unwrap() {
+                let LayerContent::Shape(shape) = &child.content else { panic!("shape") };
+                let cache = shape.cache.as_ref().unwrap();
+                assert_eq!(cache.format().sample, st.doc.depth);
+                assert!(!cache.content_bounds().is_empty(), "destination cache must not be clipped to source canvas");
+                assert!(cache.content_bounds().x0 > 100);
+                let fresh = photocraft_vector::render_shape(shape, st.doc.pixel_format(), st.doc.bounds());
+                assert_eq!(cache, &fresh);
+            }
+            let before = st.doc.clone();
+            s.execute("layer.translate", json!({"dx":10,"dy":10})).unwrap();
+            assert_ne!(s.active().unwrap().doc, before);
+            assert!(s.undo());
+            assert_eq!(s.active().unwrap().doc, before);
+        }
+    }
+
+    #[test]
+    fn paste_repairs_uncached_shapes_before_transform_and_effect_rendering() {
+        let mut s = session();
+        s.execute("shape.create", json!({"kind":"rect","rect":[10,10,40,20],"fill":"#ff0000"})).unwrap();
+        s.execute("layer.layerStyle.dropShadow", json!({"size":4,"distance":3})).unwrap();
+        s.execute("edit.copy", json!({})).unwrap();
+        let layers = s.clipboard.as_mut().unwrap().layers.as_mut().unwrap();
+        let LayerContent::Shape(sh) = &mut layers.layers[0].content else { panic!("shape") };
+        sh.cache = None;
+        s.execute("edit.pasteSpecial.pasteInPlace", json!({})).unwrap();
+        let st = s.active().unwrap();
+        let layer = st.doc.layer(st.active_layer.unwrap()).unwrap();
+        let LayerContent::Shape(sh) = &layer.content else { panic!("shape") };
+        assert!(sh.cache.is_some());
+        assert!(!crate::transform_cmds::transform_bounds(&st.doc, layer).is_empty());
+        let expected = photocraft_vector::render_shape(sh, st.doc.pixel_format(), st.doc.bounds());
+        assert_eq!(sh.cache.as_ref().unwrap(), &expected);
+        let rendered = photocraft_compose::render_layer_in(&st.doc, layer, st.doc.bounds());
+        let mut fresh_doc = (*st.doc).clone();
+        let snapshot = fresh_doc.clone();
+        if let LayerContent::Shape(shape) = &mut fresh_doc.layer_mut(layer.id).unwrap().content {
+            crate::vector_cmds::refresh_shape(&snapshot, shape);
+        }
+        let fresh = photocraft_compose::render_layer_in(&fresh_doc, fresh_doc.layer(layer.id).unwrap(), fresh_doc.bounds());
+        assert_eq!(rendered.px, fresh.px, "pasted effects match a freshly rebuilt shape");
+        assert!(s.undo());
+        assert!(s.redo());
+        let st = s.active().unwrap();
+        assert!(st.doc.layer(st.active_layer.unwrap()).unwrap().surface().is_some());
     }
 
     /// #2344: fill and adjustment layers have no pixels of their own, so with no selection Copy
