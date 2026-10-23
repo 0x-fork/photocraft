@@ -72,13 +72,16 @@ unsafe_code = "forbid"
 dbg_macro = "warn"
 todo = "warn"
 
+# Dependencies carry no debug info: their frames in a backtrace lose file:line, and the target dir
+# and link times shrink. The test profile inherits both settings.
 [profile.dev.package."*"]
 opt-level = 2
+debug = false
 
 [profile.dev]
 opt-level = 1
 # Line tables keep file:line in panic backtraces but drop variable info, which roughly halves link
-# time and PDB size for the ~260 test binaries (#2204). CI sets the same through
+# time and PDB size for the test binaries (#2204). CI sets the same through
 # CARGO_PROFILE_DEV_DEBUG (and no debuginfo at all for the Windows tests). To inspect locals in a
 # debugger, build with CARGO_PROFILE_DEV_DEBUG=true.
 debug = "line-tables-only"
