@@ -1047,3 +1047,56 @@ fn layered_tiff_nested_past_the_cap_is_rejected() {
     let r = import("hundred.tif", &tiff_nested(100)).unwrap();
     assert_eq!(r.document.max_group_depth(), 100);
 }
+
+/// Past MAX_EXTRA_SAMPLES (16), a layered TIFF stores the first 16 extra channels. Its channel
+/// resources must describe those 16 and no more: 16 names in 1006 and 1045, 16 DisplayInfo
+/// records and 16 identifiers, and no Quick Mask record for a Quick Mask that wasn't stored.
+#[test]
+fn channels_past_sixteen_leave_no_resources_behind() {
+    use photocraft_color::PixelFormat;
+    use photocraft_doc::{AlphaChannel, Layer};
+    use photocraft_geom::{Rect, Size};
+    use photocraft_raster::Surface;
+
+    let mut doc = Document::new("t", Size::new(8, 8), ColorMode::Rgb, SampleType::U8);
+    let fmt = doc.pixel_format();
+    let mut art = Surface::new(fmt);
+    art.fill_rect(Rect::new(0, 0, 8, 8), &photocraft_raster::from_rgba(&fmt, [1.0, 0.0, 0.0, 1.0]));
+    doc.layers.push(Layer::new("Art", LayerContent::Raster(art)));
+    let gray = PixelFormat::new(ColorMode::Grayscale, SampleType::U8, false);
+    for i in 1..=18 {
+        doc.channels.push(AlphaChannel::new(format!("Alpha {i}"), Surface::new(gray)));
+    }
+    doc.quick_mask = Some(AlphaChannel::new("Quick Mask", Surface::new(gray)));
+
+    let r = tiff(&doc, true);
+    assert!(r.warnings.iter().any(|w| w.contains("19 extra channels") && w.contains("first 16")), "{:?}", r.warnings);
+    let (resources, _) = tags(&r.bytes);
+    let (resources, _) = photocraft_psd::tiff::resources_from_bytes(&resources.expect("resources")).expect("parse resources");
+    let data = |id: u16| resources.iter().find(|r| r.id == id).map(|r| r.data.clone()).unwrap_or_default();
+    let pascal = data(1006);
+    let (mut at, mut names) = (0usize, 0usize);
+    while let Some(&len) = pascal.get(at) {
+        at += 1 + usize::from(len);
+        names += 1;
+    }
+    assert_eq!(names, 16, "1006");
+    let unicode = data(1045);
+    let (mut at, mut names) = (0usize, 0usize);
+    while let Some(b) = unicode.get(at..at + 4) {
+        at += 4 + 2 * u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize;
+        names += 1;
+    }
+    assert_eq!(names, 16, "1045");
+    assert_eq!(data(1077).len(), 4 + 16 * 13, "1077");
+    assert_eq!(data(1053).len(), 16 * 4, "1053");
+    assert!(resources.iter().all(|r| r.id != 1022), "the Quick Mask was not stored, so its record goes");
+
+    let flat = photocraft_codecs::decode(&r.bytes).expect("decode");
+    assert_eq!(flat.meta.extra_samples.len(), 16);
+    let back = import("x.tif", &r.bytes).expect("import").document;
+    let names: Vec<&str> = back.channels.iter().map(|c| c.name.as_str()).collect();
+    let want: Vec<String> = (1..=16).map(|i| format!("Alpha {i}")).collect();
+    assert_eq!(names, want.iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(back.quick_mask.is_none());
+}

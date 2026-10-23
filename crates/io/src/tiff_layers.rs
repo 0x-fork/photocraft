@@ -321,6 +321,11 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
     if has_alpha && !write_alpha {
         drop_merged_transparency(&mut resources);
     }
+    // Past MAX_EXTRA_SAMPLES the TIFF stores only the first `kept` channels: the name and
+    // DisplayInfo resources describe just those, and a Quick Mask among the rest is dropped.
+    if extra_n > kept {
+        keep_first_channels(&mut resources, kept, cc);
+    }
     let resources = resources_to_bytes(&resources)?;
     let ifd_channels = cc + usize::from(write_alpha);
     let sample = csample(fmt.sample);
@@ -422,6 +427,48 @@ fn drop_first_unicode(data: &[u8]) -> Vec<u8> {
     let n = u32::from_be_bytes([nbe[0], nbe[1], nbe[2], nbe[3]]) as usize;
     let end = 4usize.saturating_add(n.saturating_mul(2));
     data.get(end..).unwrap_or(data).to_vec()
+}
+
+/// Trims the channel-name resources (1006, 1045) and DisplayInfo (1077) to their first `kept`
+/// entries, and drops Quick Mask info (1022) when its channel is not one of the `kept` extra
+/// samples, which start at sample `first_extra`. A resource too short for `kept` entries is
+/// left as it is.
+fn keep_first_channels(resources: &mut Vec<ImageResource>, kept: usize, first_extra: usize) {
+    for r in resources.iter_mut() {
+        r.data = match r.id {
+            1006 => first_pascal_names(&r.data, kept),
+            1045 => first_unicode_names(&r.data, kept),
+            id if id == crate::channel_map::DISPLAY_INFO => first_display_records(&r.data, kept),
+            _ => continue,
+        };
+    }
+    let end = first_extra.saturating_add(kept);
+    resources.retain(|r| r.id != crate::channel_map::QUICK_MASK_INFO || r.data.get(..2).is_none_or(|b| usize::from(u16::from_be_bytes([b[0], b[1]])) < end));
+}
+
+fn first_pascal_names(data: &[u8], n: usize) -> Vec<u8> {
+    let mut at = 0usize;
+    for _ in 0..n {
+        let Some(&len) = data.get(at) else { return data.to_vec() };
+        at = at.saturating_add(1).saturating_add(usize::from(len));
+    }
+    data.get(..at).unwrap_or(data).to_vec()
+}
+
+fn first_unicode_names(data: &[u8], n: usize) -> Vec<u8> {
+    let mut at = 0usize;
+    for _ in 0..n {
+        let Some(b) = data.get(at..at.saturating_add(4)) else { return data.to_vec() };
+        let len = u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize;
+        at = at.saturating_add(4).saturating_add(len.saturating_mul(2));
+    }
+    data.get(..at).unwrap_or(data).to_vec()
+}
+
+/// Resource 1077: a 4-byte version, then 13-byte records. Keeps the first `n` records.
+fn first_display_records(data: &[u8], n: usize) -> Vec<u8> {
+    let end = 4usize.saturating_add(n.saturating_mul(13));
+    data.get(..end).unwrap_or(data).to_vec()
 }
 
 /// Resource 1077: a 4-byte version, then 13-byte records. Drops the first record.
