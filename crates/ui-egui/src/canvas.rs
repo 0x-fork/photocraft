@@ -1611,6 +1611,13 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     ensure_texture_in_view(app, ctx, idx, display, None).map(|t| (t.texture, t.scale))
 }
 
+/// Whether a filter preview of `preview` size shows a `doc` sized document reduced by `k` (its
+/// proxy factor), so the CPU canvas can draw it over the document's bounds unstretched.
+fn preview_fits(doc: photocraft_geom::Size, preview: photocraft_geom::Size, k: u32) -> bool {
+    let k = k.max(1);
+    doc.width.div_ceil(k) == preview.width && doc.height.div_ceil(k) == preview.height
+}
+
 /// [`ensure_texture`], and for a canvas showing `view` of a document too large for one
 /// full-resolution texture, the detail texture of the part in view ([`detail_plan`], #7568).
 pub(crate) fn ensure_texture_in_view(
@@ -1629,11 +1636,16 @@ pub(crate) fn ensure_texture_in_view(
     // A filter dialog's live preview: the GPU canvas draws it from its own texture, but this CPU
     // canvas (no usable GPU, a flipped or pixel-aspect-corrected view, a GPU fallback) showed the
     // document unfiltered. Its result is drawn here instead, as the channel views draw it.
+    // A preview reduced for a zoomed-out view (a proxy, factor `k`) covers the whole document at
+    // its own size. One whose dimensions change otherwise (Image › Rotation) would be stretched
+    // over the document's bounds here, so the CPU canvas keeps the document for it, as before.
+    let mut reduced = false;
     if let Some((preview, key)) = filter_channel_preview(app, idx, ctx) {
-        (doc, preview_key) = (preview, key);
+        let k = app.filter_preview.as_ref().map_or(1, |p| p.key.k.max(1));
+        if app.session.documents().get(idx).is_some_and(|st| preview_fits(st.doc.size, preview.size, k)) {
+            (doc, preview_key, reduced) = (preview, key, k > 1);
+        }
     }
-    // A preview reduced for a zoomed-out view (a proxy) covers the whole document at its own size.
-    let reduced = app.session.documents().get(idx).is_some_and(|st| st.doc.size != doc.size);
     let view = view.filter(|_| !reduced);
     // A flipped view draws a GPU machine's canvas through here: an adjustment dialog's preview of
     // a large document (taken by the GPU path) would cost a full-size CPU composite per change.
@@ -6843,6 +6855,13 @@ mod tests {
             assert_eq!(shown, expected.pixels, "{size:?}: the canvas shows the preview");
             assert_ne!(shown.first(), plain.first(), "{size:?}: not the unfiltered document");
         }
+        // A preview that changes the canvas's dimensions (a 90° rotation) isn't stretched over the
+        // document's bounds: only one the document's size (reduced by its factor) is drawn.
+        let size = |w, h| photocraft_geom::Size::new(w, h);
+        assert!(preview_fits(size(64, 32), size(64, 32), 1));
+        assert!(preview_fits(size(2401, 2200), size(1201, 1100), 2), "a proxy");
+        assert!(!preview_fits(size(64, 32), size(32, 64), 1), "rotated");
+        assert!(!preview_fits(size(64, 32), size(80, 40), 1), "canvas grown");
     }
 
     #[test]
