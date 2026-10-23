@@ -250,6 +250,7 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
         document_path: opts.document_path.clone(),
         // Spot planes as Photoshop's TIFFs store them (0 = solid ink); a PSD save stays as it was.
         photoshop_spot_polarity: true,
+        read_linked_files: opts.read_linked_files,
     };
     // TIFF has no palette, bitmap or duotone layout: the PSD model of an Indexed Color, Bitmap
     // or Duotone document is made in its pixel format (RGB or Grayscale), which the PSD exporter
@@ -257,6 +258,7 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
     let plain;
     let doc = if matches!(doc.mode, ColorMode::Indexed | ColorMode::Bitmap | ColorMode::Duotone) {
         plain = Document { mode: doc.pixel_format().mode, ..doc.clone() };
+        warnings.push(format!("{:?} document written as {:?}", doc.mode, plain.mode));
         &plain
     } else {
         doc
