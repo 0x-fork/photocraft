@@ -14,6 +14,7 @@ use photocraft_geom::Rect;
 
 use super::box_mean;
 use crate::segment::RgbImage;
+use crate::selection::Region;
 
 /// One Refine Edge Brush stroke, in document pixels.
 #[derive(Clone, Debug, PartialEq)]
@@ -41,14 +42,27 @@ pub struct EdgeBrush {
     window: usize,
 }
 
-/// Coverage (0–1) of a round brush of radius `r` swept from `a` to `b`, at pixel centre `p`.
-fn capsule(p: (f32, f32), a: (f32, f32), b: (f32, f32), r: f32) -> f32 {
+/// Distance from pixel centre `p` to the segment from `a` to `b`.
+fn segment_distance(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let len2 = dx * dx + dy * dy;
     let t = if len2 > 0.0 { (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
     let (cx, cy) = (a.0 + t * dx, a.1 + t * dy);
-    let d = ((p.0 - cx).powi(2) + (p.1 - cy).powi(2)).sqrt();
-    (r + 0.5 - d).clamp(0.0, 1.0)
+    ((p.0 - cx).powi(2) + (p.1 - cy).powi(2)).sqrt()
+}
+
+/// Coverage (0–1) of a round brush of radius `r` swept from `a` to `b`, at pixel centre `p`.
+fn capsule(p: (f32, f32), a: (f32, f32), b: (f32, f32), r: f32) -> f32 {
+    (r + 0.5 - segment_distance(p, a, b)).clamp(0.0, 1.0)
+}
+
+/// Coverage (0–1) at distance `d` from a brush's path, for radius `r` and a solid core of radius
+/// `core` (hardness × `r`): full inside the core, then a smooth fall to zero half a pixel past `r`
+/// (a hard brush keeps just the one-pixel anti-aliased rim).
+fn soft_coverage(d: f32, r: f32, core: f32) -> f32 {
+    let ramp = r + 0.5 - core;
+    let t = ((r + 0.5 - d) / ramp.max(1.0)).clamp(0.0, 1.0);
+    if ramp > 1.0 { t * t * (3.0 - 2.0 * t) } else { t }
 }
 
 /// The pixels a disc of radius `r` at `p` can touch, as a (possibly empty) rectangle.
@@ -64,14 +78,50 @@ pub const MAX_SWEPT_AREA: f64 = (1u64 << 28) as f64;
 
 /// The area `strokes` sweep (see [`MAX_SWEPT_AREA`]); non-finite strokes count as infinite.
 pub fn swept_area(strokes: &[EdgeStroke]) -> f64 {
-    strokes
-        .iter()
-        .map(|s| {
-            let size = f64::from(s.size.clamp(*SIZE_RANGE.start(), *SIZE_RANGE.end()));
-            let len: f64 = s.points.windows(2).filter_map(|w| Some(f64::from((w.get(1)?.0 - w.first()?.0).hypot(w.get(1)?.1 - w.first()?.1)))).sum();
-            if len.is_finite() { len * size + size * size } else { f64::INFINITY }
-        })
-        .sum()
+    strokes.iter().map(|s| stroke_area(&s.points, s.size)).sum()
+}
+
+/// The area one stroke of `points` sweeps with a brush `size` wide: length × size + size².
+fn stroke_area(points: &[(f32, f32)], size: f32) -> f64 {
+    let size = f64::from(size.clamp(*SIZE_RANGE.start(), *SIZE_RANGE.end()));
+    let len: f64 = points.windows(2).filter_map(|w| Some(f64::from((w.get(1)?.0 - w.first()?.0).hypot(w.get(1)?.1 - w.first()?.1)))).sum();
+    if len.is_finite() { len * size + size * size } else { f64::INFINITY }
+}
+
+/// Select and Mask's Brush: the coverage one stroke of a round brush `size` px wide with
+/// `hardness` (0–100) paints along `points`, clipped to `canvas`. Overlapping dabs keep the most
+/// coverage any of them gives, so a stroke never paints past full. `None` when it paints nothing,
+/// has non-finite points or sweeps more than [`MAX_SWEPT_AREA`].
+pub fn brush_region(points: &[(f32, f32)], size: f32, hardness: f32, canvas: Rect) -> Option<Region> {
+    if points.is_empty() || !size.is_finite() || !hardness.is_finite() || points.iter().any(|p| !p.0.is_finite() || !p.1.is_finite()) {
+        return None;
+    }
+    if stroke_area(points, size) > MAX_SWEPT_AREA {
+        return None;
+    }
+    let r = size.clamp(*SIZE_RANGE.start(), *SIZE_RANGE.end()) / 2.0;
+    let core = r * hardness.clamp(0.0, 100.0) / 100.0;
+    let bbox = points.iter().fold(Rect::EMPTY, |acc, p| acc.union(&dab_bounds(*p, r))).intersect(&canvas);
+    if bbox.is_empty() {
+        return None;
+    }
+    let bw = bbox.width() as usize;
+    let mut cov = vec![0.0f32; bw.checked_mul(bbox.height() as usize)?];
+    for (a, b) in segments(points, r) {
+        let seg = dab_bounds(a, r).union(&dab_bounds(b, r)).intersect(&bbox);
+        for y in seg.y0..seg.y1 {
+            for x in seg.x0..seg.x1 {
+                let c = soft_coverage(segment_distance((x as f32 + 0.5, y as f32 + 0.5), a, b), r, core);
+                if let Some(slot) = cov.get_mut((y - bbox.y0) as usize * bw + (x - bbox.x0) as usize)
+                    && c > *slot
+                {
+                    *slot = c;
+                }
+            }
+        }
+    }
+    let mask: Vec<u8> = cov.iter().map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
+    mask.iter().any(|v| *v > 0).then_some(Region { bbox, mask })
 }
 
 /// The stroke's path as short segments: points closer than a quarter of the radius to the last
@@ -274,7 +324,6 @@ mod tests {
     use super::*;
     use crate::matting::{RefineParams, refine_mask_brushed, region_reader};
     use crate::segment::ImageSampler;
-    use crate::selection::Region;
 
     /// Strands of the subject's colour (every 4th column from x = 60) beyond the selection's
     /// edge at x = 40: brushing over them adds them, Alt-brushing the edge keeps it as it was.
@@ -329,5 +378,33 @@ mod tests {
         let nan = EdgeStroke { points: vec![(f32::NAN, 3.0)], size: 10.0, add: true };
         let empty = EdgeStroke { points: vec![], size: 10.0, add: true };
         assert!(EdgeBrush::new(&[off, nan, empty], canvas).is_none());
+    }
+    #[test]
+    fn brush_region_paints_hard_and_soft_strokes() {
+        let canvas = Rect::new(0, 0, 100, 50);
+        let hard = brush_region(&[(10.0, 25.0), (90.0, 25.0)], 20.0, 100.0, canvas).expect("painted");
+        assert!(hard.at(50, 25) > 0.99 && hard.at(50, 33) > 0.99, "solid inside the radius");
+        assert!(hard.at(50, 36) == 0.0 && hard.at(50, 10) == 0.0, "nothing past it");
+        // A soft brush fades from the centre line to the rim.
+        let soft = brush_region(&[(10.0, 25.0), (90.0, 25.0)], 20.0, 0.0, canvas).expect("painted");
+        let (centre, mid, rim) = (soft.at(50, 25), soft.at(50, 30), soft.at(50, 34));
+        assert!(centre > 0.95 && mid > 0.2 && mid < 0.8 && rim < 0.1, "{centre} {mid} {rim}");
+        // A single point is one dab; clipped to the canvas.
+        let dab = brush_region(&[(0.0, 0.0)], 10.0, 100.0, canvas).expect("painted");
+        assert_eq!((dab.bbox.x0, dab.bbox.y0), (0, 0));
+        assert!(dab.at(1, 1) > 0.99);
+    }
+
+    #[test]
+    fn brush_region_paints_nothing_for_hostile_strokes() {
+        let canvas = Rect::new(0, 0, 100, 50);
+        assert!(brush_region(&[], 10.0, 100.0, canvas).is_none());
+        assert!(brush_region(&[(f32::NAN, 1.0)], 10.0, 100.0, canvas).is_none());
+        assert!(brush_region(&[(1.0, 1.0)], f32::INFINITY, 100.0, canvas).is_none());
+        assert!(brush_region(&[(1.0, 1.0)], 10.0, f32::NAN, canvas).is_none());
+        assert!(brush_region(&[(-500.0, -500.0)], 10.0, 100.0, canvas).is_none(), "off the canvas");
+        assert!(brush_region(&[(0.0, 0.0), (1e7, 1e7)], 5000.0, 100.0, canvas).is_none(), "sweeps too much");
+        // Sizes and hardness outside their ranges are clamped, not rejected.
+        assert!(brush_region(&[(50.0, 25.0)], 0.0, 500.0, canvas).is_some());
     }
 }
