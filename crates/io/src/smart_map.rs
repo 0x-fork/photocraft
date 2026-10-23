@@ -1731,6 +1731,13 @@ mod tests {
             sf("image.adjustments.levels", json!({"inBlack": 20, "inWhite": 220, "gamma": 1.4, "red": {"inBlack": 0, "inWhite": 255, "gamma": 0.8}})),
             sf("image.adjustments.curves", json!({"points": [[0.0, 0.0], [64.0, 40.0], [255.0, 255.0]], "blue": [[0.0, 20.0], [255.0, 235.0]]})),
             sf("image.adjustments.shadowsHighlights", json!({})),
+            sf("filter.sharpen.sharpen", json!({})),
+            // Photoshop stores Dust & Scratches' radius in whole pixels (a `long`).
+            sf("filter.noise.dustAndScratches", json!({"radius": 4, "threshold": 12})),
+            sf(
+                "image.adjustments.hueSaturation",
+                json!({"colorize": false, "hue": 10, "saturation": -20, "lightness": 5, "reds": {"hue": 5, "saturation": 0, "lightness": -3, "range": [315, 345, 15, 45]}}),
+            ),
             // A pencil-drawn curve: 256 output levels (`Mpng`).
             sf("image.adjustments.curves", json!({"pencil": true, "points": (0..256).rev().collect::<Vec<i32>>()})),
         ];
@@ -2578,6 +2585,68 @@ mod tests {
         // Without a `Fltr` the filter has no settings to read: kept verbatim too.
         let bare = Descriptor::new("filterFX").with("filterID", Value::Integer(code(b"ClrH")));
         assert_eq!(filter_from_item(&bare).command, UNSUPPORTED_FILTER);
+    }
+
+    #[test]
+    fn photoshop_sharpen_without_fltr_imports_as_sharpen() {
+        // #6267: Photoshop's Sharpen item holds only its name, blending and `filterID`.
+        let item = Descriptor::new("filterFX")
+            .with("Nm  ", Value::Text(UnicodeString::new_nul("Sharpen")))
+            .with("blendOptions", Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "normal"))))
+            .with("enab", Value::Boolean(true))
+            .with("hasoptions", Value::Boolean(false))
+            .with("filterID", Value::Integer(1_399_353_968));
+        let f = filter_from_item(&item);
+        assert_eq!((f.command.as_str(), &f.params), ("filter.sharpen.sharpen", &json!({})));
+        // Hue/Saturation with an unnumbered range and Dust & Scratches with a missing setting fail
+        // cleanly instead of panicking.
+        let bad = SmartFilter {
+            command: "image.adjustments.hueSaturation".into(),
+            params: json!({"reds": {"range": [1, "x", 3, 4]}}),
+            blend: BlendMode::Normal,
+            opacity: 1.0,
+            visible: true,
+        };
+        assert!(item_for_filter(&bad).is_err());
+        let dust = Descriptor::new("filterFX")
+            .with("Fltr", Value::Descriptor(Descriptor::new("DstS").with("Rds ", Value::Integer(3))))
+            .with("filterID", Value::Integer(code(b"DstS")));
+        assert_eq!(filter_from_item(&dust).command, UNSUPPORTED_FILTER);
+    }
+
+    #[test]
+    fn hue_saturation_ranges_are_not_lost() {
+        let hue_sat = |params: J| item_for_filter(&sf("image.adjustments.hueSaturation", params));
+        // A range that is not an object is an error, not a silently dropped setting.
+        assert!(hue_sat(json!({"reds": 5})).is_err());
+        assert!(hue_sat(json!({"reds": null})).is_ok());
+        // Colorize's 25% default is the master saturation's only: a range's stays 0.
+        let d = hue_sat(json!({"colorize": true, "reds": {"hue": 5}})).unwrap();
+        let adjs = adjustment_list(get_desc(&d, "Fltr").unwrap()).unwrap();
+        let saturations: Vec<_> = adjs.iter().map(|a| int(a, "Strt")).collect();
+        assert_eq!(saturations, [Some(25), Some(0)]);
+        // A repeated range (or master) would overwrite the first: the filter is kept verbatim.
+        let entry = |range: Option<i32>| {
+            let e = Descriptor::new("Hst2").with("H   ", Value::Integer(0)).with("Strt", Value::Integer(0)).with("Lght", Value::Integer(0));
+            let Some(r) = range else { return Value::Descriptor(e) };
+            let e = ["BgnR", "BgnS", "EndS", "EndR"].iter().fold(e.with("LclR", Value::Integer(r)), |e, k| e.with(k, Value::Integer(10)));
+            Value::Descriptor(e)
+        };
+        for adjs in [vec![entry(None), entry(Some(1)), entry(Some(1))], vec![entry(None), entry(None)]] {
+            let fltr = Descriptor::new("HStr").with("Clrz", Value::Boolean(false)).with("Adjs", Value::List(adjs));
+            let item = Descriptor::new("filterFX")
+                .with("Nm  ", Value::Text(UnicodeString::new_nul("Hue/Saturation...")))
+                .with(
+                    "blendOptions",
+                    Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "normal"))),
+                )
+                .with("enab", Value::Boolean(true))
+                .with("Fltr", Value::Descriptor(fltr))
+                .with("filterID", Value::Integer(code(b"HStr")));
+            let f = filter_from_item(&item);
+            assert_eq!(f.command, UNSUPPORTED_FILTER);
+            assert_eq!(item_for_filter(&f).unwrap(), item);
+        }
     }
 
     #[test]
