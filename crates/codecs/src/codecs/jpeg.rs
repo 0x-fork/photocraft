@@ -190,9 +190,10 @@ fn err(e: impl std::fmt::Display) -> CodecError {
     CodecError::malformed(F, e)
 }
 
-/// Most pixels one byte of truncated scan data may account for. Even a flat image costs a few
-/// bits per 8×8 block, and truncated photographs are far above this.
-const MAX_TRUNCATED_PIXELS_PER_BYTE: u64 = 2048;
+/// Most pixels one byte of a JPEG may account for. Every 8×8 block of a frame needs at least a
+/// one-bit DC code (512 pixels a byte for a flat image under ideal Huffman tables), and real files,
+/// truncated or not, are far above this.
+const MAX_PIXELS_PER_BYTE: u64 = 2048;
 
 pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     let (end, scan_bytes) = data_end(bytes);
@@ -202,10 +203,6 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
     let meta = scan_metadata(bytes);
     if let Some((w, h, nc)) = meta.frame {
         limits.check_bytes(w, h, u64::from(nc.max(1)))?;
-        // Huffman coding spends at least a bit per 8x8 block per component (about 1024:1 for
-        // a flat 4:2:0 image), so a file far smaller than that cannot hold the frame. zune-jpeg
-        // only needs one byte of scan data before it allocates the whole output (#8597).
-        Limits::check_plausible(u64::from(w) * u64::from(h) * u64::from(nc.max(1)), bytes.len(), 1 << 12)?;
     }
     let options = DecoderOptions::default().set_strict_mode(false).set_max_width(65535).set_max_height(65535);
     let mut dec = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), options);
@@ -220,12 +217,16 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
         _ => (ColorSpace::RGB, ChannelLayout::Rgb),
     };
     limits.check(w, h, layout, SampleType::U8)?;
-    // The backend fills whatever the scan no longer describes, so a short scan under a large
-    // frame is a gigabyte of synthesized output from a few kilobytes of file. The budget is
+    // The backend fills whatever the scan no longer describes, and allocates the whole output
+    // once a scan holds a byte, so a short scan under a large frame is a gigabyte of synthesized
+    // output from a few kilobytes of file (#8597), truncated or not. A truncated file's budget is
     // measured on the scan data itself: APP padding can inflate `bytes.len()` arbitrarily
-    // without describing one more pixel.
-    if end == DataEnd::Truncated && u64::from(w) * u64::from(h) / MAX_TRUNCATED_PIXELS_PER_BYTE > scan_bytes {
-        return Err(err("the truncated scan is too short for the frame it declares"));
+    // without describing one more pixel. A complete one is measured on the file length, since
+    // the walk may stop early on odd marker layouts (`DataEnd::Complete`).
+    let budget = if end == DataEnd::Truncated { scan_bytes } else { bytes.len() as u64 };
+    if u64::from(w) * u64::from(h) / MAX_PIXELS_PER_BYTE > budget {
+        let what = if end == DataEnd::Truncated { "the truncated scan" } else { "the file" };
+        return Err(err(format!("{what} is too short for the frame it declares")));
     }
     dec.set_options(dec.options().jpeg_set_out_colorspace(out_cs));
     let mut px = dec.decode().map_err(err)?;
@@ -495,7 +496,7 @@ mod tests {
         assert_eq!(data_end(&padded).0, DataEnd::Truncated);
         // Well above the frame's pixels / budget, yet far above the scan data: the old
         // file-length bound admitted this frame.
-        assert!(padded.len() > (u64::from(20_000u32) * u64::from(20_000u32) / MAX_TRUNCATED_PIXELS_PER_BYTE) as usize, "padding too small");
+        assert!(padded.len() > (u64::from(20_000u32) * u64::from(20_000u32) / MAX_PIXELS_PER_BYTE) as usize, "padding too small");
         assert!(crate::decode_as(Format::Jpeg, &padded).is_ok());
         let sof = padded.windows(2).position(|w| w == [0xFF, 0xC0] || w == [0xFF, 0xC2]).unwrap();
         let mut huge = padded.clone();

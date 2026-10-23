@@ -477,7 +477,12 @@ fn jpeg_header_declaring_gigabytes_needs_a_plausible_file_size() {
     let sof = find(&b, &[0xFF, 0xC0]);
     b[sof + 5..sof + 7].copy_from_slice(&16000u16.to_be_bytes());
     b[sof + 7..sof + 9].copy_from_slice(&65000u16.to_be_bytes());
-    refused_as_implausible(Format::Jpeg, &b);
+    // The decoder's own scan-size guard refuses it (one refusal path for truncated and complete
+    // files alike), before the backend allocates the frame.
+    match decode(&b) {
+        Err(e) => assert!(e.to_string().contains("too short for the frame"), "{e}"),
+        Ok(i) => panic!("decoded a {}×{} frame from {} bytes", i.width(), i.height(), b.len()),
+    }
 }
 
 #[test]
