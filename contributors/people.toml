@@ -259,8 +259,5 @@ sync_github_name = true
 real_name = "Batuhan Gözegü"
 sync_github_name = false
 
-[people.ronibalthazar]
-sync_github_name = true
-
 [people.drunkeninja42]
 real_name = "Kushagra Sharma"
