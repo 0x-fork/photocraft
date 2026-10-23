@@ -114,6 +114,8 @@ pub fn parse(p: &Value) -> Result<Vec<SelectionEdit>> {
     }
     let size_range = matting::BRUSH_SIZE_RANGE;
     let mut total = 0usize;
+    // The area the Brush edits sweep in all, bounded as `refineStrokes`' is.
+    let mut swept = 0.0f64;
     let mut edits = Vec::with_capacity(list.len());
     for e in list {
         let o = e.as_object().ok_or_else(|| bad("each edit must be an object with a tool"))?;
@@ -125,12 +127,15 @@ pub fn parse(p: &Value) -> Result<Vec<SelectionEdit>> {
                 add: adds(o)?,
                 sample_all_layers: flag(o, "sampleAllLayers", false)?,
             },
-            "brush" => SelectionEdit::Brush {
-                points: points(o, 1, &mut total)?,
-                size: number(o, "size", 30.0, size_range.clone())?,
-                hardness: number(o, "hardness", 100.0, 0.0..=100.0)?,
-                add: adds(o)?,
-            },
+            "brush" => {
+                let points = points(o, 1, &mut total)?;
+                let size = number(o, "size", 30.0, size_range.clone())?;
+                swept += matting::stroke_area(&points, size);
+                if swept > matting::MAX_SWEPT_AREA {
+                    return Err(bad("brush edits paint too large an area"));
+                }
+                SelectionEdit::Brush { points, size, hardness: number(o, "hardness", 100.0, 0.0..=100.0)?, add: adds(o)? }
+            }
             "lasso" => SelectionEdit::Lasso { points: points(o, 3, &mut total)?, add: adds(o)? },
             "object" => {
                 let area = match (o.get("rect"), o.get("point")) {
@@ -267,6 +272,8 @@ mod tests {
         assert!(parse(&json!({})).expect("none").is_empty());
         assert!(parse(&json!({"edits": null})).expect("none").is_empty());
         assert!(has_edits(&p) && !has_edits(&json!({"edits": []})) && !has_edits(&json!({})));
+        // One long brush edit within the area limit is fine; two of them (rejects_hostile_edits) are not.
+        assert!(parse(&json!({"edits": [{"tool": "brush", "points": [[0, 0], [10_000_000, 0]], "size": 20}]})).is_ok());
     }
 
     #[test]
@@ -296,6 +303,8 @@ mod tests {
             json!([{"tool": "subject", "mode": "intersect"}]),
             json!([{"tool": "brush", "points": many_points}]),
             json!(many_edits),
+            // Each within the limit, together past it.
+            json!(vec![json!({"tool": "brush", "points": [[0, 0], [10_000_000, 0]], "size": 20}); 2]),
         ] {
             assert!(parse(&json!({"edits": bad})).is_err(), "{bad}");
         }

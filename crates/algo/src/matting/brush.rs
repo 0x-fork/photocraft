@@ -81,8 +81,9 @@ pub fn swept_area(strokes: &[EdgeStroke]) -> f64 {
     strokes.iter().map(|s| stroke_area(&s.points, s.size)).sum()
 }
 
-/// The area one stroke of `points` sweeps with a brush `size` wide: length × size + size².
-fn stroke_area(points: &[(f32, f32)], size: f32) -> f64 {
+/// The area one stroke of `points` sweeps with a brush `size` wide: length × size + size²;
+/// non-finite strokes count as infinite.
+pub fn stroke_area(points: &[(f32, f32)], size: f32) -> f64 {
     let size = f64::from(size.clamp(*SIZE_RANGE.start(), *SIZE_RANGE.end()));
     let len: f64 = points.windows(2).filter_map(|w| Some(f64::from((w.get(1)?.0 - w.first()?.0).hypot(w.get(1)?.1 - w.first()?.1)))).sum();
     if len.is_finite() { len * size + size * size } else { f64::INFINITY }
@@ -107,7 +108,7 @@ pub fn brush_region(points: &[(f32, f32)], size: f32, hardness: f32, canvas: Rec
     }
     let bw = bbox.width() as usize;
     let mut cov = vec![0.0f32; bw.checked_mul(bbox.height() as usize)?];
-    for (a, b) in segments(points, r) {
+    for (a, b) in segments(points, r, bbox) {
         let seg = dab_bounds(a, r).union(&dab_bounds(b, r)).intersect(&bbox);
         for y in seg.y0..seg.y1 {
             for x in seg.x0..seg.x1 {
@@ -124,17 +125,40 @@ pub fn brush_region(points: &[(f32, f32)], size: f32, hardness: f32, canvas: Rec
     mask.iter().any(|v| *v > 0).then_some(Region { bbox, mask })
 }
 
-/// The stroke's path as short segments: points closer than a quarter of the radius to the last
-/// kept one are dropped, and long segments are split at most `r` long, so each segment's box
-/// stays close to the area it paints.
-fn segments(points: &[(f32, f32)], r: f32) -> Vec<((f32, f32), (f32, f32))> {
-    let Some(&first) = points.first() else { return Vec::new() };
+/// The part of the segment `a`–`b` inside `r` (Liang–Barsky), or `None` when it misses it.
+fn clip_segment(a: (f32, f32), b: (f32, f32), r: Rect) -> Option<((f32, f32), (f32, f32))> {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let (mut t0, mut t1) = (0.0f32, 1.0f32);
+    for (p, q) in [(-dx, a.0 - r.x0 as f32), (dx, r.x1 as f32 - a.0), (-dy, a.1 - r.y0 as f32), (dy, r.y1 as f32 - a.1)] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return None;
+            }
+        } else {
+            let t = q / p;
+            if p < 0.0 {
+                t0 = t0.max(t);
+            } else {
+                t1 = t1.min(t);
+            }
+        }
+    }
+    (t0 <= t1 && t0.is_finite() && t1.is_finite()).then_some(((a.0 + dx * t0, a.1 + dy * t0), (a.0 + dx * t1, a.1 + dy * t1)))
+}
+
+/// The stroke's path as short segments within reach of `clip`: points closer than a quarter of
+/// the radius to the last kept one are dropped, each segment is cut to `clip` grown by the brush
+/// (what lies beyond can't paint inside it), and long ones are split at most `r` long, so each
+/// piece's box stays close to the area it paints. The pieces are made as they are painted, never
+/// collected, and only where they can paint: a 1 px stroke zigzagging across 2 million px is over
+/// 100 million pieces in all, within [`MAX_SWEPT_AREA`] (the #8783 review).
+fn segments(points: &[(f32, f32)], r: f32, clip: Rect) -> impl Iterator<Item = ((f32, f32), (f32, f32))> {
     let min_step = (r / 4.0).max(0.5);
     let max_step = r.max(2.0);
-    let mut kept = vec![first];
-    for p in points.iter().skip(1) {
-        let last = kept.last().copied().unwrap_or(first);
-        if (p.0 - last.0).hypot(p.1 - last.1) >= min_step {
+    let reach = clip.inflate((r + 2.0).ceil().clamp(0.0, 1e7) as i32);
+    let mut kept: Vec<(f32, f32)> = Vec::new();
+    for p in points {
+        if kept.last().is_none_or(|l| (p.0 - l.0).hypot(p.1 - l.1) >= min_step) {
             kept.push(*p);
         }
     }
@@ -143,20 +167,17 @@ fn segments(points: &[(f32, f32)], r: f32) -> Vec<((f32, f32), (f32, f32))> {
     {
         kept.push(end);
     }
-    if kept.len() == 1 {
-        return vec![(first, first)];
-    }
-    let mut out = Vec::new();
-    for w in kept.windows(2) {
-        let (Some(&a), Some(&b)) = (w.first(), w.get(1)) else { continue };
+    // A single point is one dab.
+    let dab = if kept.len() == 1 { kept.first().map(|p| (*p, *p)) } else { None };
+    let pairs: Vec<((f32, f32), (f32, f32))> = kept.windows(2).filter_map(|w| clip_segment(*w.first()?, *w.get(1)?, reach)).collect();
+    dab.into_iter().chain(pairs.into_iter().flat_map(move |(a, b)| {
         let pieces = ((b.0 - a.0).hypot(b.1 - a.1) / max_step).ceil().clamp(1.0, 1e6) as usize;
-        let at = |k: usize| {
+        let at = move |k: usize| {
             let t = k as f32 / pieces as f32;
             (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
         };
-        out.extend((0..pieces).map(|k| (at(k), at(k + 1))));
-    }
-    out
+        (0..pieces).map(move |k| (at(k), at(k + 1)))
+    }))
 }
 
 impl EdgeBrush {
@@ -193,7 +214,7 @@ impl EdgeBrush {
             cov.clear();
             cov.resize(sw * sb.height() as usize, 0.0);
             // The stroke's coverage: the most any of its segments gives (a single dab for one point).
-            for (a, b) in segments(&s.points, r) {
+            for (a, b) in segments(&s.points, r, sb) {
                 let seg = dab_bounds(a, r).union(&dab_bounds(b, r)).intersect(&sb);
                 for y in seg.y0..seg.y1 {
                     for x in seg.x0..seg.x1 {
@@ -406,5 +427,20 @@ mod tests {
         assert!(brush_region(&[(0.0, 0.0), (1e7, 1e7)], 5000.0, 100.0, canvas).is_none(), "sweeps too much");
         // Sizes and hardness outside their ranges are clamped, not rejected.
         assert!(brush_region(&[(50.0, 25.0)], 0.0, 500.0, canvas).is_some());
+    }
+    /// A 1 px stroke zigzagging across 2 million px stays within [`MAX_SWEPT_AREA`] yet splits
+    /// into over 100 million pieces: painting it must not collect them all first (it allocated
+    /// about 2 GB up front; the #8783 review).
+    #[test]
+    fn a_long_thin_zigzag_paints_without_collecting_its_pieces() {
+        let canvas = Rect::new(0, 0, 64, 64);
+        let points: Vec<(f32, f32)> = (0..135).map(|i| (if i % 2 == 0 { 0.0 } else { 2_000_000.0 }, 32.0 + (i % 3) as f32)).collect();
+        assert!(stroke_area(&points, 1.0) <= MAX_SWEPT_AREA);
+        // Only the pieces within reach of the canvas are made.
+        assert!(segments(&points, 0.5, canvas).count() < 134 * 40, "{}", segments(&points, 0.5, canvas).count());
+        let r = brush_region(&points, 1.0, 100.0, canvas).expect("it paints its row");
+        assert!(r.at(10, 32) > 0.5);
+        let strokes = [EdgeStroke { points, size: 1.0, add: true }];
+        assert!(EdgeBrush::new(&strokes, canvas).is_some_and(|b| b.at(10, 32) > 0.5));
     }
 }
