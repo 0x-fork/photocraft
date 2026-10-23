@@ -635,6 +635,7 @@ pub fn glyphs_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let picked_style = library.picked_style.take();
         library.finish(app);
         if picked {
+            app.note_recent_font(&f);
             app.ui.type_panels.glyph_family = f;
             app.ui.type_panels.glyph_style = picked_style.unwrap_or_else(|| tl!("Regular").into());
         }
