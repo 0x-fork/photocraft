@@ -2061,7 +2061,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "New Guide Layout…",
             &["View"],
             None,
-            r##"{"columns":n=0,"width":px?,"gutter":px=0,"rows":n=0,"height":px?,"rowGutter":px=gutter,"margin":px|[top,left,bottom,right]=0,"centerColumns":bool=false,"clearExisting":bool=false,"target":"document|selectedArtboards"="document"}"##,
+            r##"{"columns":n=0,"width":len?,"gutter":len=0,"rows":n=0,"height":len?,"rowGutter":len=gutter,"margin":len|[top,left,bottom,right]=0,"centerColumns":bool=false,"clearExisting":bool=false,"target":"document|selectedArtboards"="document"} (len: pixels, or text with px, in, cm, mm, pt, pc or % as typed in Photoshop, e.g. "1 cm"; % is of the target's width for columns, gutters and left/right margins, its height for rows and top/bottom margins)"##,
             has_doc,
             new_guide_layout
         ),

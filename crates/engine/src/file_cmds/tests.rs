@@ -1242,6 +1242,50 @@ fn exported_selected_cube_round_trips_through_lookup_importer() {
     assert_eq!(s.active().unwrap().doc.layers.len(), 3);
 }
 
+/// #4984: New Guide Layout takes lengths with units as typed in Photoshop's dialog, at the
+/// document's resolution; percent is of the target's width or height, by axis.
+#[test]
+fn guide_layouts_take_units() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 1200, "height": 600, "resolution": 300})).unwrap();
+    let close = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01);
+    // 1 cm at 300 ppi is 118.11 px; 0.25 in is 75 px.
+    s.execute("view.newGuideLayout", json!({"columns": 2, "gutter": "1 cm", "margin": "0.25in"})).unwrap();
+    let g = &doc(&s).guides;
+    let col = (1050.0 - 118.110_236) / 2.0;
+    assert!(close(&g.vertical, &[75.0, 1125.0, 75.0 + col, 75.0 + col + 118.110_236]), "{:?}", g.vertical);
+    assert!(close(&g.horizontal, &[75.0, 525.0]), "{:?}", g.horizontal);
+    // Percent of the width for columns, of the height for rows and top/bottom margins; points
+    // follow Units & Rulers (72 per inch: 36 pt is 150 px, centred like the columns).
+    s.execute(
+        "view.newGuideLayout",
+        json!({"columns": 1, "width": "25%", "centerColumns": true, "rows": 1, "height": "36 pt", "margin": ["10%", 0, "10%", 0], "clearExisting": true}),
+    )
+    .unwrap();
+    let g = &doc(&s).guides;
+    assert!(close(&g.vertical, &[0.0, 1200.0, 450.0, 750.0]), "{:?}", g.vertical);
+    assert!(close(&g.horizontal, &[60.0, 540.0, 225.0, 375.0]), "{:?}", g.horizontal);
+    // With selected artboards, percent is of each board, not of the document.
+    s.execute("layer.new.artboard", json!({"rect": [200, 100, 140, 40]})).unwrap();
+    s.execute(
+        "view.newGuideLayout",
+        json!({"columns": 1, "width": "50%", "centerColumns": true, "rows": 1, "height": "50%", "target": "selectedArtboards", "clearExisting": true}),
+    )
+    .unwrap();
+    let g = &doc(&s).guides;
+    // Clear Existing removes guides inside the board only; those outside it stay.
+    assert!(close(&g.vertical, &[0.0, 1200.0, 450.0, 750.0, 235.0, 305.0]), "{:?}", g.vertical);
+    assert!(close(&g.horizontal, &[60.0, 540.0, 225.0, 375.0, 110.0, 130.0]), "{:?}", g.horizontal);
+    for bad in [
+        json!({"columns": 2, "gutter": "1 furlong"}),
+        json!({"columns": 2, "gutter": "-1 cm"}),
+        json!({"columns": 2, "margin": [0, "x", 0, 0]}),
+        json!({"columns": 2, "gutter": true}),
+    ] {
+        assert!(s.execute("view.newGuideLayout", bad.clone()).is_err(), "{bad}");
+    }
+}
+
 #[test]
 fn guide_layouts() {
     let mut s = session(100, 50, 8);
