@@ -8,6 +8,8 @@
 //! them, OK is one history step, and the UI, CLI, MCP and the control channel all drive them the
 //! same way. [`apply`] is pure, so the workspace's preview runs exactly what OK commits.
 
+use std::collections::BTreeSet;
+
 use photocraft_algo::matting;
 use photocraft_algo::segment::{grabcut, quick, subject};
 use photocraft_algo::selection::{self as sel, Region, SelectionMode, combine_region};
@@ -183,22 +185,41 @@ fn mode(add: bool) -> SelectionMode {
     if add { SelectionMode::Add } else { SelectionMode::Subtract }
 }
 
-/// The polygon through `points` (anti-aliased), over the rows and columns it spans in `canvas`.
-fn polygon_region(points: &[(f32, f32)], canvas: Rect) -> Option<Region> {
-    let (mut x0, mut y0, mut x1, mut y1) = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
-    for p in points {
-        (x0, y0, x1, y1) = (x0.min(p.0), y0.min(p.1), x1.max(p.0), y1.max(p.1));
+/// Most tiles the Brush and Lasso edits may paint in all: four times what one may
+/// ([`sel::MAX_PAINTED_TILES`]), 1 GiB of GRAY8 tiles. Each is rasterised a tile at a time, so
+/// this, not the canvas size, bounds what they allocate (the #8783 review).
+pub const MAX_EDIT_TILES: usize = 4 * sel::MAX_PAINTED_TILES;
+
+/// Refuses Brush and Lasso edits that would paint too many tiles of `canvas`, one by one or in
+/// all, before anything is painted.
+pub fn check_size(edits: &[SelectionEdit], canvas: Rect) -> Result<()> {
+    let mut all = BTreeSet::new();
+    for e in edits {
+        let tiles = match e {
+            SelectionEdit::Brush { points, size, .. } => matting::painted_tiles(points, *size, canvas, sel::MAX_PAINTED_TILES),
+            SelectionEdit::Lasso { points, .. } => sel::polygon_edge_tiles(points, canvas, sel::MAX_PAINTED_TILES),
+            _ => continue,
+        };
+        all.extend(tiles.ok_or_else(|| bad("a brush or lasso edit crosses too many tiles of the canvas"))?);
+        if all.len() > MAX_EDIT_TILES {
+            return Err(bad("brush and lasso edits cross too many tiles of the canvas"));
+        }
     }
-    if x0 > x1 || y0 > y1 {
-        return None;
+    Ok(())
+}
+
+/// Refuses Refine Edge Brush strokes that would paint more tiles of `canvas` than
+/// [`matting::EdgeBrush`] holds.
+pub fn check_strokes(strokes: &[matting::EdgeStroke], canvas: Rect) -> Result<()> {
+    let refused = || EngineError::BadParams { cmd: CMD.into(), msg: "refineStrokes cross too many tiles of the canvas".into() };
+    let mut all = BTreeSet::new();
+    for s in strokes {
+        all.extend(matting::painted_tiles(&s.points, s.size, canvas, sel::MAX_PAINTED_TILES).ok_or_else(refused)?);
+        if all.len() > sel::MAX_PAINTED_TILES {
+            return Err(refused());
+        }
     }
-    let clamp = |v: f32| v.clamp(-1e7, 1e7) as i32;
-    let bbox = Rect::new(clamp(x0.floor()) - 1, clamp(y0.floor()) - 1, clamp(x1.ceil()) + 1, clamp(y1.ceil()) + 1).intersect(&canvas);
-    if bbox.is_empty() {
-        return None;
-    }
-    let mask: Vec<u8> = sel::polygon(points, bbox, true).iter().map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
-    mask.iter().any(|v| *v > 0).then_some(Region { bbox, mask })
+    Ok(())
 }
 
 /// `base` inverted over `canvas`; `None` when that leaves nothing selected. Tile by tile: the
@@ -235,13 +256,22 @@ pub fn apply_one(doc: &Document, layer: Option<LayerId>, base: Option<Surface>, 
         Some(r) => combine_region(base.as_ref(), Some(&r), m),
         None => base.clone(),
     };
+    // A painted shape (tile-sparse) added or subtracted, a tile at a time.
+    let paint = |shape: Option<Surface>, add: bool| match (shape.filter(|s| s.tile_count() > 0), base.as_ref()) {
+        (None, _) => base.clone(),
+        (Some(s), None) => add.then_some(s),
+        (Some(s), Some(o)) => {
+            let out = if add { sel::combine_sparse(o, &s, canvas, f32::max) } else { sel::combine_sparse(o, &s, canvas, |a, b| (a - b).max(0.0)) };
+            (!out.content_bounds().is_empty()).then_some(out)
+        }
+    };
     match edit {
         SelectionEdit::Quick { points, size, add, sample_all_layers } => {
             let region = with_doc_sampler(doc, layer, *sample_all_layers, |smp, doc| quick::quick_select(smp, doc.bounds(), points, *size));
             combine(region, mode(*add))
         }
-        SelectionEdit::Brush { points, size, hardness, add } => combine(matting::brush_region(points, *size, *hardness, canvas), mode(*add)),
-        SelectionEdit::Lasso { points, add } => combine(polygon_region(points, canvas), mode(*add)),
+        SelectionEdit::Brush { points, size, hardness, add } => paint(matting::brush_surface(points, *size, *hardness, canvas), *add),
+        SelectionEdit::Lasso { points, add } => paint(sel::polygon_surface(points, canvas), *add),
         SelectionEdit::Object { area, add, sample_all_layers } => {
             let region = with_doc_sampler(doc, layer, *sample_all_layers, |smp, doc| match *area {
                 ObjectArea::Rect(r) => grabcut::object_select(smp, doc.bounds(), r, 160_000),
@@ -393,5 +423,41 @@ mod tests {
         let all = apply(&doc, None, Some(small), &split).expect("cleared, then everything");
         assert!(all.sample_channel(15, 15, 0) > 0.99 && all.sample_channel(70_000, 3, 0) > 0.99);
         assert!(t.elapsed() < std::time::Duration::from_secs(20), "{:?}", t.elapsed());
+    }
+
+    /// The #8783 review: a size-1 Brush edit from corner to corner of a 100,000 px canvas sweeps
+    /// about 141,000 px but its bounding box is 10 billion; it, a Lasso sliver along it and their
+    /// subtraction paint only the tiles they cross, and keep the selection there was.
+    #[test]
+    fn thin_edits_across_a_huge_canvas_paint_only_their_tiles() {
+        let doc = Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8);
+        let canvas = doc.bounds();
+        let mut small = Surface::new(photocraft_color::PixelFormat::GRAY8);
+        small.fill_rect(Rect::new(10, 60, 20, 70), &[1.0]);
+        let diagonal = vec![(0.0, 0.0), (99_999.0, 99_999.0)];
+        let brush = SelectionEdit::Brush { points: diagonal.clone(), size: 1.0, hardness: 100.0, add: true };
+        let lasso = SelectionEdit::Lasso { points: vec![(0.0, 0.0), (99_999.0, 99_999.0), (0.0, 1.5)], add: true };
+        assert!(check_size(&[brush.clone(), lasso.clone()], canvas).is_ok());
+        let t = std::time::Instant::now();
+        for edit in [&brush, &lasso] {
+            let s = apply(&doc, None, Some(small.clone()), std::slice::from_ref(edit)).expect("painted");
+            assert!(s.tile_count() < 1500, "{}", s.tile_count());
+            assert!(s.sample_channel(15, 65, 0) > 0.99 && s.sample_channel(50_000, 50_000, 0) > 0.0 && s.sample_channel(50_000, 40_000, 0) == 0.0);
+        }
+        let erased =
+            apply(&doc, None, Some(small.clone()), &[brush, SelectionEdit::Brush { points: diagonal, size: 9.0, hardness: 100.0, add: false }]).expect("kept");
+        assert!(erased.sample_channel(15, 65, 0) > 0.99 && erased.sample_channel(50_000, 50_000, 0) == 0.0);
+        assert!(t.elapsed() < std::time::Duration::from_secs(20), "{:?}", t.elapsed());
+        // A zigzag across more tiles than one edit may paint is refused before painting.
+        let zigzag: Vec<(f32, f32)> = (0..20).map(|i| (if i % 2 == 0 { 0.0 } else { 99_999.0 }, i as f32 * 5000.0)).collect();
+        let over = [SelectionEdit::Brush { points: zigzag.clone(), size: 1.0, hardness: 100.0, add: true }];
+        assert!(check_size(&over, canvas).is_err());
+        assert!(check_size(&[SelectionEdit::Lasso { points: zigzag, add: true }], canvas).is_err());
+        // So are many edits that each fit but cross too many tiles in all.
+        let rows: Vec<SelectionEdit> = (0..48)
+            .map(|i| SelectionEdit::Brush { points: vec![(0.0, i as f32 * 2000.0), (99_999.0, i as f32 * 2000.0)], size: 1.0, hardness: 100.0, add: true })
+            .collect();
+        assert!(rows.iter().all(|e| check_size(std::slice::from_ref(e), canvas).is_ok()));
+        assert!(check_size(&rows, canvas).is_err());
     }
 }

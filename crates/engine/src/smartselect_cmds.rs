@@ -422,6 +422,9 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
         output = "newLayerWithMask".into();
     }
     let edits = select_mask_edits::parse(p)?;
+    // Before anything is painted: a thin stroke across a huge canvas paints few pixels but many tiles.
+    select_mask_edits::check_size(&edits, d.doc.bounds())?;
+    select_mask_edits::check_strokes(&strokes, d.doc.bounds())?;
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
         let mask_surf = active.and_then(|id| doc.layer(id)).and_then(|l| l.mask.as_ref()).map(|m| &m.surface);
         let target_mask = p.get("target").and_then(Value::as_str) == Some("mask");
@@ -1074,6 +1077,30 @@ mod tests {
     /// The selection as 8-bit coverage over `w × h`, to compare two selections exactly.
     fn sel_bytes(s: &Session, w: i32, h: i32) -> Vec<u8> {
         (0..h).flat_map(|y| (0..w).map(move |x| (cov(s, x, y) * 255.0).round() as u8)).collect()
+    }
+
+    /// The #8783 review: Brush and Lasso edits and Refine Edge Brush strokes that would paint
+    /// too many tiles of a huge canvas are refused before anything is painted, and the selection
+    /// stays as it was.
+    #[test]
+    fn refine_edge_refuses_edits_that_cross_too_many_tiles() {
+        let mut s = Session::new();
+        s.add_document(
+            Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8),
+            None,
+        );
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap();
+        let before = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
+        let zigzag: Vec<[f32; 2]> = (0..20).map(|i| [if i % 2 == 0 { 0.0 } else { 99_999.0 }, i as f32 * 5000.0]).collect();
+        for p in [
+            json!({"edits": [{"tool": "brush", "points": zigzag, "size": 1}]}),
+            json!({"edits": [{"tool": "lasso", "points": zigzag}]}),
+            json!({"refineStrokes": [{"points": zigzag, "size": 1}]}),
+        ] {
+            let e = s.execute("select.refineEdge", p.clone()).expect_err("refused");
+            assert!(e.to_string().contains("too many tiles"), "{p}: {e}");
+            assert!(s.active().and_then(|d| d.doc.selection.as_ref()) == Some(&before), "{p}: the selection is unchanged");
+        }
     }
 
     /// Select and Mask's own tools (#7069, #8148): each edit changes the selection before the
