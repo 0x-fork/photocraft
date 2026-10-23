@@ -426,6 +426,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     ui.add_space(8.0);
                     about_tab_body(app, ui, chosen);
                 }
+                DialogKind::Command if crate::open_prompt::owns_damage(&fields) => crate::open_prompt::damage_body(ui, &fields),
                 DialogKind::Command if crate::guide_layout_ui::owns(&fields) => outcome = crate::guide_layout_ui::body(app, ui, &mut fields, interactive),
                 DialogKind::Command if crate::brush_preset_dialog::owns(&fields) => {
                     outcome = crate::brush_preset_dialog::body(app, ui, &mut fields, interactive)
@@ -534,6 +535,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     } else {
                         let ok_label = if d.kind == DialogKind::NewDocument {
                             tl!("Create")
+                        } else if crate::open_prompt::owns_damage(&d.fields) {
+                            tl!("Continue")
                         } else if crate::delete_layer_prompt::owns(&d.fields) {
                             tl!("Delete")
                         } else if crate::disk_change_prompt::owns(&d.fields) || crate::replace_prompt::owns(&d.fields) {
@@ -827,6 +830,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
             }
             r
         }
+        DialogKind::Command if crate::open_prompt::owns_damage(&d.fields) => crate::open_prompt::answer_damage(app, true),
         DialogKind::Command if crate::guide_layout_ui::owns(&d.fields) => crate::guide_layout_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::brush_preset_dialog::owns(&d.fields) => crate::brush_preset_dialog::confirm(app, &d.fields),
         DialogKind::Command if crate::fill_ui::owns(&d.fields) => crate::fill_ui::confirm(app, &d.fields),
@@ -923,7 +927,9 @@ pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         app.ui.dialogs.retain(|child| child.fields.get("__dialog").and_then(Value::as_u64) != Some(id));
     }
     // Cancel on a profile prompt opens neither its file nor the ones still to come.
-    if crate::open_prompt::owns(&closed.fields) {
+    if crate::open_prompt::owns_damage(&closed.fields) {
+        crate::open_prompt::answer_damage(app, false)?;
+    } else if crate::open_prompt::owns(&closed.fields) {
         crate::open_prompt::answer(app, None)?;
     }
     // Cancel on the question whether to replace a file writes nothing.

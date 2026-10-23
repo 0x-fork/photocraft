@@ -1336,6 +1336,11 @@ pub fn levels_gamma(u: f32, g: f32) -> f32 {
         return u.powf(c);
     }
     let b = (a * u1 - u1.powf(c)) / u1.powf(q);
+    // Just above gamma 1 the toe shrinks to nothing: u1^q underflows to 0 while u1 doesn't, and
+    // the power curve is the toe's limit there (otherwise b = inf and black turns NaN).
+    if !b.is_finite() {
+        return u.powf(c);
+    }
     a * u - b * u.powf(q)
 }
 

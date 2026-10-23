@@ -80,7 +80,7 @@ pub(crate) fn paint_surface<'a>(doc: &'a mut Document, id: LayerId, p: &Value) -
     }
 }
 
-fn check_all_unlocked(doc: &Document, id: LayerId) -> Result<()> {
+pub(crate) fn check_all_unlocked(doc: &Document, id: LayerId) -> Result<()> {
     let locks = doc.effective_locks(id);
     let l = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
     if locks.all {
@@ -465,6 +465,7 @@ fn destructive_adjust(s: &mut Session, label: &str, adj: Adjustment, p: &Value) 
         // The targeted layer mask (#780): ⌘I inverts it, as in Photoshop.
         let id = layer_param(s, &Value::Null)?;
         return s.edit(label, |doc, _| {
+            check_all_unlocked(doc, id)?;
             let sel = doc.selection.clone();
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
             let mask = l.mask.as_mut().ok_or_else(|| EngineError::Other("layer has no mask".into()))?;
@@ -1512,6 +1513,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::brush_preset_cmds::specs());
     v.extend(crate::eraser_cmds::specs());
     v.extend(crate::preset_import_cmds::specs());
+    v.extend(crate::style_asl_cmds::specs());
     v.extend(crate::atn_cmds::specs());
     v.extend(crate::actions_edit_cmds::specs());
     v.extend(crate::swatch_cmds::specs());
@@ -1528,6 +1530,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::file_cmds::specs());
     v.extend(crate::exr_cmds::specs());
     v.extend(crate::type_extra_cmds::specs());
+    v.extend(crate::type_area_cmds::specs());
     v.extend(crate::type_styles_cmds::specs());
     v.extend(crate::type_spell_cmds::specs());
     v.extend(crate::type_caret_cmds::specs());
@@ -1535,6 +1538,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::layer_multi_cmds::specs());
     v.extend(crate::layer_copy_cmds::specs());
     v.extend(crate::prefs::specs());
+    v.extend(crate::updates_cmds::specs());
     v.extend(crate::edit_menu_cmds::specs());
     v.extend(crate::fill_key_cmds::specs());
     v.extend(crate::sample_cmds::specs());
@@ -1695,6 +1699,7 @@ fn set_mask_with(s: &mut Session, p: &Value, label: &str, mask: Option<LayerMask
     s.edit(label, |doc, _| {
         let mask = mask.clone().map(|mask| mask_at_depth(mask, doc.depth)).transpose()?;
         for id in &ids {
+            check_all_unlocked(doc, *id)?;
             if mask.is_some() {
                 crate::extra_cmds::background_to_layer_for_mask(doc, *id);
             }

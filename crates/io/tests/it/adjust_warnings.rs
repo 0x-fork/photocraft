@@ -20,7 +20,7 @@ fn reopen(adj: Adjustment, path: &str, opts: &ExportOptions) -> (Document, Vec<S
 #[test]
 fn unreadable_adjustments_warn_on_open() {
     // A Color Lookup that uses a profile, not a LUT file: kept verbatim, not applied.
-    let profile = Adjustment::Unsupported { psd_key: "clrL".into(), raw: vec![0, 2, 0, 0] };
+    let profile = Adjustment::Unsupported { psd_key: "clrL".into(), raw: vec![0, 2, 0, 0].into() };
     for (path, opts) in [("x.psd", ExportOptions::default()), ("x.psb", ExportOptions { force_psb: true, ..Default::default() })] {
         let (doc, warnings) = reopen(profile.clone(), path, &opts);
         assert!(matches!(&doc.layers[0].content, LayerContent::Adjustment(Adjustment::Unsupported { .. })), "{path}");
@@ -29,7 +29,7 @@ fn unreadable_adjustments_warn_on_open() {
         assert!(w[0].contains("Color Lookup") && w[0].contains("version 2") && w[0].contains("no effect"), "{path}: {}", w[0]);
     }
     // Another kind without a specific reason still names the layer and the adjustment.
-    let (_, warnings) = reopen(Adjustment::Unsupported { psd_key: "levl".into(), raw: vec![0, 9] }, "x.psd", &ExportOptions::default());
+    let (_, warnings) = reopen(Adjustment::Unsupported { psd_key: "levl".into(), raw: vec![0, 9].into() }, "x.psd", &ExportOptions::default());
     assert!(warnings.iter().any(|w| w.contains("Teal Look") && w.contains("Levels settings could not be read;")), "{warnings:?}");
 }
 
@@ -112,7 +112,7 @@ fn photoshop_layout_color_lookup_round_trips_through_psb() {
     // working Color Lookup, with no warning naming the layer (#1763).
     let raw = photoshop_clr_l_block();
     let opts = ExportOptions { force_psb: true, ..Default::default() };
-    let (doc, warnings) = reopen(Adjustment::Unsupported { psd_key: "clrL".into(), raw: raw.clone() }, "x.psb", &opts);
+    let (doc, warnings) = reopen(Adjustment::Unsupported { psd_key: "clrL".into(), raw: raw.as_slice().into() }, "x.psb", &opts);
     assert!(warnings.iter().all(|w| !w.contains("Teal Look")), "{warnings:?}");
     let LayerContent::Adjustment(Adjustment::ColorLookup { name, size, lut: Some(table), tetrahedral: false, dither: false }) = &doc.layers[0].content else {
         panic!("{:?}", doc.layers[0].content)

@@ -370,6 +370,13 @@ fn paste_into(s: &mut Session, p: &Value, outside: bool) -> Result<Value> {
         params["target"] = p.get("target").cloned().unwrap_or_default();
         return crate::edit_cmds::paste_to_target(s, &params, false, Some(&limit), label);
     }
+    // The pasted layer lands beside the active one, inside its group, and a Lock-All group refuses
+    // its layer mask: refuse before pasting rather than leave an unmasked paste behind.
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    let group = d.active_layer.and_then(|a| d.doc.path_of(a)).and_then(|p| d.doc.layer_at(p.split_last()?.1).map(|g| g.id));
+    if let Some(g) = group {
+        crate::commands::check_all_unlocked(&d.doc, g)?;
+    }
     let key = step_key(s, "pasteInto");
     params["coalesce"] = json!(key);
     params["target"] = json!("pixels");

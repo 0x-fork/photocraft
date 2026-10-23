@@ -12,7 +12,9 @@
 ### Windows source builds
 
 Use the Rust MSVC toolchain and install Visual Studio or Microsoft C++ Build Tools with the
-**Desktop development with C++** workload. Follow Microsoft's
+**Desktop development with C++** workload (on Windows on ARM64 / `aarch64-pc-windows-msvc`, such
+as NVIDIA RTX Spark, also select **C++ Clang Compiler for Windows** or ensure `clang-cl.exe` is on
+`PATH`, as `aws-lc-sys` needs it to assemble ARMv8 crypto routines). Follow Microsoft's
 [Rust setup guide](https://learn.microsoft.com/en-us/windows/dev-environment/rust/setup),
 then open a new terminal and check `cargo --version` and `rustc --version`.
 
@@ -256,7 +258,7 @@ For headless MCP clients, pass absolute paths to deliberately chosen trusted wor
 Tools:
 
 - `session_list`
-- `doc_open`, `doc_new`, `doc_place`, `doc_export_layers`, `doc_export_data_sets`, `doc_import_data_sets`, `doc_save`, `doc_export`, `doc_inspect`, `doc_render_preview` (returns a PNG image), `doc_select`, `doc_close`
+- `doc_open`, `doc_new`, `doc_place`, `doc_replace_smart_object`, `doc_export_layers`, `doc_export_data_sets`, `doc_import_data_sets`, `doc_save`, `doc_export`, `doc_inspect`, `doc_render_preview` (returns a PNG image), `doc_select`, `doc_close`
 - `command_list`, `command_run`, `command_batch` (several commands per call)
 - `jobs_list` (running background jobs with progress, then recently finished ones with their result or error), `jobs_cancel` (one job by id, or every running job)
 - bridge only: `ui_inspect`, `ui_screenshot`, `ui_pointer`, `ui_menu_invoke`, `ui_set`, `control_call`
@@ -360,6 +362,24 @@ can't run.
 - **UI:** unit tests for widgets and state, plus screenshot checks through the control channel.
 
 ## Performance notes
+
+- The CPU canvas records whether an uploaded image is entirely opaque, so software window
+  adapters do not rasterize a transparency checker that the image completely hides. An edit
+  that introduces transparency restores the checker; partial uploads conservatively retain it
+  until a full upload proves the image opaque again. Pan/zoom frames reuse this metadata.
+  Pattern Preview retains every legacy checker pass: opaque texels alone do not establish
+  identical coverage between repeated copies on every adapter.
+  Compare the old checker pass with the optimized path on a synthetic 24 MP document using
+  `cargo test --release -p photocraft-ui-egui --lib cpu_canvas_background_benchmark -- --ignored --nocapture`.
+  The benchmark alternates both paths on the same cached image and reports the adapter and
+  per-frame p50/p95, including offscreen rasterization and synchronous readback. It checks
+  identical rendered pixels for opaque and transparent images. This measures warm canvas
+  presentation, not input-to-photon latency or document recompositing. Set the test-only
+  `PHOTOCRAFT_CPU_BENCH_OUTPUT` to a directory to save its JSON and before/after PNGs.
+  For the small pixel-identity regression, set `PHOTOCRAFT_CPU_PIXEL_OUTPUT` and run
+  `cargo test -p photocraft-ui-egui --lib omitting_an_occluded_checker_preserves_cpu_canvas_pixels -- --nocapture`.
+  This reports the adapter and saves per-view reference/optimized PNGs and exact difference
+  counts/bounds without relaxing the pixel comparison.
 
 - The canvas is presented by a custom WGSL shader (`ui-egui/src/gpu_canvas.rs`): mip-mapped/nearest sampling, procedural checkerboard, pixel grid, tiling. Brush strokes upload only their damage rect.
 - **The canvas composites on the GPU** (`photocraft-gpu`, driven from `gpu_canvas.rs`), layer effects included. What the planner can't express returns `Unsupported` and the canvas falls back to the CPU compositor (`photocraft-compose`, also the reference for export and tests): Multichannel documents, and documents or effect regions over the texture limit. Pieces the GPU can't derive itself are rasterised once on the CPU and cached (`compose::masks` for vector masks, `compose::shape_split` for stroked shapes with clipped layers, effect distance fields). Timings of the interactive paths: `cargo run --release -p photocraft-ui-egui --example interactive_bench`; effects: `--example fx_bench` (`--compare files…` for GPU vs CPU); the cost of changing a chisel bevel's size (a dragged slider, GPU and CPU, ellipse and text): `--example bevel_bench`; large documents (open, refresh, thumbnails, a filter, a stroke, saves; one operation per run so `/usr/bin/time -l` gives its peak memory): `--example large_image_bench -- --size 14000x14000 --op psd`. The app requests the adapter's own texture limit (egui's default is 8192 px; see `gpu_canvas::use_adapter_limits`); beyond it the CPU fallback composites and uploads in bands (`compose::render_bands`), and exports, thumbnails and flattening stream bands too, so no full-size float composite is ever held. Rendering fidelity: `cargo run --release -p photocraft-io --example oracle_diff -- corpus/psd` (the whole PSD oracle table in seconds). `ui.inspect` → `perf.timings.gpuFallback` names the reason (`null` on the GPU path).

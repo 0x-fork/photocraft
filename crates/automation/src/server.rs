@@ -73,6 +73,20 @@ pub struct PlaceParams {
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ReplaceSmartObjectParams {
+    /// Path beneath the configured automation read root: relative (forward slashes) or absolute.
+    pub path: String,
+    /// Headless mode only: document index from `session_list` (default: the active document).
+    /// Bridge mode rejects `index`.
+    #[serde(default)]
+    pub index: Option<usize>,
+    /// The Smart Object layer: an id or a name (default: the active layer).
+    #[serde(default)]
+    pub layer: Option<Value>,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExportLayersParams {
     /// Directory beneath the configured automation write root: relative (forward slashes) or absolute.
     pub dir: String,
@@ -336,7 +350,8 @@ pub struct UiSetParams {
     /// "mode"), kinds (a list of layer kinds), name (matches part of the layer name) and mode (a
     /// blend mode name) for the Layers panel filter). strokeTrace (true, false, "stderr" or "off":
     /// the stroke latency trace at runtime; a CSV file is set at launch with --stroke-trace, not
-    /// over this channel). Other fields are an error.
+    /// over this channel). updatesOpen (bool, the Help › Check for Updates window). Other fields
+    /// are an error.
     pub fields: Value,
 }
 
@@ -642,6 +657,32 @@ impl PhotocraftMcp {
             return to_result(r);
         }
         self.run_command("file.placeEmbedded".into(), bridge_params, true).await
+    }
+
+    #[tool(
+        description = "Replace a Smart Object's contents with the file at `path` beneath the read root, keeping its transform and filters (the capability-scoped Replace Contents). `layer` is the Smart Object's id or name (default: the active layer)."
+    )]
+    async fn doc_replace_smart_object(&self, Parameters(p): Parameters<ReplaceSmartObjectParams>) -> Result<CallToolResult, McpError> {
+        let mut opts = serde_json::Map::new();
+        if let Some(v) = p.layer {
+            opts.insert("layer".into(), v);
+        }
+        let opts = Value::Object(opts);
+        // Bridge mode runs the app on this machine, which reads the path itself like any command.
+        let mut bridge_params = opts.clone();
+        if let Some(o) = bridge_params.as_object_mut() {
+            o.insert("path".into(), Value::String(p.path.clone()));
+        }
+        let (path, index) = (p.path, p.index);
+        if let Some(r) = self.headless_op(move |h| h.replace_smart_object(index, &path, &opts)).await {
+            return to_result(r);
+        }
+        // The app's command runs on its active document: an `index` it cannot honour is refused
+        // rather than dropped, or another document's contents would be replaced.
+        if index.is_some() {
+            return Ok(fail("`index` is only supported in headless mode; in bridge mode select the document in the app first"));
+        }
+        self.run_command("layer.smartObjects.replaceContents".into(), bridge_params, true).await
     }
 
     #[tool(

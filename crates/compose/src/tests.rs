@@ -1099,6 +1099,19 @@ fn cmyk_ink_compositing_inlines_open_groups() {
     assert!(close4(px(&d, 3, 1), [c[0], c[1], c[2], 1.0]), "outside the group's layer");
 }
 
+/// A CMYK layer without an alpha channel is opaque everywhere, its untouched pixels blank paper
+/// (no ink): the ink compositor keeps it under an adjustment rather than skipping it as empty.
+#[test]
+fn cmyk_ink_compositing_keeps_blank_paper_without_alpha() {
+    let mut d = Document::new("paper", Size::new(4, 4), ColorMode::Cmyk, SampleType::U8);
+    d.layers.push(Layer::raster("paper", PixelFormat::new(ColorMode::Cmyk, SampleType::U8, false)));
+    d.layers.push(Layer::new("t", LayerContent::Adjustment(Adjustment::Threshold { level: 0.5 })));
+    assert!(native::render_cmyk(&d, d.bounds(), 64).is_some());
+    // Paper is white, so Threshold keeps it paper.
+    let white = photocraft_color::convert::cmyk_to_rgb([0.0; 4]);
+    assert!(close4(px(&d, 2, 2), [white[0], white[1], white[2], 1.0]), "{:?}", px(&d, 2, 2));
+}
+
 #[test]
 fn cmyk_document_renders_via_rgb() {
     let mut d = Document::new("c", Size::new(2, 2), ColorMode::Cmyk, SampleType::U8);
@@ -1499,7 +1512,12 @@ fn glow_gradient_follows_the_shape() {
 // new pixels (#4053). Effects that don't depend on the frame repaint only what changed.
 #[test]
 fn relayout_damage_covers_a_layer_whose_gradient_frame_moved() {
-    let overlay = Effect::GradientOverlay { common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0), gradient: Gradient::default(), dither: false };
+    let overlay = Effect::GradientOverlay {
+        common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0),
+        gradient: Gradient::default(),
+        dither: false,
+        interpolation: None,
+    };
     let grown = |a: &Document, rect: Rect, rgba: [f32; 4]| {
         let mut b = a.clone();
         let old = b.layers.last().unwrap().clone();
@@ -1526,13 +1544,19 @@ fn relayout_damage_covers_a_layer_whose_gradient_frame_moved() {
 #[test]
 fn gradient_overlay_follows_angle_and_reverse() {
     let g = Gradient { stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], angle: 0.0, ..Gradient::default() };
-    let d = fx_doc(vec![Effect::GradientOverlay { common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0), gradient: g.clone(), dither: false }]);
+    let d = fx_doc(vec![Effect::GradientOverlay {
+        common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0),
+        gradient: g.clone(),
+        dither: false,
+        interpolation: None,
+    }]);
     let (l, r) = (px(&d, 10, 20), px(&d, 29, 20));
     assert!(l[0] < 0.1 && r[0] > 0.9, "{l:?} {r:?}");
     let d = fx_doc(vec![Effect::GradientOverlay {
         common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0),
         gradient: Gradient { reverse: true, style: GradientStyle::Linear, ..g },
         dither: false,
+        interpolation: None,
     }]);
     assert!(px(&d, 10, 20)[0] > 0.9);
 }
@@ -2734,7 +2758,7 @@ fn levels_steps_match_photoshop() {
 // jump where it meets the power curve.
 #[test]
 fn levels_gamma_toe_is_monotone_for_any_gamma() {
-    for g in [1.0001, 1.05, 1.5, 3.0, 9.99, 1e6, f32::INFINITY] {
+    for g in [1.0001, 1.01, 1.0105422, 1.02, 1.05, 1.5, 3.0, 9.99, 1e6, f32::INFINITY] {
         let mut last = 0.0f32;
         for k in 0..=4096 {
             let u = k as f32 / 4096.0;
