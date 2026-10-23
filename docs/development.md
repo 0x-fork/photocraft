@@ -40,7 +40,7 @@ cargo run --release -p photocraft -- --control 7878 --control-token-file .privat
   --automation-read-root work --automation-write-root work
 cargo test --workspace                                     # everything
 cargo xtask test                                           # tests (nextest when installed) + doctests
-cargo xtask ci                                             # fmt + clippy + tests + doctests + layers + wasm
+cargo xtask ci                                             # the CI gate: fmt, clippy, layers, scorecard, tests, panic_hunt, doctests, wasm, i18n report
 cargo xtask stats                                          # tests and lines per crate
 cargo xtask parity                                         # Photoshop menu coverage -> docs/parity-checklist.md
 ```
