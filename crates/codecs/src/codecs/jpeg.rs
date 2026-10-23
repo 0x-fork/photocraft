@@ -491,7 +491,7 @@ mod tests {
         assert_eq!(data_end(&padded).0, DataEnd::Truncated);
         // Well above the frame's pixels / budget, yet far above the scan data: the old
         // file-length bound admitted this frame.
-        assert!(padded.len() > (u64::from(20_000) * u64::from(20_000) / MAX_TRUNCATED_PIXELS_PER_BYTE) as usize, "padding too small");
+        assert!(padded.len() > (u64::from(20_000u32) * u64::from(20_000u32) / MAX_TRUNCATED_PIXELS_PER_BYTE) as usize, "padding too small");
         assert!(crate::decode_as(Format::Jpeg, &padded).is_ok());
         let sof = padded.windows(2).position(|w| w == [0xFF, 0xC0] || w == [0xFF, 0xC2]).unwrap();
         let mut huge = padded.clone();
