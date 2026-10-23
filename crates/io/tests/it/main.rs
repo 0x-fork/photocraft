@@ -8,6 +8,7 @@ mod affinity_corpus;
 mod annotations;
 mod artboard_guide_order;
 mod banded;
+mod blend_modes_corpus;
 mod cancel;
 mod channels;
 mod cmyk_composite_export;
