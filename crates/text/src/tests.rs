@@ -847,6 +847,38 @@ fn variable_font_axes() {
     assert!(heavy > light * 1.5, "{light} → {heavy}");
 }
 
+/// #8797: a style that carries the PostScript name of a variable font's named condensed light
+/// instance lays out as wide as that instance's axis values, not at the default instance. Uses
+/// Bahnschrift (Windows) or Ubuntu Sans (Ubuntu) when installed, and skips otherwise; the
+/// synthesized-font tests in `font_names_tests` cover the instance lookup and its layout width
+/// everywhere.
+#[test]
+fn postscript_name_of_a_variable_instance_lays_out_at_that_instance() {
+    use photocraft_doc::text::FontVariation;
+    let candidates = [
+        ("C:\\Windows\\Fonts\\bahnschrift.ttf", "Bahnschrift-LightCondensed"),
+        ("/usr/share/fonts/truetype/ubuntu/UbuntuSans[wdth,wght].ttf", "UbuntuSans-CondensedLight"),
+    ];
+    let Some((bytes, ps)) = candidates.iter().find_map(|(p, ps)| std::fs::read(p).ok().map(|b| (b, *ps))) else {
+        return;
+    };
+    let mut e = TextEngine::new();
+    let Some(fam) = e.fonts.register_font_data(bytes).first().cloned() else {
+        return;
+    };
+    let width = |e: &mut TextEngine, style: CharStyle| {
+        let l = e.layout(&styled("Hamburgefonstiv 0123", style), 96.0);
+        l.lines[0].x1 - l.lines[0].x0
+    };
+    let base = CharStyle { font_family: fam.clone(), size_pt: 72.0, weight: 300, ..Default::default() };
+    let axes = vec![FontVariation { axis: "wght".into(), value: 300.0 }, FontVariation { axis: "wdth".into(), value: 75.0 }];
+    let family = width(&mut e, base.clone());
+    let instance = width(&mut e, CharStyle { postscript_name: Some(ps.into()), ..base.clone() });
+    let explicit = width(&mut e, CharStyle { variations: axes, ..base });
+    assert!(explicit < family * 0.9, "the condensed light axes are narrower: {explicit} vs {family}");
+    assert!((instance - explicit).abs() < 0.5, "{ps}: {instance} px, its axes: {explicit} px, default instance: {family} px");
+}
+
 #[test]
 fn warp_bends_rendered_text_and_outlines() {
     use photocraft_doc::text::TextWarp;
