@@ -19,9 +19,12 @@ impl Sweep {
             return Self { part: 0, parts: 1 };
         }
         let parts = parts.max(1);
-        let part = match std::env::var("PHOTOCRAFT_SWEEP_PART").ok().and_then(|v| v.parse::<u64>().ok()) {
-            Some(p) => p % parts,
-            None => SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() / 86_400).unwrap_or_default() % parts,
+        let part = match std::env::var("PHOTOCRAFT_SWEEP_PART") {
+            Ok(v) => match v.parse::<u64>() {
+                Ok(p) if p < parts => p,
+                _ => panic!("PHOTOCRAFT_SWEEP_PART={v:?} is not a part number below {parts}"),
+            },
+            Err(_) => SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() / 86_400).unwrap_or_default() % parts,
         };
         eprintln!("sweep part {part} of {parts}: replay with PHOTOCRAFT_SWEEP_PART={part}, run every part with PHOTOCRAFT_FULL_SWEEP=1");
         Self { part, parts }
