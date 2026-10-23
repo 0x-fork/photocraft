@@ -421,7 +421,8 @@ fn reveal_command_on(os: &str, path: &str) -> Result<(&'static str, Vec<String>)
         // Explorer splits `/select,` arguments at commas and reads quotes itself, so such a path
         // would select something else.
         "windows" if path.contains([',', '"']) => Err(other(format!("{path} can't be shown in Explorer: its path contains a comma or a quotation mark"))),
-        "windows" => Ok(("explorer", vec![format!("/select,{path}")])),
+        // Keep the switch outside the path's quotes: Explorer parses its own command line.
+        "windows" => Ok(("explorer", vec!["/select,".into(), path.replace('/', "\\")])),
         _ => {
             let parent = std::path::Path::new(path).parent().map_or_else(|| ".".to_string(), |p| p.to_string_lossy().into_owned());
             Ok(("xdg-open", vec![parent]))
