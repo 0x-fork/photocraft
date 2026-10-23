@@ -377,13 +377,11 @@ fn channel_key(d: &Descriptor) -> Option<Option<&'static str>> {
     })
 }
 
+/// A Levels or Curves entry's channel: `Chnl.Cmps` for the composite, as Photoshop records it.
+/// Photoshop silently skips a Set whose composite is `Ordn.Trgt` (#8543).
 fn channel_ref(key: Option<&str>) -> D {
     let value = key.and_then(|k| lookup_back(CHANNELS, k));
-    D::Reference(vec![ReferenceItem::Enumerated {
-        class: class("Chnl"),
-        type_id: code(if value.is_some() { "Chnl" } else { "Ordn" }),
-        value: code(value.unwrap_or("Trgt")),
-    }])
+    D::Reference(vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: code("Chnl"), value: code(value.unwrap_or("Cmps")) }])
 }
 
 // ------------------------------------------------------------------ field tables

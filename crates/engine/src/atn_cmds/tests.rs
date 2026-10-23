@@ -2383,6 +2383,32 @@ fn defaults_photoshop_plays_differently_are_written() {
     assert_eq!(get_list(&balance, "ShdL").map(<[D]>::len), Some(3));
 }
 
+/// Photoshop records the composite of a Levels or Curves entry as `Chnl.Cmps` and silently skips
+/// a Set that names it `Ordn.Trgt` (#8543). A colour channel keeps its own code.
+#[test]
+fn levels_and_curves_name_the_composite_channel_as_photoshop_records_it() {
+    let exported = |id: &str, p: Value| export_item(id, &p, "S").and_then(|i| i.descriptor).unwrap_or_else(|| panic!("{id} does not export"));
+    let channels = |d: &Descriptor| -> Vec<(String, String)> {
+        get_list(d, "Adjs")
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|e| match e {
+                D::Descriptor(e) => match get_ref(e, "Chnl")?.first()? {
+                    ReferenceItem::Enumerated { type_id, value, .. } => Some((trimmed(type_id), trimmed(value))),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    let composite = ("Chnl".to_string(), "Cmps".to_string());
+    let red = ("Chnl".to_string(), "Rd".to_string());
+    let levels = exported("image.adjustments.levels", json!({"inBlack": 31, "red": {"inBlack": 2}}));
+    assert_eq!(channels(&levels), vec![composite.clone(), red.clone()]);
+    let curves = exported("image.adjustments.curves", json!({"points": [[0, 0], [128, 140], [255, 255]], "red": [[0, 10], [255, 245]]}));
+    assert_eq!(channels(&curves), vec![composite, red]);
+}
+
 /// Photoshop sets one colour per step: a step that sets both doesn't export rather than drop one.
 #[test]
 fn set_colors_exports_only_a_single_colour() {
