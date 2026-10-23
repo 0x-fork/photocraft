@@ -201,10 +201,27 @@ fn polygon_region(points: &[(f32, f32)], canvas: Rect) -> Option<Region> {
     mask.iter().any(|v| *v > 0).then_some(Region { bbox, mask })
 }
 
-/// `base` inverted over `canvas`; `None` when that leaves nothing selected.
+/// `base` inverted over `canvas`; `None` when that leaves nothing selected. Tile by tile: the
+/// canvas takes the inverse of `base`'s untouched value (one tile shared by every fully covered
+/// tile, as `fill_rect` stores it), then only the tiles `base` holds are inverted, so neither a
+/// sparse selection nor a huge canvas costs a canvas-sized buffer (the #8783 review).
 fn invert(base: Option<&Surface>, canvas: Rect) -> Option<Surface> {
-    let m: Vec<f32> = sel::mask_from_surface(base, canvas).into_iter().map(|v| 1.0 - v).collect();
-    let mut s = sel::mask_to_surface(&m, canvas);
+    let outside = base.map_or(0.0, |b| b.default_pixel().first().copied().unwrap_or(0.0).clamp(0.0, 1.0));
+    let mut s = Surface::new(photocraft_color::PixelFormat::GRAY8);
+    if outside < 1.0 {
+        s.fill_rect(canvas, &[1.0 - outside]);
+    }
+    if let Some(b) = base {
+        let ch = b.channels().max(1);
+        for (tc, _) in b.tiles() {
+            let r = tc.rect().intersect(&canvas);
+            if r.is_empty() {
+                continue;
+            }
+            let inverted: Vec<f32> = b.read_region(r).chunks_exact(ch).map(|px| 1.0 - px.first().copied().unwrap_or(0.0).clamp(0.0, 1.0)).collect();
+            s.write_region(r, &inverted);
+        }
+    }
     s.prune();
     (!s.content_bounds().is_empty()).then_some(s)
 }
@@ -242,8 +259,25 @@ pub fn apply_one(doc: &Document, layer: Option<LayerId>, base: Option<Surface>, 
 }
 
 /// `edits` applied in order to `base`: the selection Select and Mask refines.
+/// A run of Inverts is one Invert or none (pairs cancel exactly), so thousands of them cost at
+/// most one pass each between other edits (the #8783 review).
 pub fn apply(doc: &Document, layer: Option<LayerId>, base: Option<Surface>, edits: &[SelectionEdit]) -> Option<Surface> {
-    edits.iter().fold(base, |sel, e| apply_one(doc, layer, sel, e))
+    let mut sel = base;
+    let mut invert = false;
+    for e in edits {
+        if *e == SelectionEdit::Invert {
+            invert = !invert;
+            continue;
+        }
+        if std::mem::take(&mut invert) {
+            sel = apply_one(doc, layer, sel, &SelectionEdit::Invert);
+        }
+        sel = apply_one(doc, layer, sel, e);
+    }
+    if invert {
+        sel = apply_one(doc, layer, sel, &SelectionEdit::Invert);
+    }
+    sel
 }
 
 #[cfg(test)]
@@ -308,5 +342,56 @@ mod tests {
         ] {
             assert!(parse(&json!({"edits": bad})).is_err(), "{bad}");
         }
+    }
+
+    /// The dense inversion this replaced: the whole canvas read, inverted and written back.
+    fn dense_invert(base: Option<&Surface>, canvas: Rect) -> Vec<u8> {
+        let m: Vec<f32> = sel::mask_from_surface(base, canvas).into_iter().map(|v| 1.0 - v).collect();
+        bytes(Some(&sel::mask_to_surface(&m, canvas)), canvas)
+    }
+
+    fn bytes(s: Option<&Surface>, canvas: Rect) -> Vec<u8> {
+        sel::mask_from_surface(s, canvas).into_iter().map(|v| (v * 255.0).round() as u8).collect()
+    }
+
+    /// Tile by tile, Invert gives exactly what the dense inversion gave: partial edge tiles, soft
+    /// values, a selection reaching past the canvas, a mask whose untouched pixels are white, and
+    /// nothing selected (everything, inverted).
+    #[test]
+    fn tiled_invert_matches_the_dense_one() {
+        let canvas = Rect::new(0, 0, 600, 333);
+        let mut soft = Surface::new(photocraft_color::PixelFormat::GRAY8);
+        soft.fill_rect(Rect::new(250, 20, 900, 300), &[1.0]);
+        soft.fill_rect(Rect::new(10, 10, 40, 30), &[0.4]);
+        let mut white = Surface::with_default(photocraft_color::PixelFormat::GRAY8, &[1.0]);
+        white.fill_rect(Rect::new(300, 100, 520, 140), &[0.0]);
+        for base in [None, Some(soft), Some(white)] {
+            let got = bytes(invert(base.as_ref(), canvas).as_ref(), canvas);
+            assert_eq!(got, dense_invert(base.as_ref(), canvas));
+        }
+        // Inverting everything selects nothing.
+        let mut all = Surface::new(photocraft_color::PixelFormat::GRAY8);
+        all.fill_rect(canvas, &[1.0]);
+        assert!(invert(Some(&all), canvas).is_none());
+    }
+
+    /// A huge canvas inverts without a canvas-sized buffer, and a run of Inverts costs one.
+    #[test]
+    fn invert_on_a_huge_canvas_and_runs_of_inverts() {
+        let doc = Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8);
+        let mut small = Surface::new(photocraft_color::PixelFormat::GRAY8);
+        small.fill_rect(Rect::new(10, 10, 20, 20), &[1.0]);
+        let t = std::time::Instant::now();
+        let one = apply(&doc, None, Some(small.clone()), &[SelectionEdit::Invert]).expect("almost everything selected");
+        assert!(one.sample_channel(15, 15, 0) < 0.01 && one.sample_channel(99_999, 99_999, 0) > 0.99 && one.sample_channel(50_000, 5, 0) > 0.99);
+        let odd = apply(&doc, None, Some(small.clone()), &vec![SelectionEdit::Invert; 4095]).expect("inverted");
+        assert!(odd.sample_channel(15, 15, 0) < 0.01 && odd.sample_channel(99_999, 99_999, 0) > 0.99);
+        let even = apply(&doc, None, Some(small.clone()), &vec![SelectionEdit::Invert; 4096]).expect("the selection itself");
+        assert!(even.sample_channel(15, 15, 0) > 0.99 && even.sample_channel(50_000, 50_000, 0) < 0.01);
+        // Runs split by another edit invert on each side of it.
+        let split = [SelectionEdit::Invert, SelectionEdit::Invert, SelectionEdit::Invert, SelectionEdit::Clear, SelectionEdit::Invert];
+        let all = apply(&doc, None, Some(small), &split).expect("cleared, then everything");
+        assert!(all.sample_channel(15, 15, 0) > 0.99 && all.sample_channel(70_000, 3, 0) > 0.99);
+        assert!(t.elapsed() < std::time::Duration::from_secs(20), "{:?}", t.elapsed());
     }
 }
