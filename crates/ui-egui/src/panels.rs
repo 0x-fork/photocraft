@@ -4345,9 +4345,8 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         ui.painter().add(mesh);
         ui.painter().rect_stroke(field, 0.0, Stroke::new(1.0, t.separator), StrokeKind::Outside);
-        if (fresp.dragged() || fresp.clicked())
-            && let Some(p) = fresp.interact_pointer_pos()
-        {
+        let field_pick = widgets::pick_pos(&fresp);
+        if let Some(p) = field_pick {
             hsva.s = ((p.x - field.left()) / field.width()).clamp(0.0, 1.0);
             hsva.v = 1.0 - ((p.y - field.top()) / field.height()).clamp(0.0, 1.0);
         }
@@ -4370,18 +4369,18 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             m2.add_triangle(a, a + 3, a + 2);
         }
         ui.painter().add(m2);
-        if (sresp.dragged() || sresp.clicked())
-            && let Some(p) = sresp.interact_pointer_pos()
-        {
+        let strip_pick = widgets::pick_pos(&sresp);
+        if let Some(p) = strip_pick {
             hsva.h = 1.0 - ((p.y - strip.top()) / strip.height()).clamp(0.0, 0.9999);
         }
         let y = strip.top() + (1.0 - hsva.h) * strip.height();
         let tri = vec![pos2(strip.right() + 1.0, y), pos2(strip.right() + 6.0, y - 4.0), pos2(strip.right() + 6.0, y + 4.0)];
         ui.painter().add(egui::Shape::convex_polygon(tri, t.text, Stroke::NONE));
-        if fresp.dragged() || fresp.clicked() || sresp.dragged() || sresp.clicked() {
+        if field_pick.is_some() || strip_pick.is_some() {
             if bg_active {
                 app.session.tools.background = hsva_srgb(hsva);
-            } else {
+            } else if app.session.tools.foreground != hsva_srgb(hsva) {
+                // A held, unmoved press repeats the pick: restyle selected type only on a change.
                 app.session.tools.foreground = hsva_srgb(hsva);
                 crate::type_tool::foreground_changed(app);
                 crate::shape_fill_ui::foreground_changed(app, crate::shape_fill_ui::gesture(ui));
@@ -4996,6 +4995,80 @@ mod color_tests {
             let back = hsva_srgb(srgb_hsva(c));
             for i in 0..3 {
                 assert!((back[i] - c[i]).abs() <= 1.0 / 255.0, "{c:?} -> {back:?}");
+            }
+        }
+    }
+
+    /// #7793: the Color panel's field and hue strip pick on the frame the button goes down (no
+    /// release, no time passing) and follow moves smaller than egui's 6-point click threshold.
+    #[test]
+    fn color_panel_field_and_hue_strip_pick_on_press() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.tools.foreground = [0.2, 0.4, 0.6, 1.0];
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                let at = (ui.cursor().min, ui.available_width());
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("test-origin"), at));
+                color_field(app, ui);
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        let (o, w) = h.ctx.data(|d| d.get_temp::<(Pos2, f32)>(egui::Id::new("test-origin"))).unwrap();
+        let field_w = w - 38.0 - 14.0 - 16.0;
+        let press = |h: &mut egui_kittest::Harness<'static, PhotocraftApp>, at: Pos2, pressed: bool| {
+            h.event(egui::Event::PointerMoved(at));
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.run_steps(1);
+        };
+        let at = o + vec2(38.0 + 8.0 + field_w * 0.5, 60.0);
+        press(&mut h, at, true);
+        let picked = h.state().session.tools.foreground;
+        assert_ne!(picked, [0.2, 0.4, 0.6, 1.0], "the press itself picks");
+        let hsva = srgb_hsva(picked);
+        assert!((hsva.s - 0.5).abs() < 0.03 && (hsva.v - 0.5).abs() < 0.03, "{hsva:?}");
+        h.event(egui::Event::PointerMoved(at + vec2(3.0, 0.0)));
+        h.run_steps(1);
+        assert_ne!(h.state().session.tools.foreground, picked, "a small drag adjusts the pick");
+        press(&mut h, at + vec2(3.0, 0.0), false);
+        h.run_steps(1);
+        // Hue strip: a press a third of the way down is a hue of about 240° at once.
+        let before = h.state().session.tools.foreground;
+        press(&mut h, o + vec2(38.0 + 8.0 + field_w + 8.0 + 7.0, 40.0), true);
+        let now = h.state().session.tools.foreground;
+        assert_ne!(now, before, "the strip picks on press");
+        assert!((srgb_hsva(now).h * 360.0 - 240.0).abs() < 8.0, "{:?}", srgb_hsva(now));
+    }
+
+    /// Only the primary button picks: a right or middle press (and its release) on the field or
+    /// the hue strip leaves the foreground colour alone.
+    #[test]
+    fn color_panel_ignores_secondary_and_middle_presses() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.tools.foreground = [0.2, 0.4, 0.6, 1.0];
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                let at = (ui.cursor().min, ui.available_width());
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("test-origin"), at));
+                color_field(app, ui);
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        let (o, w) = h.ctx.data(|d| d.get_temp::<(Pos2, f32)>(egui::Id::new("test-origin"))).unwrap();
+        let field_w = w - 38.0 - 14.0 - 16.0;
+        let field = o + vec2(38.0 + 8.0 + field_w * 0.5, 60.0);
+        let strip = o + vec2(38.0 + 8.0 + field_w + 8.0 + 7.0, 40.0);
+        for at in [field, strip] {
+            for button in [egui::PointerButton::Secondary, egui::PointerButton::Middle] {
+                for pressed in [true, false] {
+                    h.event(egui::Event::PointerMoved(at));
+                    h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers: egui::Modifiers::NONE });
+                    h.run_steps(1);
+                    assert_eq!(h.state().session.tools.foreground, [0.2, 0.4, 0.6, 1.0], "{button:?} pressed={pressed} at {at:?}");
+                }
             }
         }
     }
