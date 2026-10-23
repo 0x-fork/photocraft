@@ -855,7 +855,11 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
                 app.ui.view.guide_layout = params;
             }
             if result.is_ok() {
-                crate::filter_dialog::remember(app, &cmd, &d.fields);
+                if crate::adjust_dialog::owns(&d.fields) {
+                    crate::adjust_dialog::remember(app, &d.fields);
+                } else {
+                    crate::filter_dialog::remember(app, &cmd, &d.fields);
+                }
                 // A step dialog of a playing action: the action continues after it.
                 crate::actions::resume(app, &d.fields)?;
             } else {
