@@ -211,7 +211,9 @@ impl Profile {
         self.color_space.channels()
     }
 
-    /// Hash of the profile's ICC bytes (stable within a process; used as a cache key).
+    /// Hash of the profile's ICC bytes (stable within a process; used as a cache key). It is a
+    /// fixed-key 64-bit hash, so a crafted profile can share another's: equal hashes only narrow
+    /// the search, [`Profile::same_bytes`] decides.
     pub fn content_hash(&self) -> u64 {
         *self.hash.get_or_init(|| {
             use std::hash::{Hash, Hasher};
@@ -221,6 +223,16 @@ impl Profile {
         })
     }
 
+    /// Whether `self` and `other` have the same ICC bytes.
+    pub fn same_bytes(&self, other: &Profile) -> bool {
+        if let (Some(a), Some(b)) = (&self.bytes, &other.bytes)
+            && Arc::ptr_eq(a, b)
+        {
+            return true;
+        }
+        self.content_hash() == other.content_hash() && self.to_bytes() == other.to_bytes()
+    }
+
     /// Whether `self` and `other` describe the same colours: same colour space, and every sample
     /// of a device-value grid has the same colour through both (relative colorimetric, within
     /// [`SAME_COLORS_MAX_DELTA_E`]). Different encodings of one space are the same colours: the
@@ -228,7 +240,7 @@ impl Profile {
     /// parametric curves) differ in every byte. Colours are compared rather than round-tripped
     /// because CMYK → PCS → CMYK is not an identity even through a single profile.
     pub fn same_colors(&self, other: &Profile) -> bool {
-        if self.content_hash() == other.content_hash() {
+        if self.same_bytes(other) {
             return true;
         }
         let n = self.channels();
@@ -818,6 +830,7 @@ fn parse_text(d: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtin::Builtin;
 
     fn be(v: u32) -> [u8; 4] {
         v.to_be_bytes()
@@ -902,5 +915,47 @@ mod tests {
         d.extend(be(u32::MAX));
         d.extend(be(u32::MAX));
         assert_eq!(parse_text(&d), "");
+    }
+
+    /// `p` with the content hash of `other`: the hash is a fixed-key 64-bit SipHash, so a
+    /// crafted profile can have another's (#8613). Setting it stands in for finding one.
+    fn with_hash_of(p: &Profile, other: &Profile) -> Profile {
+        let p = Profile { hash: std::sync::OnceLock::from(other.content_hash()), ..p.clone() };
+        assert_eq!(p.content_hash(), other.content_hash());
+        p
+    }
+
+    /// #8613: a profile that shares sRGB's hash is not taken for sRGB.
+    #[test]
+    fn a_hash_collision_is_not_the_same_colours() {
+        let srgb = Builtin::Srgb.profile();
+        let p3 = with_hash_of(Builtin::DisplayP3.profile(), srgb);
+        assert!(!p3.same_bytes(srgb));
+        assert!(!p3.same_colors(srgb));
+        // Controls: equal bytes are the same, whatever object holds them.
+        assert!(srgb.same_bytes(srgb));
+        assert!(srgb.same_bytes(&Profile::parse(&srgb.to_bytes()).unwrap()));
+        assert!(Builtin::DisplayP3.profile().same_colors(Builtin::DisplayP3.profile()));
+    }
+
+    /// #8613: the transform cache does not hand a colliding profile the other's transform.
+    #[test]
+    fn a_hash_collision_does_not_get_the_cached_transform() {
+        use crate::transform::{Transform, TransformOptions, cached};
+        let (srgb, lab) = (Builtin::Srgb.profile(), Builtin::LabD50.profile());
+        let p3 = with_hash_of(Builtin::DisplayP3.profile(), srgb);
+        let opts = TransformOptions::default();
+        let green = [0.0, 1.0, 0.0];
+        let eval = |t: &Transform| {
+            let mut out = [0f32; 3];
+            t.eval(&green, &mut out);
+            out
+        };
+        let want = eval(&Transform::with_options(Builtin::DisplayP3.profile(), lab, opts).unwrap());
+        assert_ne!(want, eval(&Transform::with_options(srgb, lab, opts).unwrap()), "P3 green is not sRGB green");
+        let sr = eval(&cached(srgb, lab, opts).unwrap());
+        assert_eq!(eval(&cached(&p3, lab, opts).unwrap()), want);
+        // Control: sRGB still gets its own transform after the colliding lookup.
+        assert_eq!(eval(&cached(srgb, lab, opts).unwrap()), sr);
     }
 }
