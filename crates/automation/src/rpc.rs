@@ -22,7 +22,9 @@
 use std::io::{BufRead, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use serde_json::{Value, json};
@@ -315,32 +317,67 @@ fn serve_tcp_connection(h: &Mutex<Headless>, stream: std::net::TcpStream, token:
     }
 }
 
+/// Headless TCP daemons with no clients should eventually release their listening port (#3682).
+const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
 /// Serve authenticated JSON lines on a loopback TCP address with one shared session.
-/// Refuses non-loopback addresses and caps active connections and request bytes.
+/// Refuses non-loopback addresses, caps connections and request bytes, and closes the listener
+/// after an idle period with no connections. Active clients are never evicted by this timer.
 pub fn serve_tcp(addr: &str, h: Arc<Mutex<Headless>>, token: String, ready: impl FnOnce(std::net::SocketAddr)) -> Result<(), AutomationError> {
+    serve_tcp_until_idle(addr, h, token, ready, TCP_IDLE_TIMEOUT)
+}
+
+fn serve_tcp_until_idle(
+    addr: &str,
+    h: Arc<Mutex<Headless>>,
+    token: String,
+    ready: impl FnOnce(std::net::SocketAddr),
+    idle: Duration,
+) -> Result<(), AutomationError> {
     let listener = TcpListener::bind(addr).map_err(|e| AutomationError::Io(format!("bind {addr}: {e}")))?;
     let local = listener.local_addr().map_err(|e| AutomationError::Io(e.to_string()))?;
     if !local.ip().is_loopback() {
         return Err(bad(format!("{addr} is not a loopback address")));
     }
+    listener.set_nonblocking(true).map_err(|e| AutomationError::Io(e.to_string()))?;
     ready(local);
     let limiter = ConnectionLimiter::new(MAX_CONNECTIONS);
     let token = Arc::new(token);
-    for stream in listener.incoming() {
-        let Ok(mut stream) = stream else { continue };
-        let Some(permit) = limiter.try_acquire() else {
-            let _ = configure_stream(&stream);
-            let _ = writeln!(stream, "{}", json!({"id": null, "ok": false, "error": "connection limit reached"}));
-            continue;
-        };
-        let h = h.clone();
-        let token = Arc::clone(&token);
-        std::thread::spawn(move || {
-            let _permit = permit;
-            let _ = serve_tcp_connection(&h, stream, &token, AUTH_DEADLINE);
-        });
+    let active = Arc::new(AtomicUsize::new(0));
+    let mut last_active = Instant::now();
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                last_active = Instant::now();
+                let Some(permit) = limiter.try_acquire() else {
+                    let _ = configure_stream(&stream);
+                    let _ = writeln!(stream, "{}", json!({"id": null, "ok": false, "error": "connection limit reached"}));
+                    continue;
+                };
+                // The listener is nonblocking; individual requests still use blocking socket I/O.
+                let _ = stream.set_nonblocking(false);
+                let h = h.clone();
+                let token = Arc::clone(&token);
+                let active = Arc::clone(&active);
+                active.fetch_add(1, Ordering::AcqRel);
+                std::thread::spawn(move || {
+                    let _permit = permit;
+                    let _ = serve_tcp_connection(&h, stream, &token, AUTH_DEADLINE);
+                    active.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if active.load(Ordering::Acquire) != 0 {
+                    last_active = Instant::now();
+                } else if last_active.elapsed() >= idle {
+                    return Ok(());
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted) => {}
+            Err(e) => return Err(AutomationError::Io(e.to_string())),
+        }
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1061,6 +1098,38 @@ mod tests {
         assert!(h.session.documents().is_empty(), "later edit must not execute after the quota is exhausted");
         assert!(crate::budgets::json_bytes(&result).is_ok());
         assert!(h.handle("methods", Value::Null).is_ok());
+    }
+
+    #[test]
+    fn idle_tcp_daemon_releases_its_port_but_keeps_active_clients() {
+        use std::io::BufReader;
+        const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let h = Arc::new(Mutex::new(Headless::new()));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let result = serve_tcp_until_idle("127.0.0.1:0", h, TOKEN.to_owned(), move |addr| ready_tx.send(addr).unwrap(), Duration::from_millis(200));
+            done_tx.send(result).unwrap();
+        });
+        let addr = ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let mut client = std::net::TcpStream::connect(addr).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        writeln!(client, r#"{{"id":"auth","method":"auth","params":{{"token":"{TOKEN}"}}}}"#).unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let auth: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(auth["result"]["authenticated"], true);
+        // The port stays owned well past the idle limit while a client is connected.
+        assert!(
+            matches!(done_rx.recv_timeout(Duration::from_millis(450)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+            "daemon exited with a live client"
+        );
+        drop(reader);
+        drop(client);
+        assert!(done_rx.recv_timeout(Duration::from_secs(3)).unwrap().is_ok(), "idle daemon did not exit cleanly");
+        server.join().unwrap();
+        assert!(TcpListener::bind(addr).is_ok(), "idle listener still owns its port");
     }
 
     #[test]

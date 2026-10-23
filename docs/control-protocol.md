@@ -361,6 +361,11 @@ capability interface. Interactive desktop file pickers retain normal user-select
 
 ## Headless server
 
+An unused TCP headless server exits after 30 minutes without a client connection, releasing
+its listening port so a later session can reuse it (#3682). An active connection prevents
+idle shutdown, including during a long command. Clients should reconnect by restarting
+`photocraft-cli serve` if they need a server after the idle deadline.
+
 `photocraft-cli serve` keeps one headless engine session (no window, no GPU) and answers the same
 JSON-lines envelope on stdio, or on `127.0.0.1:<port>` with `--port <port>` (loopback only; each
 authenticated connection shares the session). TCP uses the same first-frame `auth` exchange and
