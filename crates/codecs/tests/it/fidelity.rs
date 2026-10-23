@@ -180,6 +180,7 @@ fn every_warning_has_a_message() {
     let all = [
         W::WriteUnsupported { format: Format::Avif },
         W::DepthReduced { from: SampleType::F32, to: SampleType::F16 },
+        W::BitsReduced { from: SampleType::U16, bits: 10 },
         W::RangeClipped,
         W::AlphaDiscarded,
         W::AlphaBinarized,
@@ -209,9 +210,19 @@ fn warnings_match_actual_roundtrip_behaviour() {
                 let img = test_image(l, s);
                 let w = warns(&img, f);
                 let back = decode(&encode(&img, f, &EncodeOptions::default()).unwrap()).unwrap();
-                let depth_reduced = w.iter().any(|w| matches!(w, W::DepthReduced { .. }));
+                let depth_reduced = w.iter().any(|w| match w {
+                    W::DepthReduced { .. } => true,
+                    W::BitsReduced { from, .. } => from.is_float(),
+                    _ => false,
+                });
                 let lost_depth = back.sample_type() != s && back.sample_type() != SampleType::F32 && s != SampleType::U8;
                 assert_eq!(depth_reduced, lost_depth, "{f:?} {l:?} {s:?} {w:?} -> {:?}", back.sample_type());
+                // Cineon stores 10 bits: 16-bit samples come back changed exactly when warned.
+                if f == Format::Cineon && s == SampleType::U16 && back.sample_type() == s {
+                    let bits_reduced = w.iter().any(|w| matches!(w, W::BitsReduced { .. }));
+                    let changed = back.to_u16_samples() != img.convert(back.layout(), s).to_u16_samples();
+                    assert_eq!(bits_reduced, changed, "{f:?} {l:?} {w:?}");
+                }
                 let alpha_lost = l.has_alpha() && !back.layout().has_alpha();
                 assert_eq!(w.contains(&W::AlphaDiscarded), alpha_lost, "{f:?} {l:?} {s:?}");
                 let cmyk_lost = l.is_cmyk() && !back.layout().is_cmyk();
