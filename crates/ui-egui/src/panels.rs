@@ -1208,7 +1208,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                     if fixed_size {
                                         picked = fixed_size_field(ui, &mut o.marquee_width, units, size[0]);
                                     } else {
-                                        widgets::value_field(ui, &mut o.marquee_width, 0.001..=999.0, "", 62.0);
+                                        widgets::value_field(ui, &mut o.marquee_width, crate::tool_memory::style_range(&o.marquee_style), "", 62.0);
                                     }
                                     if icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked() {
                                         std::mem::swap(&mut o.marquee_width, &mut o.marquee_height);
@@ -1217,7 +1217,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                     if fixed_size {
                                         picked = fixed_size_field(ui, &mut o.marquee_height, units, size[1]).or(picked);
                                     } else {
-                                        widgets::value_field(ui, &mut o.marquee_height, 0.001..=999.0, "", 62.0);
+                                        widgets::value_field(ui, &mut o.marquee_height, crate::tool_memory::style_range(&o.marquee_style), "", 62.0);
                                     }
                                     if let Some(name) = picked {
                                         o.marquee_unit = name.into();
@@ -1602,7 +1602,7 @@ fn body_text_width(ui: &egui::Ui, s: &str) -> f32 {
 
 /// Options-bar label: Photoshop writes "Size:" with a colon.
 /// An options-bar label; one right before a value field scrubs it when dragged (Photoshop).
-fn opt_label(ui: &mut egui::Ui, s: &str) {
+pub(crate) fn opt_label(ui: &mut egui::Ui, s: &str) {
     let t = Tokens::get(ui.ctx());
     let text = if t.pro && !s.ends_with(':') { format!("{s}:") } else { s.to_string() };
     let label = ui.add(egui::Label::new(RichText::new(tl!(&text)).color(t.text_dim)).selectable(false));
@@ -1610,7 +1610,7 @@ fn opt_label(ui: &mut egui::Ui, s: &str) {
 }
 
 /// The largest Fixed Size side, in pixels.
-const FIXED_SIZE_MAX_PX: f64 = 300_000.0;
+pub(crate) const FIXED_SIZE_MAX_PX: f64 = 300_000.0;
 
 /// The resolution Fixed Size's units convert at (the active document's, 72 ppi without one) and
 /// the document's size in pixels, which a percentage is of. The unit is the caller's.
@@ -2493,6 +2493,62 @@ fn opacity_row_layout(available: f32, label_width: f32, gap: f32) -> (f32, bool)
     ((available - reserved).max(40.0), show_label)
 }
 
+/// Blend mode, Opacity, the locks and Fill with no layer selected: Photoshop keeps them in place,
+/// greyed out at Normal, 100% and unlocked, instead of removing them (#8880). Same layout as the
+/// active layer's rows in `layers`.
+fn inactive_blend_rows(ui: &mut egui::Ui, pro: bool) {
+    ui.add_enabled_ui(false, |ui| {
+        ui.horizontal(|ui| {
+            let opacity_label = if pro { tl!("Opacity:") } else { tl!("Opacity") };
+            let (blend_width, show_opacity_label) = opacity_row_layout(ui.available_width(), body_text_width(ui, opacity_label), ui.spacing().item_spacing.x);
+            let mut m = BlendMode::Normal;
+            let options = blend_options(false, m);
+            widgets::dropdown_wheel_hovered(ui, "blend", &mut m, &options, blend_width);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut o = 100.0;
+                widgets::popup_value_field(ui, opacity_label, &mut o, 0.0..=100.0, "%", LAYER_PCT_W);
+                if show_opacity_label {
+                    scrub_pct_label(ui, opacity_label, &mut o, ui.available_width());
+                }
+            });
+        });
+        ui.add_space((theme::ROW_GAP - ui.spacing().item_spacing.y).max(0.0));
+        ui.horizontal(|ui| {
+            let lock_label = if pro { tl!("Lock:") } else { tl!("Lock") };
+            let lang = crate::i18n::current();
+            let fill_label = if pro { crate::i18n::tr_ctx(lang, "layers", "Fill:") } else { crate::i18n::tr_ctx(lang, "layers", "Fill") };
+            let gap = ui.spacing().item_spacing.x;
+            let icons_w = if pro { 5.0 * 20.0 + gap } else { 22.0 + gap };
+            let fits = body_text_width(ui, lock_label) + icons_w + body_text_width(ui, fill_label) + LAYER_PCT_W + 2.0 * gap <= ui.available_width();
+            if fits {
+                label(ui, lock_label);
+            }
+            if pro {
+                ui.scope(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    for (icon, tip) in [
+                        ("grid-3x3", tl!("Lock transparent pixels")),
+                        ("brush", tl!("Lock image pixels")),
+                        ("move", tl!("Lock position")),
+                        ("scan", tl!("Prevent auto-nesting in and out of Artboards and Frames")),
+                        ("lock", tl!("Lock all")),
+                    ] {
+                        icons::button(ui, icon, 20.0, false, tip);
+                    }
+                });
+            } else {
+                icons::button(ui, "lock-open", 22.0, false, tl!("Lock layer"));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut f = 100.0;
+                widgets::popup_value_field(ui, fill_label, &mut f, 0.0..=100.0, "%", LAYER_PCT_W);
+                scrub_pct_label(ui, fill_label, &mut f, ui.available_width());
+            });
+        });
+        ui.add_space(2.0);
+    });
+}
+
 fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // A new active layer opens its parent groups and is scrolled into view (#152).
     let reveal = crate::layer_reveal::track(app, ui.ctx());
@@ -2621,6 +2677,8 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         });
         ui.add_space(2.0);
+    } else {
+        inactive_blend_rows(ui, t.pro);
     }
 
     // Top of the stack first, groups above their contents, closed groups' contents hidden (#126).
@@ -2683,6 +2741,9 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     crate::smart_ui::filter_rows(app, ui, &doc, l, depth, &mut actions);
                 }
             }
+            // The bottom of everything drawn: the last layer's effect and Smart Filter rows sit
+            // under its own row (#8764).
+            let rows_bottom = ui.min_rect().bottom();
             // #1721: the list takes drops everywhere, not only on a row (Photoshop): the space
             // between two rows lands above the lower one, the empty space below the bottom-most
             // row below it. Both copy with ⌥ held, move without.
@@ -2693,8 +2754,10 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if let Some(&(last, last_rect)) = drawn.last() {
                 let below = Rect::from_min_max(pos2(last_rect.left(), last_rect.bottom()), pos2(last_rect.right(), ui.clip_rect().bottom()));
                 layer_drop_zone(app, &ctx, ui, below, (last, last_rect), "below", &mut actions);
-                // A click on that empty space deselects every layer, as in Photoshop (#8100).
-                if below.height() > 0.0 && ui.interact(below, ui.id().with("layers-empty-space"), Sense::click()).clicked() && !selection.is_empty() {
+                // A click on that empty space deselects every layer, as in Photoshop (#8100). It
+                // starts under the last layer's sub-rows, which take their own clicks.
+                let empty = Rect::from_min_max(pos2(below.left(), rows_bottom), below.max);
+                if empty.height() > 0.0 && ui.interact(empty, ui.id().with("layers-empty-space"), Sense::click()).clicked() && !selection.is_empty() {
                     actions.push(("select.deselectLayers".into(), json!({})));
                 }
             }
@@ -4606,9 +4669,10 @@ fn start_fx_drag(ctx: &egui::Context, layer: LayerId, effect: Option<usize>) {
 fn fx_drag_feedback(ctx: &egui::Context, doc: &photocraft_doc::Document) {
     let Some((from, effect)) = ctx.data(|d| d.get_temp::<FxDrag>(fx_drag_key())) else { return };
     let Some(p) = ctx.input(|i| i.pointer.interact_pos()) else { return };
+    // `Effect::label` is the English key; translate for the drag ghost like the Layers panel rows.
     let label = match effect {
-        Some(i) => doc.layer(LayerId(from)).and_then(|l| l.effects.items.get(i)).map_or("", |e| e.label()),
-        None => "Effects",
+        Some(i) => doc.layer(LayerId(from)).and_then(|l| l.effects.items.get(i)).map(|e| tl!(e.label())).unwrap_or_default(),
+        None => tl!("Effects"),
     };
     crate::layer_transfer::ghost(ctx, p, label);
     if ctx.input(|i| i.modifiers.alt) {
@@ -4648,10 +4712,12 @@ fn fx_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect, actions: &
 fn effect_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth: usize, actions: &mut Vec<(String, Value)>) {
     let t = Tokens::get(ui.ctx());
     let indent = 30.0 + depth as f32 * 14.0 + 34.0;
-    let mut rows: Vec<(String, bool, Option<&'static str>)> = vec![("Effects".into(), l.effects.enabled, None)];
+    // English `Effect::label` keys stay for kind matching; display goes through `tl!` (catalogs
+    // already have Drop Shadow → 投影, Effects → 效果, …).
+    let mut rows: Vec<(String, bool, Option<&'static str>)> = vec![(tl!("Effects").into(), l.effects.enabled, None)];
     for e in &l.effects.items {
         let kind = crate::layer_style::KINDS.iter().find(|k| k.1 == e.label()).map(|k| k.0);
-        rows.push((e.label().to_string(), e.enabled(), kind));
+        rows.push((tl!(e.label()).into(), e.enabled(), kind));
     }
     for (i, (name, on, kind)) in rows.into_iter().enumerate() {
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());

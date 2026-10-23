@@ -2172,6 +2172,55 @@ fn options_the_descriptors_cannot_carry_refuse_strict_export() {
     }
 }
 
+/// #8531: a partial `layer.setAdjustment` of Color Balance or Hue/Saturation can't be written
+/// (their descriptors carry every setting, filling absent ones with defaults), so strict export
+/// refuses it instead of replaying an edit that also resets the rest. Complete ones still export.
+#[test]
+fn partial_color_balance_and_hue_saturation_edits_refuse_strict_export() {
+    let one = |p: Value| Action { name: "Probe".into(), steps: vec![("layer.setAdjustment".into(), p)], ..Default::default() };
+    for p in [
+        json!({"kind": "colorBalance", "shadows": [32, -24, 16]}),
+        json!({"kind": "colorBalance", "preserveLuminosity": true}),
+        json!({"kind": "hueSaturation", "hue": 20}),
+        json!({"kind": "hueSaturation", "reds": {"hue": 10}}),
+    ] {
+        let err = export("Audit8", &[&one(p.clone())], &[], false).unwrap_err();
+        assert!(err.contains("`layer.setAdjustment`"), "{p}: {err}");
+        let (_, skipped) = export("Audit8", &[&one(p.clone())], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "layer.setAdjustment".into() }], "{p}");
+    }
+    let full = json!({"kind": "colorBalance", "shadows": [32, -24, 16], "midtones": [-17, 27, -31], "highlights": [11, -19, 23], "preserveLuminosity": false});
+    let (bytes, _) = export("Audit8", &[&one(full)], &[], false).unwrap();
+    let steps = import(&bytes).unwrap().actions[0].steps.clone();
+    let (id, p) = steps.first().unwrap();
+    assert_eq!(id, "layer.setAdjustment");
+    assert_eq!(p.get("midtones"), Some(&json!([-17, 27, -31])), "{p}");
+    assert_eq!(p.get("preserveLuminosity"), Some(&json!(false)), "{p}");
+    let hue = json!({"kind": "hueSaturation", "colorize": false, "hue": 20, "saturation": -5, "lightness": 0});
+    assert!(export("Audit8", &[&one(hue)], &[], false).is_ok());
+    // A colour range written without all of its own settings would reset the rest too.
+    let range = json!({"kind": "hueSaturation", "colorize": false, "hue": 0, "saturation": 0, "lightness": 0, "reds": {"hue": 10}});
+    assert!(export("Audit8", &[&one(range)], &[], false).is_err());
+    let range =
+        json!({"kind": "hueSaturation", "colorize": false, "hue": 0, "saturation": 0, "lightness": 0, "reds": {"hue": 10, "saturation": 5, "lightness": -5}});
+    assert!(export("Audit8", &[&one(range)], &[], false).is_ok());
+    let bounded = json!({"kind": "hueSaturation", "colorize": false, "hue": 0, "saturation": 0, "lightness": 0, "reds": {"hue": 10, "saturation": 5, "lightness": -5, "range": [315, 345, 15, 45]}});
+    assert!(export("Audit8", &[&one(bounded)], &[], false).is_ok());
+    // Values of the wrong shape would be written as 0: refused too.
+    for bad in [
+        json!({"kind": "colorBalance", "shadows": "invalid", "midtones": [0, 0, 0], "highlights": [0, 0, 0], "preserveLuminosity": true}),
+        json!({"kind": "colorBalance", "shadows": [1, 2], "midtones": [0, 0, 0], "highlights": [0, 0, 0], "preserveLuminosity": true}),
+        json!({"kind": "colorBalance", "shadows": [0, 0, 0], "midtones": [0, 0, 0], "highlights": [0, 0, 0], "preserveLuminosity": "yes"}),
+        json!({"kind": "hueSaturation", "colorize": false, "hue": "20", "saturation": 0, "lightness": 0}),
+        json!({"kind": "hueSaturation", "colorize": false, "hue": 0, "saturation": 0, "lightness": 0, "reds": 5}),
+        json!({"kind": "hueSaturation", "colorize": false, "hue": 0, "saturation": 0, "lightness": 0, "reds": {"hue": 1, "saturation": 0, "lightness": 0, "range": [0, 20, 40]}}),
+        json!({"kind": "hueSaturation", "colorize": false, "hue": 0, "saturation": 0, "lightness": 0, "reds": {"hue": 1, "saturation": 0, "lightness": 0, "range": "invalid"}}),
+        json!({"kind": "hueSaturation", "colorize": false, "hue": 0, "saturation": 0, "lightness": 0, "reds": {"hue": 1, "saturation": 0, "lightness": 0, "range": [315, 345.5, 15, 45]}}),
+    ] {
+        assert!(export("Audit8", &[&one(bad.clone())], &[], false).is_err(), "{bad}");
+    }
+}
+
 /// Photoshop's Close has no document target: a Close of a specific document must not be
 /// exported as a plain Close, which would close the active document on playback.
 #[test]
@@ -2520,6 +2569,32 @@ fn defaults_photoshop_plays_differently_are_written() {
     let balance = exported("image.adjustments.colorBalance", json!({"midtones": [10, 0, 0]}));
     assert_eq!(get_bool(&balance, "PrsL"), Some(true));
     assert_eq!(get_list(&balance, "ShdL").map(<[D]>::len), Some(3));
+}
+
+/// Photoshop records the composite of a Levels or Curves entry as `Chnl.Cmps` and silently skips
+/// a Set that names it `Ordn.Trgt` (#8543). A colour channel keeps its own code.
+#[test]
+fn levels_and_curves_name_the_composite_channel_as_photoshop_records_it() {
+    let exported = |id: &str, p: Value| export_item(id, &p, "S").and_then(|i| i.descriptor).unwrap_or_else(|| panic!("{id} does not export"));
+    let channels = |d: &Descriptor| -> Vec<(String, String)> {
+        get_list(d, "Adjs")
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|e| match e {
+                D::Descriptor(e) => match get_ref(e, "Chnl")?.first()? {
+                    ReferenceItem::Enumerated { type_id, value, .. } => Some((trimmed(type_id), trimmed(value))),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    let composite = ("Chnl".to_string(), "Cmps".to_string());
+    let red = ("Chnl".to_string(), "Rd".to_string());
+    let levels = exported("image.adjustments.levels", json!({"inBlack": 31, "red": {"inBlack": 2}}));
+    assert_eq!(channels(&levels), vec![composite.clone(), red.clone()]);
+    let curves = exported("image.adjustments.curves", json!({"points": [[0, 0], [128, 140], [255, 255]], "red": [[0, 10], [255, 245]]}));
+    assert_eq!(channels(&curves), vec![composite, red]);
 }
 
 /// Photoshop sets one colour per step: a step that sets both doesn't export rather than drop one.

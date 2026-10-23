@@ -962,6 +962,8 @@ pub struct PhotocraftApp {
     gpu_render_state: Option<eframe::egui_wgpu::RenderState>,
     /// Why the GPU canvas was dropped (see `gpu_status::fall_back`).
     gpu_fault: Option<photocraft_gpu::Fault>,
+    /// Out-of-memory errors this session after which the GPU canvas was rebuilt by itself (#6564).
+    gpu_oom_retries: u32,
     /// Run once the first frames have rendered (see [`Self::on_started`]).
     started: Option<gpu_status::StartedHook>,
     /// Frame and canvas-upload timings (exposed via `ui.inspect`).
@@ -1144,6 +1146,7 @@ impl PhotocraftApp {
             window_recovery_retry: None,
             gpu_render_state: None,
             gpu_fault: None,
+            gpu_oom_retries: 0,
             started: None,
             perf: Default::default(),
             stroke_trace: stroke_trace::StrokeTrace::from_env(),
@@ -2374,6 +2377,8 @@ impl eframe::App for PhotocraftApp {
             wheel_nav::fold_legacy_pinch(ctx, raw_input);
         }
         raw_input.events.extend(self.take_synthetic_step());
+        // After the control channel's own events (`ui.type`) join the OS's, before any widget.
+        widgets::cap_text_events(&mut raw_input.events);
         self.control_click.normalize(&mut raw_input.events, cfg!(target_os = "macos"));
         // A pen held still is no touch screen's press-and-hold right click (stylus.rs).
         let pen_down = self.stylus.pen_contacts.observe(&raw_input.events);

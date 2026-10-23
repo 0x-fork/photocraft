@@ -30,6 +30,14 @@ impl Fault {
         matches!(self, Fault::Lost(_))
     }
 
+    /// An out-of-memory error on a device that still works: freeing memory and trying again can
+    /// succeed, unlike after a loss or a validation error (#6564). Only wgpu's own out-of-memory
+    /// error is recorded with exactly [`OUT_OF_MEMORY`]; a validation error that merely mentions
+    /// memory is not one.
+    pub fn is_out_of_memory(&self) -> bool {
+        matches!(self, Fault::Error(s) if s == OUT_OF_MEMORY)
+    }
+
     /// The driver's or wgpu's message.
     pub fn detail(&self) -> &str {
         match self {
@@ -47,6 +55,9 @@ impl fmt::Display for Fault {
         }
     }
 }
+
+/// The message an out-of-memory [`Fault::Error`] carries (wgpu's `Error::OutOfMemory`).
+pub const OUT_OF_MEMORY: &str = "Out of Memory";
 
 #[derive(Default)]
 struct Inner {
@@ -99,7 +110,7 @@ impl DeviceHealth {
         self.0.errors.fetch_add(1, Ordering::Relaxed);
         let text = e.to_string();
         log::error!("uncaptured wgpu error: {text}");
-        self.mark(fault_of(&text));
+        self.mark(fault_of(e));
     }
 
     /// Record an error an error scope caught.
@@ -114,26 +125,35 @@ impl DeviceHealth {
     /// until every in-flight submission drained (or forever, if the device is wedged). A
     /// non-blocking poll loses nothing here: wgpu still reads the fence and fires the
     /// device-lost callback for a lost device, it just never blocks waiting for one.
+    ///
+    /// A device that only recorded an error is still polled and marked, so a loss or an
+    /// out-of-memory error can upgrade that fault as [`DeviceHealth::mark`] allows (#6564).
     pub fn caught(&self, device: &wgpu::Device, error: &wgpu::Error) {
-        if !self.is_ok() {
+        if self.lost() {
             return;
         }
         #[cfg(not(target_arch = "wasm32"))]
         self.poll(device);
         #[cfg(target_arch = "wasm32")]
         let _ = device;
-        if !self.is_ok() {
+        if self.lost() {
             return;
         }
-        self.mark(fault_of(&error.to_string()));
+        self.mark(fault_of(error));
     }
 
-    /// Mark the device unusable. The first fault is kept; a later device loss upgrades an error.
+    fn lost(&self) -> bool {
+        self.fault().is_some_and(|f| f.is_lost())
+    }
+
+    /// Mark the device unusable. The first fault is kept; a later device loss upgrades an error,
+    /// and a later out-of-memory error upgrades another one, so the canvas can still recover by
+    /// itself when memory ran out after a validation error in the same frame (#6564).
     pub fn mark(&self, fault: Fault) {
         let mut slot = self.0.fault.lock().unwrap_or_else(PoisonError::into_inner);
         let replace = match slot.as_ref() {
             None => true,
-            Some(old) => !old.is_lost() && fault.is_lost(),
+            Some(old) => !old.is_lost() && (fault.is_lost() || (fault.is_out_of_memory() && !old.is_out_of_memory())),
         };
         if replace {
             *slot = Some(fault);
@@ -214,12 +234,19 @@ impl DeviceHealth {
     }
 }
 
-/// The fault a wgpu error message stands for. Errors about invalid or lost objects follow a
-/// device loss whose callback may not have run yet (it fires on the next poll), so they count as
-/// a loss rather than as an error.
-fn fault_of(text: &str) -> Fault {
+/// The fault a wgpu error stands for. Errors about invalid or lost objects follow a device loss
+/// whose callback may not have run yet (it fires on the next poll), so they count as a loss
+/// rather than as an error. Only wgpu's own out-of-memory error is [`OUT_OF_MEMORY`].
+fn fault_of(e: &wgpu::Error) -> Fault {
+    let text = e.to_string();
     let lower = text.to_ascii_lowercase();
-    if lower.contains("lost") || lower.contains("destroyed") { Fault::Lost(first_line(text)) } else { Fault::Error(first_line(text)) }
+    if matches!(e, wgpu::Error::OutOfMemory { .. }) {
+        Fault::Error(OUT_OF_MEMORY.into())
+    } else if lower.contains("lost") || lower.contains("destroyed") {
+        Fault::Lost(first_line(&text))
+    } else {
+        Fault::Error(first_line(&text))
+    }
 }
 
 fn first_line(s: &str) -> String {
@@ -259,5 +286,17 @@ mod tests {
         assert_eq!(Fault::Error("x".into()).to_string(), "GPU error: x");
         assert_eq!(first_line("\n  Buffer 'pc' is invalid\nmore"), "Buffer 'pc' is invalid");
         assert_eq!(first_line(&"a".repeat(300)).chars().count(), 201);
+        assert!(Fault::Error("Out of Memory".into()).is_out_of_memory());
+        assert!(!Fault::Error("Validation Error".into()).is_out_of_memory());
+        assert!(!Fault::Error("Validation Error: buffer allocation would run out of memory".into()).is_out_of_memory());
+        // A later out-of-memory error replaces another error, but never a loss.
+        let h = DeviceHealth::new();
+        h.mark(Fault::Error("Validation Error".into()));
+        h.mark(Fault::Error(OUT_OF_MEMORY.into()));
+        assert!(h.fault().is_some_and(|f| f.is_out_of_memory()));
+        h.mark(Fault::Lost("reset".into()));
+        h.mark(Fault::Error(OUT_OF_MEMORY.into()));
+        assert!(h.fault().is_some_and(|f| f.is_lost()));
+        assert!(!Fault::Lost("out of memory".into()).is_out_of_memory());
     }
 }

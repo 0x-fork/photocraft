@@ -732,6 +732,14 @@ pub struct ToolOptions {
     /// picked by right-clicking them); the size itself stays in pixels (#7910).
     #[serde(default = "default_marquee_unit")]
     pub marquee_unit: String,
+    /// Slice tool options bar: the same Styles as the marquee's, with the ratio or the size in px
+    /// (#8360).
+    #[serde(default = "default_marquee_style")]
+    pub slice_style: String,
+    #[serde(default = "one")]
+    pub slice_width: f32,
+    #[serde(default = "one")]
+    pub slice_height: f32,
     /// Move tool: Auto-Select (with "layer" or "group" target) and Show Transform Controls.
     /// Auto-Select is on with the "group" target by default, as in current Photoshop;
     /// ⌘/Ctrl-click inverts it.
@@ -1003,6 +1011,9 @@ impl Default for ToolOptions {
             marquee_width: 1.0,
             marquee_height: 1.0,
             marquee_unit: default_marquee_unit(),
+            slice_style: default_marquee_style(),
+            slice_width: 1.0,
+            slice_height: 1.0,
             move_auto_select: true,
             move_target: default_move_target(),
             move_show_transform: false,
