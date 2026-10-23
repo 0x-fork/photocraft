@@ -81,9 +81,9 @@ debug = false
 [profile.dev]
 opt-level = 1
 # Line tables keep file:line in panic backtraces but drop variable info, which roughly halves link
-# time and PDB size for the test binaries (#2204). CI sets the same through
-# CARGO_PROFILE_DEV_DEBUG (and no debuginfo at all for the Windows tests). To inspect locals in a
-# debugger, build with CARGO_PROFILE_DEV_DEBUG=true.
+# time and PDB size for the test binaries (#2204). CI's Windows legs build with no debuginfo at all
+# (CARGO_PROFILE_DEV_DEBUG=0). To inspect locals in a debugger, build with
+# CARGO_PROFILE_DEV_DEBUG=true.
 debug = "line-tables-only"
 
 # Test builds compile ui-egui without optimization: its library and unit tests were the biggest
