@@ -184,6 +184,7 @@ pub struct Profile {
 impl Profile {
     /// Parses ICC profile bytes.
     pub fn parse(bytes: &[u8]) -> Result<Profile, CmsError> {
+        CURVE_SAMPLES_LEFT.with(|left| left.set(MAX_CURVE_SAMPLES));
         let mut p = parse_profile(bytes)?;
         p.bytes = Some(Arc::new(bytes.to_vec()));
         Ok(p)
@@ -585,6 +586,24 @@ fn parse_profile(bytes: &[u8]) -> Result<Profile, CmsError> {
     Ok(p)
 }
 
+/// Sampled-curve entries one profile may decode in all (64 MB of `f32`). Tags and curve groups can
+/// point at the same encoded bytes, and each reference decodes its own table.
+const MAX_CURVE_SAMPLES: usize = 16 << 20;
+
+thread_local! {
+    /// What is left of [`MAX_CURVE_SAMPLES`] for the profile being parsed on this thread.
+    static CURVE_SAMPLES_LEFT: std::cell::Cell<usize> = const { std::cell::Cell::new(MAX_CURVE_SAMPLES) };
+}
+
+/// Charges `n` decoded curve samples to the profile being parsed.
+fn charge_curve_samples(n: usize) -> Result<(), CmsError> {
+    CURVE_SAMPLES_LEFT.with(|left| {
+        let rest = left.get().checked_sub(n).ok_or_else(|| CmsError::Invalid("the profile's curves hold too many samples".into()))?;
+        left.set(rest);
+        Ok(())
+    })
+}
+
 /// Parses a `curv` or `para` element; returns the curve and the element's byte length
 /// (unpadded).
 fn parse_curve(d: &[u8]) -> Result<(Curve, usize), CmsError> {
@@ -602,6 +621,7 @@ fn parse_curve(d: &[u8]) -> Result<(Curve, usize), CmsError> {
                 1 => Ok((Curve::Gamma(r.u16(12)? as f64 / 256.0), len)),
                 _ => {
                     let s = r.slice(12, n * 2)?;
+                    charge_curve_samples(n)?;
                     let t = s.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]]) as f32 / 65535.0).collect();
                     Ok((Curve::Table(t), len))
                 }
@@ -957,5 +977,30 @@ mod tests {
         assert_eq!(eval(&cached(&p3, lab, opts).unwrap()), want);
         // Control: sRGB still gets its own transform after the colliding lookup.
         assert_eq!(eval(&cached(srgb, lab, opts).unwrap()), sr);
+    }
+}
+
+#[cfg(test)]
+mod curve_budget_tests {
+    use super::*;
+
+    #[test]
+    fn aliased_curves_are_charged_for_each_decoded_table() {
+        // One 1M-sample `curv` element referenced seventeen times decodes 17M samples.
+        let mut element = b"curv\0\0\0\0".to_vec();
+        element.extend((1u32 << 20).to_be_bytes());
+        element.extend(std::iter::repeat_n(0u8, 2 << 20));
+        CURVE_SAMPLES_LEFT.with(|left| left.set(MAX_CURVE_SAMPLES));
+        let mut failed_at = None;
+        for i in 0..17 {
+            if parse_curve(&element).is_err() {
+                failed_at = Some(i);
+                break;
+            }
+        }
+        assert_eq!(failed_at, Some(16), "sixteen tables fit the budget, the seventeenth does not");
+        // Each profile parse starts with a fresh budget.
+        CURVE_SAMPLES_LEFT.with(|left| left.set(MAX_CURVE_SAMPLES));
+        assert!(parse_curve(&element).is_ok());
     }
 }

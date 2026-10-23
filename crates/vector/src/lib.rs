@@ -424,15 +424,13 @@ fn sample_color(stops: &[(f32, [f32; 4])], mids: &[f32], t: f32) -> [f32; 4] {
     if t <= first.0 {
         return first.1;
     }
-    for (i, w) in stops.windows(2).enumerate() {
-        let (a, b) = (&w[0], &w[1]);
-        if t <= b.0 {
-            let u = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
-            let k = midpoint_remap(u, mids.get(i).copied().unwrap_or(0.5));
-            return std::array::from_fn(|ch| a.1[ch] + (b.1[ch] - a.1[ch]) * k);
-        }
-    }
-    last.1
+    // The segment ending at the first stop at or past `t` (bisection: this runs per pixel, and a
+    // gradient can carry any number of stops). Past the last stop, or for a NaN, there is none.
+    let at = stops.partition_point(|s| s.0 < t);
+    let (Some(a), Some(b)) = (at.checked_sub(1).and_then(|k| stops.get(k)), stops.get(at)) else { return last.1 };
+    let u = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
+    let k = midpoint_remap(u, mids.get(at - 1).copied().unwrap_or(0.5));
+    std::array::from_fn(|ch| a.1[ch] + (b.1[ch] - a.1[ch]) * k)
 }
 
 /// Opacity stops at `t` (stops sorted by location; 1.0 when empty).
@@ -441,13 +439,10 @@ fn sample_opacity(stops: &[(f32, f32)], t: f32) -> f32 {
     if t <= first.0 {
         return first.1;
     }
-    for w in stops.windows(2) {
-        if t <= w[1].0 {
-            let u = if w[1].0 > w[0].0 { (t - w[0].0) / (w[1].0 - w[0].0) } else { 0.0 };
-            return w[0].1 + (w[1].1 - w[0].1) * u;
-        }
-    }
-    last.1
+    let at = stops.partition_point(|s| s.0 < t);
+    let (Some(a), Some(b)) = (at.checked_sub(1).and_then(|k| stops.get(k)), stops.get(at)) else { return last.1 };
+    let u = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
+    a.1 + (b.1 - a.1) * u
 }
 
 /// Colour and alpha at `t`: colour stops with midpoints, alpha times opacity stops. Mirrors

@@ -583,3 +583,34 @@ fn tile_bands_and_band_tiles_near_i32_max_do_not_overflow() {
     assert_eq!(tiles.len(), 1);
     assert_eq!(tiles[0].0, band);
 }
+
+#[test]
+fn gradient_stops_are_found_by_bisection_and_agree_with_a_scan() {
+    let stops: Vec<(f32, [f32; 4])> = (0..=8).map(|i| (i as f32 / 8.0, [i as f32 / 8.0, 0.0, 1.0 - i as f32 / 8.0, 1.0])).collect();
+    let scan = |t: f32| {
+        let (first, last) = (stops[0], stops[stops.len() - 1]);
+        if t <= first.0 {
+            return first.1;
+        }
+        for w in stops.windows(2) {
+            if t <= w[1].0 {
+                let u = if w[1].0 > w[0].0 { (t - w[0].0) / (w[1].0 - w[0].0) } else { 0.0 };
+                return std::array::from_fn(|ch| w[0].1[ch] + (w[1].1[ch] - w[0].1[ch]) * u);
+            }
+        }
+        last.1
+    };
+    for i in -10..=110 {
+        let t = i as f32 / 100.0;
+        assert_eq!(sample_color(&stops, &[], t), scan(t), "t = {t}");
+    }
+    assert_eq!(sample_color(&stops, &[], f32::NAN), stops[8].1, "a NaN position takes the last stop, as before");
+    assert_eq!(sample_opacity(&[(0.0, 0.0), (1.0, 1.0)], 0.25), 0.25);
+    // A million stops are bisected: this is a per-pixel call.
+    let many: Vec<(f32, [f32; 4])> = (0..1_000_000).map(|i| (i as f32 / 1_000_000.0, [0.0; 4])).collect();
+    let started = std::time::Instant::now();
+    for i in 0..100_000 {
+        sample_color(&many, &[], 0.9 + i as f32 * 1e-7);
+    }
+    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+}
