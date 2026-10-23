@@ -1206,7 +1206,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             if fixed_size {
                                 picked = fixed_size_field(ui, &mut o.marquee_width, units, size[0]);
                             } else {
-                                widgets::value_field(ui, &mut o.marquee_width, 0.001..=999.0, "", 62.0);
+                                widgets::value_field(ui, &mut o.marquee_width, crate::tool_memory::style_range(&o.marquee_style), "", 62.0);
                             }
                             if icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked() {
                                 std::mem::swap(&mut o.marquee_width, &mut o.marquee_height);
@@ -1215,7 +1215,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             if fixed_size {
                                 picked = fixed_size_field(ui, &mut o.marquee_height, units, size[1]).or(picked);
                             } else {
-                                widgets::value_field(ui, &mut o.marquee_height, 0.001..=999.0, "", 62.0);
+                                widgets::value_field(ui, &mut o.marquee_height, crate::tool_memory::style_range(&o.marquee_style), "", 62.0);
                             }
                             if let Some(name) = picked {
                                 o.marquee_unit = name.into();
@@ -1661,7 +1661,7 @@ fn body_text_width(ui: &egui::Ui, s: &str) -> f32 {
 
 /// Options-bar label: Photoshop writes "Size:" with a colon.
 /// An options-bar label; one right before a value field scrubs it when dragged (Photoshop).
-fn opt_label(ui: &mut egui::Ui, s: &str) {
+pub(crate) fn opt_label(ui: &mut egui::Ui, s: &str) {
     let t = Tokens::get(ui.ctx());
     let text = if t.pro && !s.ends_with(':') { format!("{s}:") } else { s.to_string() };
     let label = ui.add(egui::Label::new(RichText::new(tl!(&text)).color(t.text_dim)).selectable(false));
@@ -1669,7 +1669,7 @@ fn opt_label(ui: &mut egui::Ui, s: &str) {
 }
 
 /// The largest Fixed Size side, in pixels.
-const FIXED_SIZE_MAX_PX: f64 = 300_000.0;
+pub(crate) const FIXED_SIZE_MAX_PX: f64 = 300_000.0;
 
 /// The resolution Fixed Size's units convert at (the active document's, 72 ppi without one) and
 /// the document's size in pixels, which a percentage is of. The unit is the caller's.
