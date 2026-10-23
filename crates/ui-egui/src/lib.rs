@@ -1489,6 +1489,7 @@ impl PhotocraftApp {
         // ... and to the document it was started on.
         crate::canvas::polygon_cancel_stale(self);
         crate::crop_ui::cancel_stale(self);
+        crate::distort_ui::cancel_stale(self);
         crate::perspective_crop_ui::cancel_stale(self);
         // A pen path under construction belongs to the document it was started on too.
         vector_ui::cancel_stale(self);
