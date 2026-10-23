@@ -198,8 +198,11 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
         }
         Adjustment::BlackWhite { weights, tint } => {
             let hdr = depth == Some(SampleType::F32);
+            // 32-bit greys keep their superwhites: Photoshop 27.11 maps negatives to 0 and caps
+            // neutrals at 16, but leaves 2.0 at 2.0 (#8537).
+            let hi = if hdr { 16.0 } else { 1.0 };
             map_rgb(buf, |c| {
-                let g = black_white_gray(c, weights);
+                let g = black_white_gray(c, weights).clamp(0.0, hi);
                 match tint {
                     // Photoshop tints like the Color blend mode: the tint's hue and saturation at
                     // the grey's luminosity (SetLum + ClipColor), measured in Photoshop 27.11. In
@@ -744,7 +747,8 @@ pub fn range_lightness(c: [f32; 3], l: f32) -> [f32; 3] {
 /// Black & White grey value. Each colour is the sum of a grey part (its smallest channel), a
 /// secondary-colour part (yellow, cyan or magenta: middle − smallest) and a primary part (red,
 /// green or blue: largest − middle); the sliders (percent, Photoshop defaults 40 60 40 60 20 80 for
-/// reds, yellows, greens, cyans, blues, magentas) weight the two colour parts.
+/// reds, yellows, greens, cyans, blues, magentas) weight the two colour parts. Unclipped: the
+/// document's depth decides the range.
 pub fn black_white_gray(c: [f32; 3], weights: &[f32; 6]) -> f32 {
     let (r, g, b) = (c[0], c[1], c[2]);
     let (max, min) = (r.max(g).max(b), r.min(g).min(b));
@@ -764,7 +768,7 @@ pub fn black_white_gray(c: [f32; 3], weights: &[f32; 6]) -> f32 {
     } else {
         5 // red + blue = magenta
     };
-    (min + (mid - min) * weights[secondary] / 100.0 + (max - mid) * weights[primary] / 100.0).clamp(0.0, 1.0)
+    min + (mid - min) * weights[secondary] / 100.0 + (max - mid) * weights[primary] / 100.0
 }
 
 /// Ordered-dither offset in -0.5..0.5 (4×4 Bayer matrix) for document pixel (x, y).
@@ -2195,6 +2199,22 @@ mod tone_tests {
         let mut w = d;
         w[0] = 100.0;
         assert!(black_white_gray([1.0, 0.0, 0.0], &w) > black_white_gray([1.0, 0.0, 0.0], &d));
+    }
+
+    /// #8537: 32-bit superwhites stay above 1 (Photoshop 27.11: 2.0 stays 2.0, neutrals cap at
+    /// 16, negatives go to 0); 8-bit still clips at 1.
+    #[test]
+    fn black_white_keeps_32_bit_superwhites() {
+        let adj = Adjustment::BlackWhite { weights: [40.0, 60.0, 40.0, 60.0, 20.0, 80.0], tint: None };
+        let run = |depth, c: f32| {
+            let mut b = Buffer { rect: Rect::new(0, 0, 1, 1), px: vec![[c, c, c, 1.0]] };
+            apply_depth(&adj, &mut b, Transfer::Srgb, Some(depth));
+            b.px[0][0]
+        };
+        assert_eq!(run(SampleType::F32, 2.0), 2.0);
+        assert_eq!(run(SampleType::F32, 20.0), 16.0);
+        assert_eq!(run(SampleType::F32, -0.5), 0.0);
+        assert_eq!(run(SampleType::U8, 2.0), 1.0);
     }
 
     /// Photoshop 27.11, measured: Black & White (default weights) with Tint over greys. The tint
