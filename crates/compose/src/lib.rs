@@ -890,7 +890,8 @@ impl<'a> Ctx<'a> {
             if identity == [true; 3] {
                 return;
             }
-            adjust::apply_tone(buf, *space, luts.get_or_init(|| adjust::tone_luts_depth(adj, Some(self.depth))), identity);
+            let extrapolate = adjust::float_tone_extrapolates(adj, Some(self.depth), self.mode);
+            adjust::apply_tone(buf, *space, luts.get_or_init(|| adjust::tone_luts_depth(adj, Some(self.depth))), identity, extrapolate);
         } else {
             adjust::apply_in(adj, buf, self.transfer, Some(self.depth), self.mode);
         }

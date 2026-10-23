@@ -57,6 +57,14 @@ fn hdr_adjustments_preserve_range_and_cpu_parity() {
             black: Vec::new(),
             pencil: false,
         },
+        // #7157: an edited curve continues past 0..1 along its end segments (Photoshop's `[[0,0],[255,128]]`).
+        Adjustment::Curves {
+            master: vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 1.0, output: 128.0 / 255.0 }],
+            per_channel: std::array::from_fn(|_| identity.clone()),
+            space: Default::default(),
+            black: Vec::new(),
+            pencil: false,
+        },
         // 32-bit Photoshop rules: unclipped, legacy pivot 127, the mixer's 1/1024 steps and halved constant.
         Adjustment::BrightnessContrast { brightness: 25.0, contrast: 30.0, legacy: true },
         Adjustment::BrightnessContrast { brightness: -20.0, contrast: -30.0, legacy: true },
