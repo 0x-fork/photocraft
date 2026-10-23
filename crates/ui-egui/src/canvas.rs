@@ -1626,6 +1626,15 @@ pub(crate) fn ensure_texture_in_view(
         (st.revision, st.last_damage.map(|r| if r.is_empty() { r } else { r.inflate(effect_reach(&st.doc.layers)) }), st.doc.id)
     };
     let (mut doc, mut preview_key) = display_doc(app, idx);
+    // A filter dialog's live preview: the GPU canvas draws it from its own texture, but this CPU
+    // canvas (no usable GPU, a flipped or pixel-aspect-corrected view, a GPU fallback) showed the
+    // document unfiltered. Its result is drawn here instead, as the channel views draw it.
+    if let Some((preview, key)) = filter_channel_preview(app, idx, ctx) {
+        (doc, preview_key) = (preview, key);
+    }
+    // A preview reduced for a zoomed-out view (a proxy) covers the whole document at its own size.
+    let reduced = app.session.documents().get(idx).is_some_and(|st| st.doc.size != doc.size);
+    let view = view.filter(|_| !reduced);
     // A flipped view draws a GPU machine's canvas through here: an adjustment dialog's preview of
     // a large document (taken by the GPU path) would cost a full-size CPU composite per change.
     if crate::adjust_preview::shown_key(app) == Some(preview_key)
@@ -1636,7 +1645,7 @@ pub(crate) fn ensure_texture_in_view(
     }
     let (display, display_key) = canvas_display(app, &doc, output);
     let seen = app.canvases.get(&cache_key(id, output)).map(|c| (c.tex_revision, c.tex_preview_key));
-    let damage = seen.and_then(|seen| damage_since(app, idx, seen, (revision, preview_key), display_key, last_damage));
+    let damage = seen.and_then(|seen| damage_since(app, idx, seen, (revision, preview_key), display_key, last_damage)).filter(|_| !reduced);
     // The detail texture can lag the whole-document one (made or moved later): its own damage.
     let detail_seen = view.and_then(|v| {
         let c = app.canvases.get(&cache_key(id, output))?;
@@ -6804,6 +6813,38 @@ mod tests {
     /// #7490: the inline (web) preview path composites and uploads each changed preview once, as
     /// the background worker does. It used to flatten and upload it twice and record it twice,
     /// so the frame's refresh time counted the preview twice.
+    /// The CPU canvas (no usable GPU; a flipped or pixel-aspect-corrected view, or a GPU fallback,
+    /// on a GPU machine) shows a filter dialog's live preview. It showed the document unfiltered.
+    #[test]
+    fn the_cpu_canvas_shows_a_filter_dialogs_preview() {
+        let pixels = |ctx: &egui::Context, id: egui::TextureId| {
+            let mut delta = ctx.tex_manager().write().take_delta();
+            let egui::ImageData::Color(image) = &delta.set.get(&id).and_then(|d| d.last()).expect("the canvas texture was written").image;
+            let (size, px) = (image.size, image.pixels.clone());
+            delta.clear();
+            (size, px)
+        };
+        for (size, zoom) in [([64u32, 48u32], 1.0f32), ([2400, 2200], 0.25)] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.background_jobs = false;
+            app.run("file.new", json!({"width": size[0], "height": size[1], "background": "white"})).unwrap();
+            app.run("edit.fill", json!({"color": "#3399cc"})).unwrap();
+            app.ui.views.get_mut(0).expect("the view").zoom = zoom;
+            let ctx = egui::Context::default();
+            let (tex, _) = ensure_texture(&mut app, &ctx, 0, None).unwrap();
+            let (_, plain) = pixels(&ctx, tex);
+            crate::filter_dialog::open(&mut app, "filter.stylize.solarize").unwrap();
+            let (tex, _) = ensure_texture(&mut app, &ctx, 0, None).unwrap();
+            let (tex_size, shown) = pixels(&ctx, tex);
+            let preview = app.filter_preview.as_ref().and_then(|p| p.result.clone()).expect("the dialog's preview");
+            let (display, _) = canvas_display(&app, &preview, None);
+            let expected = display_image(display.as_deref(), &photocraft_compose::flatten(&preview));
+            assert_eq!(tex_size, expected.size, "{size:?}: the preview's own size (a proxy when zoomed out)");
+            assert_eq!(shown, expected.pixels, "{size:?}: the canvas shows the preview");
+            assert_ne!(shown.first(), plain.first(), "{size:?}: not the unfiltered document");
+        }
+    }
+
     #[test]
     fn inline_filter_preview_is_composited_and_recorded_once() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
