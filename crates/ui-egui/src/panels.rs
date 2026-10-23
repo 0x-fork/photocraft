@@ -2838,6 +2838,9 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     crate::smart_ui::filter_rows(app, ui, &doc, l, depth, &mut actions);
                 }
             }
+            // The bottom of everything drawn: the last layer's effect and Smart Filter rows sit
+            // under its own row (#8764).
+            let rows_bottom = ui.min_rect().bottom();
             // #1721: the list takes drops everywhere, not only on a row (Photoshop): the space
             // between two rows lands above the lower one, the empty space below the bottom-most
             // row below it. Both copy with ⌥ held, move without.
@@ -2848,8 +2851,10 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if let Some(&(last, last_rect)) = drawn.last() {
                 let below = Rect::from_min_max(pos2(last_rect.left(), last_rect.bottom()), pos2(last_rect.right(), ui.clip_rect().bottom()));
                 layer_drop_zone(app, &ctx, ui, below, (last, last_rect), "below", &mut actions);
-                // A click on that empty space deselects every layer, as in Photoshop (#8100).
-                if below.height() > 0.0 && ui.interact(below, ui.id().with("layers-empty-space"), Sense::click()).clicked() && !selection.is_empty() {
+                // A click on that empty space deselects every layer, as in Photoshop (#8100). It
+                // starts under the last layer's sub-rows, which take their own clicks.
+                let empty = Rect::from_min_max(pos2(below.left(), rows_bottom), below.max);
+                if empty.height() > 0.0 && ui.interact(empty, ui.id().with("layers-empty-space"), Sense::click()).clicked() && !selection.is_empty() {
                     actions.push(("select.deselectLayers".into(), json!({})));
                 }
             }
