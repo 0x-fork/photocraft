@@ -3640,8 +3640,16 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             if let Some((detail, area)) = textures.and_then(|t| t.detail) {
                 paint_cpu_detail(&painter, &xf, doc.bounds(), rotated, checkerboard, detail, area);
             }
-            for &c in &pattern {
-                paint_cpu_document(&painter, &pattern_xf(&xf, c, size), area, rotated, checkerboard, tex);
+            // Pattern Preview tiles what is shown: a size-changing preview's area, from its origin.
+            let (tile, copies) = if area == doc.bounds() || !app.ui.view.pattern_preview {
+                (size, pattern.clone())
+            } else {
+                let tile = [area.width(), area.height()];
+                let v = visible_doc_rect(&xf).translate(-area.x0, -area.y0);
+                (tile, crate::pattern_preview::copies([v.x0, v.y0, v.x1, v.y1].map(f64::from), tile))
+            };
+            for &c in &copies {
+                paint_cpu_document(&painter, &pattern_xf(&xf, c, tile), area, rotated, checkerboard, tex);
             }
         }
         // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
