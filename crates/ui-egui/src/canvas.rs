@@ -3539,6 +3539,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         let drop_shadow = border == photocraft_engine::prefs::CanvasBorder::DropShadow;
         // Drop shadow, checkerboard, document image.
         let img_rect = xf.doc_rect(doc.bounds());
+        // The canvas edge the Line border outlines: a size-changing preview's own (CPU canvas).
+        let mut edge_rect = img_rect;
         // Crop tool: the layers' pixels past the canvas while a frame is edited, under the canvas
         // (whose edge blends into them) and without its shadow.
         let beyond = draw_beyond_canvas(app, &painter, &xf, idx, output);
@@ -3625,8 +3627,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let tex = textures.as_ref().map(|t| t.texture);
             // The area the image covers: a size-changing preview's own (Image › Rotation).
             let area = textures.as_ref().map_or(doc.bounds(), |t| t.bounds);
+            if area != doc.bounds() {
+                edge_rect = xf.doc_rect(area);
+            }
             if !crate::theme::Tokens::get(&ctx).bevel && drop_shadow {
-                let shadow_rect = if area == doc.bounds() { img_rect } else { xf.doc_rect(area) };
+                let shadow_rect = edge_rect;
                 painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(shadow_rect, 0));
             }
             let rotated = view.rotation.abs() > 0.05;
@@ -3801,7 +3806,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             }
         }
 
-        (img_rect, beyond, layer_edges)
+        (beyond, layer_edges, edge_rect)
     };
     let painted = if crop_camera { None } else { Some(paint_canvas(app, ui, &display_view, xf)) };
     let img_rect = xf.doc_rect(doc.bounds());
@@ -4463,7 +4468,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     } else {
         xf
     };
-    let (img_rect, beyond, layer_edges) = painted.unwrap_or_else(|| paint_canvas(app, ui, &display_view, xf));
+    let (beyond, layer_edges, edge_rect) = painted.unwrap_or_else(|| paint_canvas(app, ui, &display_view, xf));
     // A Hand drag (the tool, Space or the middle button) keeps every overlay on screen, as in
     // Photoshop: the Pen path being drawn, paths, guides, grid, transform box (#6592). Only the
     // tool cursors below give way to the fist.
@@ -4510,7 +4515,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // The canvas edge isn't outlined while the pixels past it show (Photoshop's crop preview),
         // nor while the Crop tool hides everything outside its box (Show Cropped Area off).
         if border == photocraft_engine::prefs::CanvasBorder::Line && !beyond && !crate::crop_shield::hides_outside(app) {
-            painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, Color32::from_gray(20)), egui::StrokeKind::Outside);
+            painter.rect_stroke(edge_rect, 0.0, Stroke::new(1.0, Color32::from_gray(20)), egui::StrokeKind::Outside);
         }
         crate::type_tool::draw_overlay(app, &painter, &xf);
         crate::transform_tool::draw_overlay(app, &painter, &xf);
