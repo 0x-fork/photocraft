@@ -809,6 +809,22 @@ fn open_menu_shows_the_current_family() {
     assert!(popup.contains_rect(row), "Family 40 is in view: {row:?} in {popup:?}");
 }
 
+/// The current family is in view the frame the menu opens, with the app's scroll animation on:
+/// the reveal jumps, where an animated scroll left the row outside the popup for a while.
+/// The harness turns animations off, so this turns a slow one back on.
+#[test]
+fn open_menu_shows_the_current_family_without_animating() {
+    let mut h = harness_with_recents(FontPreview::Off, Vec::new());
+    h.ctx.all_styles_mut(|s| s.scroll_animation = egui::style::ScrollAnimation::duration(10.0));
+    h.state_mut().current = "Family 40".into();
+    h.run();
+    h.query_all_by_role(Role::ComboBox).next().unwrap().click();
+    h.run_steps(4);
+    let popup = popup_rect(&h).expect("the menu is open");
+    let row = h.query_all_by_label("Family 40").next().expect("its row").rect();
+    assert!(popup.contains_rect(row), "Family 40 is in view: {row:?} in {popup:?}");
+}
+
 /// The same through the real options bar, where the pick itself records the recent family.
 #[test]
 fn options_bar_menu_arrows_walk_on_while_recording_recent_fonts() {

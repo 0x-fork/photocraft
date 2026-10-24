@@ -1892,7 +1892,9 @@ pub(crate) fn family_picker_in(
                 if stepped == Some(i) {
                     response.scroll_to_me(Some(egui::Align::Center));
                 } else if reveal == Some(i) {
-                    response.scroll_to_me(Some(egui::Align::Min));
+                    // Jump, not glide: the menu opens with its current family in view. Arrow
+                    // steps above keep the animation.
+                    response.scroll_to_me_animation(Some(egui::Align::Min), egui::style::ScrollAnimation::none());
                     ui.data_mut(|d| d.remove::<bool>(reveal_id));
                 }
                 if let Some((size, _)) = preview
