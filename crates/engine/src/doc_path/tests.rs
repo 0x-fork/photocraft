@@ -319,3 +319,32 @@ photocraft-shared-marker
         assert!(r["warnings"].to_string().contains("written as pixels"), "{ext}: {r}");
     }
 }
+
+/// Package copies only linked files PhotoCraft can open: a link to a text file is listed as
+/// missing and no copy of it is written into the package's Links folder.
+#[test]
+fn package_copies_only_links_to_images() {
+    const TEXT: &[u8] = b"plain text, not an image
+photocraft-package-marker
+";
+    let d = dir("package-not-image");
+    std::fs::write(d.join("readme"), TEXT).unwrap();
+    png(&d.join("red.png"), |_| [255, 0, 0]);
+    let (mut s, id) = document(&d, &d.join("red.png"));
+    relink(&mut s, id, "readme");
+    let pkg = d.join("pkg");
+    let r = s.execute("file.package", json!({"dir": pkg.to_string_lossy()}));
+    let copies: Vec<_> = walkdir(&pkg).into_iter().filter(|f| std::fs::read(f).is_ok_and(|b| b == TEXT)).collect();
+    assert!(copies.is_empty(), "copied into the package: {copies:?} ({r:?})");
+    let r = r.unwrap();
+    assert_eq!(r["missing"], json!(["readme"]), "{r}");
+}
+
+fn walkdir(d: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() { out.extend(walkdir(&p)) } else { out.push(p) }
+    }
+    out
+}
