@@ -192,11 +192,13 @@ fn err(e: impl std::fmt::Display) -> CodecError {
 }
 
 /// Whether `craft-jpeg` (rather than `zune-jpeg`) decodes the file: arithmetic coding
-/// (SOF9–SOF11) or a DCT frame whose precision isn't 8 bits (#4934, #5003).
+/// (SOF9–SOF11) or a DCT frame whose precision isn't 8 bits (#4934, #5003). Lossless (SOF3) and
+/// 12-bit progressive Huffman (SOF2) go there too: craft-jpeg reports them unsupported, where
+/// zune-jpeg's failure would read as a damaged file.
 fn uses_craft_jpeg(bytes: &[u8]) -> bool {
     match craft_jpeg::frame(bytes) {
-        Some(f) if (0xC9..=0xCB).contains(&f.marker) => true,
-        Some(f) if matches!(f.marker, 0xC0 | 0xC1) => f.precision != 8,
+        Some(f) if (0xC9..=0xCB).contains(&f.marker) || f.marker == 0xC3 => true,
+        Some(f) if matches!(f.marker, 0xC0..=0xC2) => f.precision != 8,
         _ => false,
     }
 }
@@ -666,6 +668,19 @@ mod tests {
         assert!(uses_craft_jpeg(&[0xFF, 0xD8, 0xFF, 0xC1, 0, 11, 12, 0, 8, 0, 8, 1, 1, 0x11, 0]));
         assert!(uses_craft_jpeg(&[0xFF, 0xD8, 0xFF, 0xC0, 0, 11, 12, 0, 8, 0, 8, 1, 1, 0x11, 0]));
         assert!(!uses_craft_jpeg(&[0xFF, 0xD8]));
+        assert!(!uses_craft_jpeg(&[0xFF, 0xD8, 0xFF, 0xC2, 0, 11, 8, 0, 8, 0, 8, 1, 1, 0x11, 0]));
+        assert!(uses_craft_jpeg(&[0xFF, 0xD8, 0xFF, 0xC2, 0, 11, 12, 0, 8, 0, 8, 1, 1, 0x11, 0]));
+        assert!(uses_craft_jpeg(&[0xFF, 0xD8, 0xFF, 0xC3, 0, 11, 8, 0, 8, 0, 8, 1, 1, 0x11, 0]));
+    }
+
+    #[test]
+    fn lossless_and_twelve_bit_progressive_are_unsupported_not_damaged() {
+        for marker in [0xC3, 0xC2] {
+            let mut bytes = vec![0xFF, 0xD8, 0xFF, marker, 0, 11, 12, 0, 8, 0, 8, 1, 1, 0x11, 0];
+            bytes.extend_from_slice(&[0xFF, 0xD9]);
+            let e = crate::decode(&bytes).unwrap_err();
+            assert!(matches!(e, CodecError::Unsupported { .. }), "{marker:#x}: {e:?}");
+        }
     }
 
     #[test]
