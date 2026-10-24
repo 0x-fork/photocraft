@@ -88,13 +88,12 @@ for f in NOTICE ATTRIBUTION.md; do
   if [[ -f "$ROOT/$f" ]]; then install -m 644 "$ROOT/$f" "$STAGE/share/doc/photocraft/"; fi
 done
 # photocraft-cli's man pages and shell completions, from its clap definition, written by the
-# example built above. A dry run builds nothing, so it leaves them out.
-if [[ "$DRY_RUN" = 0 ]]; then
-  CLI_DOCS="$BIN/examples/man-and-completions"
-  if [[ ! -x "$CLI_DOCS" ]]; then
-    echo "error: $CLI_DOCS is missing: build it with the binaries (without --skip-build)" >&2
-    exit 1
-  fi
+# example built above. A dry run builds nothing, so it leaves them out, as a --skip-build run whose
+# prebuilt binaries came without the example does.
+CLI_DOCS="$BIN/examples/man-and-completions"
+if [[ "$DRY_RUN" = 0 ]] && [[ ! -x "$CLI_DOCS" ]]; then
+  warn "$CLI_DOCS is not built, so photocraft-cli's man pages and completions are left out"
+elif [[ "$DRY_RUN" = 0 ]]; then
   "$CLI_DOCS" "$WORK/cli-docs"
   mkdir -p "$STAGE/man/man1" "$STAGE/share/bash-completion/completions" \
     "$STAGE/share/zsh/site-functions" "$STAGE/share/fish/vendor_completions.d"

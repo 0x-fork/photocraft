@@ -80,16 +80,15 @@ mkdir -p "$STAGE/usr/share/doc/photocraft"
 copy_docs "$STAGE/usr/share/doc/photocraft"
 # photocraft-cli's man pages and shell completions, from its clap definition, written by the
 # example built above. A cross build runs it through $EMULATOR, like the --version check at the
-# end, and leaves them out without one. zsh reads site-functions on Fedora and openSUSE; the deb
-# also links the completion into Debian's vendor-completions (nfpm.yaml).
+# end, and leaves them out without one, as a --skip-build run whose prebuilt binaries came without
+# the example does. zsh reads site-functions on Fedora and openSUSE; the deb also links the
+# completion into Debian's vendor-completions (nfpm.yaml).
 CLI_DOCS="$BIN/examples/man-and-completions"
 if [[ -n "${CROSS_TARGET:-}" ]] && [[ -z "${EMULATOR:-}" ]]; then
   warn "no EMULATOR to run the $CROSS_TARGET build, so photocraft-cli's man pages and completions are left out"
+elif [[ ! -x "$CLI_DOCS" ]]; then
+  warn "$CLI_DOCS is not built, so photocraft-cli's man pages and completions are left out"
 else
-  if [[ ! -x "$CLI_DOCS" ]]; then
-    echo "error: $CLI_DOCS is missing: build it with the binaries (without --skip-build)" >&2
-    exit 1
-  fi
   if [[ -n "${CROSS_TARGET:-}" ]]; then
     "$EMULATOR" "$CLI_DOCS" "$WORK/cli-docs"
   else
