@@ -2888,16 +2888,16 @@ mod tests {
     #[test]
     fn parses_nvidia_smis_own_report_of_the_cards_memory() {
         let two = "0x2C0510DE, 16303\n0x061C10DE, 24576\n";
-        assert_eq!(parse_nvidia_smi(two, 0x10de, 0x2c05), Some(16303 << 20));
-        assert_eq!(parse_nvidia_smi(two, 0x10de, 0x061c), Some(24576 << 20));
-        assert_eq!(parse_nvidia_smi("0X2C0510DE,   16303  \n", 0x10de, 0x2c05), Some(16303 << 20), "upper-case prefix, loose spacing");
-        assert_eq!(parse_nvidia_smi(two, 0x10de, 0xdead), None, "no such device id");
+        assert_eq!(parse_nvidia_smi(two, NVIDIA_VENDOR, 0x2c05), Some(16303 << 20));
+        assert_eq!(parse_nvidia_smi(two, NVIDIA_VENDOR, 0x061c), Some(24576 << 20));
+        assert_eq!(parse_nvidia_smi("0X2C0510DE,   16303  \n", NVIDIA_VENDOR, 0x2c05), Some(16303 << 20), "upper-case prefix, loose spacing");
+        assert_eq!(parse_nvidia_smi(two, NVIDIA_VENDOR, 0xdead), None, "no such device id");
         assert_eq!(parse_nvidia_smi(two, 0x1002, 0x2c05), None, "no such vendor id");
-        assert_eq!(parse_nvidia_smi("not csv at all", 0x10de, 0x2c05), None);
-        assert_eq!(parse_nvidia_smi("0x2C0510DE 16303\n", 0x10de, 0x2c05), None, "no comma");
-        assert_eq!(parse_nvidia_smi("0x2C0510DE, lots\n", 0x10de, 0x2c05), None, "not a number");
-        assert_eq!(parse_nvidia_smi("", 0x10de, 0x2c05), None, "empty output");
-        assert_eq!(parse_nvidia_smi(&format!("0x2C0510DE, {}\n", u64::MAX), 0x10de, 0x2c05), None, "would overflow");
+        assert_eq!(parse_nvidia_smi("not csv at all", NVIDIA_VENDOR, 0x2c05), None);
+        assert_eq!(parse_nvidia_smi("0x2C0510DE 16303\n", NVIDIA_VENDOR, 0x2c05), None, "no comma");
+        assert_eq!(parse_nvidia_smi("0x2C0510DE, lots\n", NVIDIA_VENDOR, 0x2c05), None, "not a number");
+        assert_eq!(parse_nvidia_smi("", NVIDIA_VENDOR, 0x2c05), None, "empty output");
+        assert_eq!(parse_nvidia_smi(&format!("0x2C0510DE, {}\n", u64::MAX), NVIDIA_VENDOR, 0x2c05), None, "would overflow");
     }
 
     /// Only a discrete NVIDIA adapter asks `nvidia-smi`: nothing else spawns a process whose
