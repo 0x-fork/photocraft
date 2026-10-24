@@ -159,7 +159,11 @@ fn space_on_the_focused_bar_leaves_it_and_opens_no_menu() {
     assert_eq!(Keys::current(&h.ctx).focus, Some(0), "the tap focuses the bar");
     h.key_down(egui::Key::Space);
     h.run_steps(2);
+    // Held Space repeats, which ran New… from the open File menu.
+    h.event(egui::Event::Key { key: egui::Key::Space, physical_key: None, pressed: true, repeat: true, modifiers: egui::Modifiers::NONE });
+    h.run_steps(2);
     assert!(!is_open(&h.ctx), "Space opens no menu");
+    assert!(h.state().ui.dialogs.is_empty(), "Space does not run File › New");
     assert_eq!(Keys::current(&h.ctx).focus, None, "Space takes the keyboard off the bar");
     h.key_up(egui::Key::Space);
     h.run_steps(3);
