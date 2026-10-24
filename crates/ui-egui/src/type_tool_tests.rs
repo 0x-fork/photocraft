@@ -3091,3 +3091,22 @@ fn alt_mirrors_side_and_corner_drags_and_clamps_at_the_minimum() {
     drag(&mut app, [540.0, 480.0], [590.0, 530.0], Modifiers::ALT);
     assert_eq!(box_doc_rect(&app, id), [250.0, 250.0, 340.0, 280.0]);
 }
+
+/// The options bar's alignment and direction buttons show the type layer's paragraph, as
+/// Photoshop's bar follows the text, and the tool defaults again without a type target.
+#[test]
+fn options_bar_alignment_follows_the_target_paragraph() {
+    use egui::accesskit::Toggled;
+    use egui_kittest::kittest::NodeT;
+    let mut app = new_app();
+    let id = app.run("type.create", json!({"text": "Middle", "size": 20, "x": 300, "y": 420})).unwrap()["layer"].as_u64().unwrap();
+    app.run("type.setStyle", json!({"layer": id, "align": "center", "direction": "rtl"})).unwrap();
+    assert_eq!(app.ui.tool_options.type_align, "left", "the tool default stays Left");
+    let mut h = options_harness(app);
+    let on = |h: &Harness<'static, PhotocraftApp>, label: &str| h.get_by_label(label).accesskit_node().toggled() == Some(Toggled::True);
+    assert!(on(&h, "Center text") && !on(&h, "Left align text"), "the layer's centred paragraph");
+    assert!(on(&h, "Right-to-left paragraph direction") && !on(&h, "Automatic paragraph direction"));
+    h.state_mut().run("layer.new.layer", json!({})).unwrap();
+    h.run_steps(2);
+    assert!(on(&h, "Left align text") && !on(&h, "Center text"), "no type target: the tool default");
+}

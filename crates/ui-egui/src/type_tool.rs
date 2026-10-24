@@ -2322,10 +2322,23 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     crate::widgets::vline(ui, 22.0);
     ui.spacing_mut().item_spacing.x = 2.0;
+    // Alignment and direction show the target paragraph's, as Photoshop's bar follows the text
+    // being edited or the selected type layer; the tool defaults otherwise. A justified paragraph
+    // lights none of the three.
+    let para = styles_at(app).map(|(_, p)| p);
+    let shown_align = match &para {
+        Some(p) => match p.align {
+            photocraft_doc::text::TextAlign::Left => "left",
+            photocraft_doc::text::TextAlign::Center => "center",
+            photocraft_doc::text::TextAlign::Right => "right",
+            _ => "",
+        },
+        None => o.type_align.as_str(),
+    };
     for (align, icon, tip) in
         [("left", "align-left", tl!("Left align text")), ("center", "align-center", tl!("Center text")), ("right", "align-right", tl!("Right align text"))]
     {
-        if crate::icons::button(ui, icon, 24.0, o.type_align == align, tip).clicked() {
+        if crate::icons::button(ui, icon, 24.0, shown_align == align, tip).clicked() {
             app.ui.tool_options.type_align = align.into();
             apply(app, ui.ctx(), json!({"align": align}));
         }
@@ -2334,7 +2347,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::widgets::vline(ui, 22.0);
     ui.spacing_mut().item_spacing.x = 2.0;
     for (key, tip, d) in direction_items() {
-        if direction_button(ui, d, o.type_direction == key, tip).clicked() {
+        let on = para.as_ref().map_or(o.type_direction == key, |p| p.direction == d);
+        if direction_button(ui, d, on, tip).clicked() {
             app.ui.tool_options.type_direction = key.into();
             apply(app, ui.ctx(), json!({"direction": key}));
         }
