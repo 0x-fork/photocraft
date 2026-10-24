@@ -886,16 +886,17 @@ pub fn path_to_selection(app: &mut PhotocraftApp, params: Value) -> Result<Value
 
 /// After the Pen or Path Selection tool made a selection from the path `name` (⌘↩, the canvas
 /// menu's Make Selection…), Photoshop deselects it in the Paths panel and stops drawing it; the
-/// path itself stays (#6079). A shape layer's path or vector mask (`"layer"`) stays the active
+/// path itself stays (#6079). The Work Path is hidden too when a saved path was loaded, so no
+/// path is the target path afterwards. A shape layer's path or vector mask (`"layer"`) stays the active
 /// path, so layer targeting is unchanged.
 pub(crate) fn deselect_loaded_path(app: &mut PhotocraftApp, name: &str) {
     if name == "layer" {
         return;
     }
     app.ui.selected_path = None;
-    if name == "work" {
-        app.ui.hidden_work_path = app.session.active().and_then(|st| st.doc.work_path.clone().map(|p| (st.doc.id.0, p)));
-    }
+    // Whichever path was loaded, nothing is the target path afterwards: a shown Work Path would
+    // otherwise become the active path (a second ⌘↩ or the canvas menu's Delete Path acting on it).
+    app.ui.hidden_work_path = app.session.active().and_then(|st| st.doc.work_path.clone().map(|p| (st.doc.id.0, p)));
 }
 
 /// Is the active document's Work Path drawn and edited on the canvas? Not after
