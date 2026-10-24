@@ -149,8 +149,9 @@ fn data_end(b: &[u8]) -> (DataEnd, u64) {
     loop {
         let Some(&byte) = b.get(i) else { return cut(scan_data, scanned) };
         if byte != 0xFF {
-            // Not where a marker should be: too odd to judge.
-            return (DataEnd::Complete, scanned);
+            // Not where a marker should be: too odd to judge. What the walk couldn't read may all
+            // be scan data, so it counts as such (padding before this point still doesn't).
+            return (DataEnd::Complete, scanned.saturating_add(u64::try_from(b.len().saturating_sub(i)).unwrap_or(u64::MAX)));
         }
         let Some(&code) = b.get(i + 1) else { return cut(scan_data, scanned) };
         match code {
@@ -219,13 +220,11 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
     limits.check(w, h, layout, SampleType::U8)?;
     // The backend fills whatever the scan no longer describes, and allocates the whole output
     // once a scan holds a byte, so a short scan under a large frame is a gigabyte of synthesized
-    // output from a few kilobytes of file (#8597), truncated or not. A truncated file's budget is
-    // measured on the scan data itself: APP padding can inflate `bytes.len()` arbitrarily
-    // without describing one more pixel. A complete one is measured on the file length, since
-    // the walk may stop early on odd marker layouts (`DataEnd::Complete`).
-    let budget = if end == DataEnd::Truncated { scan_bytes } else { bytes.len() as u64 };
-    if u64::from(w) * u64::from(h) / MAX_PIXELS_PER_BYTE > budget {
-        let what = if end == DataEnd::Truncated { "the truncated scan" } else { "the file" };
+    // output from a few kilobytes of file (#8597), truncated or not. The budget is the scan data
+    // itself, not `bytes.len()`, which APP padding can inflate without describing one more pixel;
+    // where the walk stops early on an odd layout, what it couldn't read counts as scan data.
+    if u64::from(w) * u64::from(h) / MAX_PIXELS_PER_BYTE > scan_bytes {
+        let what = if end == DataEnd::Truncated { "the truncated scan" } else { "the scan data" };
         return Err(err(format!("{what} is too short for the frame it declares")));
     }
     dec.set_options(dec.options().jpeg_set_out_colorspace(out_cs));
@@ -503,6 +502,39 @@ mod tests {
         huge[sof + 5..sof + 9].copy_from_slice(&[0x4E, 0x20, 0x4E, 0x20]);
         let e = crate::decode_as(Format::Jpeg, &huge).unwrap_err();
         assert!(e.to_string().contains("too short"), "{e}");
+    }
+
+    /// A complete file is measured on its scan data too: padding can't admit an oversized frame.
+    /// The same padded file at its real size decodes, and so does an odd layout whose unread tail
+    /// counts as scan data.
+    #[test]
+    fn app_padding_cannot_admit_an_oversized_complete_frame() {
+        let img = Image::from_raw(16, 16, ChannelLayout::Rgb, SampleType::U8, vec![128; 16 * 16 * 3]).unwrap();
+        let full = crate::encode(&img, Format::Jpeg, &EncodeOptions::default()).unwrap();
+        let fill = [b'p'; 65533];
+        let mut padded = full[..2].to_vec();
+        for _ in 0..4 {
+            padded.extend_from_slice(&[0xFF, 0xFE]);
+            padded.extend_from_slice(&0xFFFFu16.to_be_bytes());
+            padded.extend_from_slice(&fill);
+        }
+        padded.extend_from_slice(&full[2..]);
+        let (end, scanned) = data_end(&padded);
+        assert_eq!(end, DataEnd::Complete);
+        assert!(scanned < 1024, "the padding isn't scan data: {scanned}");
+        assert!(padded.len() as u64 > u64::from(20_000u32) * 20_000 / MAX_PIXELS_PER_BYTE, "padding too small");
+        assert!(crate::decode_as(Format::Jpeg, &padded).is_ok());
+        let sof = padded.windows(2).position(|w| w == [0xFF, 0xC0] || w == [0xFF, 0xC2]).unwrap();
+        let mut huge = padded.clone();
+        huge[sof + 5..sof + 9].copy_from_slice(&[0x4E, 0x20, 0x4E, 0x20]);
+        let e = crate::decode_as(Format::Jpeg, &huge).unwrap_err();
+        assert!(e.to_string().contains("too short"), "{e}");
+        // A stray byte where a marker should be: the walk stops, and the rest counts.
+        let mut odd = full.clone();
+        odd.insert(2, 0x00);
+        let (end, scanned) = data_end(&odd);
+        assert_eq!(end, DataEnd::Complete);
+        assert_eq!(scanned, (odd.len() - 2) as u64);
     }
 
     /// CMYK JPEG output must omit JFIF while retaining Adobe's CMYK marker.
