@@ -532,8 +532,8 @@ fn animation_effects_off_pans_a_wheel_notch_at_once() {
 
 /// A canvas in another OS window (Window › Arrange › New Window) reads that window's own input,
 /// which `wheel_nav::unsmooth` never sees: it runs on the main window's input only. So the
-/// canvas's own wheel read must not glide with Animation Effects off either (#5721), and ⇧ or
-/// ⌘/Ctrl + wheel must still pan sideways.
+/// canvas's own wheel read must not glide with Animation Effects off either (#5721), ⇧ or
+/// ⌘/Ctrl + wheel must still pan sideways, and a trackpad gesture must keep its direction.
 #[test]
 fn animation_effects_off_stops_the_canvas_glide_without_unsmooth() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
@@ -565,6 +565,29 @@ fn animation_effects_off_stops_the_canvas_glide_without_unsmooth() {
         assert!((moved[axis] - notch).abs() < 0.01 && moved[1 - axis] == 0.0, "{modifiers:?}: one notch is {notch} px at 800%: {moved:?}");
         assert_eq!(c1, c2, "{modifiers:?}: there on the frame the notch arrives: {c0:?} -> {c1:?} -> {c2:?}");
     }
+
+    // A trackpad gesture keeps the direction it began with, as egui does: begun with ⇧ held, it
+    // still pans sideways after ⇧ is let go.
+    {
+        let v = &mut h.state_mut().ui.views[0];
+        (v.zoom, v.center, v.fit_pending) = (NOTCH_PAN_ZOOM, [200.0, 150.0], false);
+    }
+    h.run_steps(4);
+    let before = h.state().ui.views[0].center;
+    let swipe = |phase, dy: f32, modifiers| egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, dy), phase, modifiers };
+    for (phase, dy, modifiers) in [
+        (egui::TouchPhase::Start, 0.0, Modifiers::SHIFT),
+        (egui::TouchPhase::Move, -8.0, Modifiers::SHIFT),
+        (egui::TouchPhase::Move, -16.0, Modifiers::NONE),
+        (egui::TouchPhase::End, 0.0, Modifiers::NONE),
+    ] {
+        h.event_modifiers(swipe(phase, dy, modifiers), modifiers);
+        h.run_steps(1);
+    }
+    h.run_steps(4);
+    let after = h.state().ui.views[0].center;
+    let moved = [after[0] - before[0], after[1] - before[1]];
+    assert!((moved[0] - 24.0 / NOTCH_PAN_ZOOM).abs() < 0.01 && moved[1] == 0.0, "24 points sideways for the whole gesture: {moved:?}");
 }
 
 #[test]

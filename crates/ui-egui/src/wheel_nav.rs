@@ -175,9 +175,10 @@ pub fn fold_legacy_pinch(ctx: &Context, raw: &mut RawInput) {
     }
 }
 
-/// Where [`unsmooth`] keeps, from frame to frame, whether a trackpad gesture is in progress.
-fn gesture_id() -> Id {
-    Id::new("pc-wheel-gesture")
+/// Where each window keeps, from frame to frame, whether a trackpad gesture is in progress in it.
+/// Per window: a second document window has input of its own.
+fn gesture_id(ctx: &Context) -> Id {
+    Id::new("pc-wheel-gesture").with(ctx.viewport_id())
 }
 
 /// What this frame's wheel events scroll in all, in points, each folded sideways or upright by
@@ -233,20 +234,21 @@ fn unsmoothed_scroll(events: &[Event], options: &egui::InputOptions, page: f32, 
 /// Call it once a frame, before anything reads the scroll. `PhotocraftApp::logic` does, for the
 /// main window; the canvas, also in other windows, uses [`read_with`]'s `smooth` flag instead.
 pub fn unsmooth(ctx: &Context) {
-    let (scroll, in_gesture) = this_frames_scroll(ctx);
-    if let Some(scroll) = scroll {
+    if let Some(scroll) = this_frames_scroll(ctx) {
         ctx.input_mut(|i| i.smooth_scroll_delta = scroll);
     }
-    ctx.data_mut(|d| d.insert_temp(gesture_id(), in_gesture));
 }
 
-/// [`unsmoothed_scroll`] for this frame's input in `ctx`, and whether a trackpad gesture is in
-/// progress after it.
-fn this_frames_scroll(ctx: &Context) -> (Option<Vec2>, bool) {
+/// [`unsmoothed_scroll`] for this frame's input in `ctx`'s window, recording that window's
+/// trackpad-gesture state for the next frame. Call it on every frame, whether or not the scroll is
+/// wanted, so a gesture's begin and end are never missed. Calls in the same frame agree.
+fn this_frames_scroll(ctx: &Context) -> Option<Vec2> {
     let options = ctx.options(|o| o.input_options);
-    let mut in_gesture = ctx.data(|d| d.get_temp::<bool>(gesture_id())).unwrap_or(false);
+    let id = gesture_id(ctx);
+    let mut in_gesture = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let scroll = ctx.input(|i| unsmoothed_scroll(&i.events, &options, i.viewport_rect().height(), &mut in_gesture));
-    (scroll, in_gesture)
+    ctx.data_mut(|d| d.insert_temp(id, in_gesture));
+    scroll
 }
 
 fn alt_id() -> Id {
@@ -312,6 +314,9 @@ pub fn read_with(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner:
         }
         None => ctx.data(|d| d.get_temp::<bool>(shift_id())).unwrap_or(false),
     };
+    // The pan with `smooth` off. Read here, before any early return, so the window's trackpad
+    // gesture state also follows frames that zoom, snap or aren't over this view.
+    let unsmoothed = this_frames_scroll(ctx);
 
     if !hovered {
         return None;
@@ -396,7 +401,7 @@ pub fn read_with(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool, owner:
         }
         // Unsmoothed, a scroll pans by this frame's own wheel events, folded sideways or upright by
         // their modifiers as egui folds them (none: no tail).
-        let scroll = if smooth { scroll } else { this_frames_scroll(ctx).0.unwrap_or(scroll) };
+        let scroll = if smooth { scroll } else { unsmoothed.unwrap_or(scroll) };
         classify(Input { scroll, raw, zoom_delta, alt, shift, zoom_with_wheel, pinch_zooms, notch })
     }
 }
