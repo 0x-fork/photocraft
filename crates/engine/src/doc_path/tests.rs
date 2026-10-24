@@ -255,3 +255,35 @@ fn data_sets_and_footage_read_only_followed_files() {
     assert!(err.contains("is not opened: the path is on another computer"), "{err}");
     footage(&mut s, "blue.png").unwrap();
 }
+
+/// A link to a file PhotoCraft can't place (a text or settings file) is never embedded: a saved
+/// PSD would otherwise carry bytes no reader can show as the layer's contents. The layer is
+/// written as pixels; Convert to Embedded and Relink refuse.
+#[test]
+fn links_to_files_that_are_not_images_are_never_embedded() {
+    const TEXT: &[u8] = b"plain text, not an image
+photocraft-text-marker
+";
+    let d = dir("not-image");
+    std::fs::create_dir_all(d.join("notes")).unwrap();
+    std::fs::create_dir_all(d.join("Downloads")).unwrap();
+    std::fs::write(d.join("notes").join("readme"), TEXT).unwrap();
+    std::fs::write(d.join("Downloads").join(".settings"), TEXT).unwrap();
+    png(&d.join("red.png"), |_| [255, 0, 0]);
+    let (mut s, id) = document(&d, &d.join("red.png"));
+    s.active_mut().unwrap().path = Some(d.join("Downloads").join("doc.pcraft").to_string_lossy().into_owned());
+    let has_text = |bytes: &[u8]| bytes.windows(TEXT.len()).any(|w| w == TEXT);
+    for (n, path) in ["../notes/readme", ".settings"].into_iter().enumerate() {
+        relink(&mut s, id, path);
+        for ext in ["psd", "psb", "tif"] {
+            let out = d.join(format!("copy{n}.{ext}"));
+            let r = s.execute("file.saveACopy", json!({"path": out.to_string_lossy(), "tiffLayers": true})).unwrap();
+            assert!(!has_text(&std::fs::read(&out).unwrap()), "{path} embedded in the {ext}: {r}");
+            let warnings = r["warnings"].to_string();
+            assert!(warnings.contains("written as pixels"), "{path} {ext}: {warnings}");
+        }
+        assert!(s.execute("layer.smartObjects.convertToEmbedded", json!({"layer": id.0})).is_err(), "{path}");
+        let abs = d.join("notes").join("readme");
+        assert!(s.execute("layer.smartObjects.relinkToFile", json!({"layer": id.0, "path": abs.to_string_lossy()})).is_err(), "{path}");
+    }
+}
