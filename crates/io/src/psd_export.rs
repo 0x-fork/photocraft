@@ -169,8 +169,9 @@ struct SmartOut {
     prune_ok: bool,
     /// Files to embed.
     add: Vec<crate::linked::LinkedFile>,
-    /// Sources converted so far, by contents identity and bytes (`Err` = can't be embedded).
-    converted: std::collections::HashMap<(SmartContentsId, [u8; 32]), Result<Source, String>>,
+    /// Sources converted so far, by contents identity, bytes and whether they were read from a
+    /// link (`Err` = can't be embedded).
+    converted: std::collections::HashMap<(SmartContentsId, [u8; 32], bool), Result<Source, String>>,
     /// Each placed layer has its own id, even when it duplicates an imported layer.
     placed_used: std::collections::HashSet<String>,
     /// Original instances reserve their imported placement regardless of layer order.
@@ -1060,7 +1061,7 @@ impl Ex {
     /// `linked`: the bytes were read from a path the document names, so only a file PhotoCraft
     /// can open is embedded (a link to a text or settings file is written as pixels instead).
     fn embed(&mut self, contents_id: SmartContentsId, file_name: &str, bytes: &[u8], linked: bool) -> Result<Source, String> {
-        let key = (contents_id, *blake3::hash(bytes).as_bytes());
+        let key = (contents_id, *blake3::hash(bytes).as_bytes(), linked);
         if let Some(r) = self.smart.converted.get(&key) {
             return r.clone();
         }

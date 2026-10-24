@@ -287,3 +287,35 @@ photocraft-text-marker
         assert!(s.execute("layer.smartObjects.relinkToFile", json!({"layer": id.0, "path": abs.to_string_lossy()})).is_err(), "{path}");
     }
 }
+
+/// Duplicates share their contents identity, so a linked and an embedded copy of the same bytes
+/// meet in the export's conversion cache: each keeps its own rule, whichever is written first.
+#[test]
+fn a_linked_and_an_embedded_copy_of_the_same_bytes_keep_their_own_rule() {
+    const TEXT: &[u8] = b"plain text, not an image
+photocraft-shared-marker
+";
+    let d = dir("shared-contents");
+    std::fs::write(d.join("readme"), TEXT).unwrap();
+    png(&d.join("red.png"), |_| [255, 0, 0]);
+    let (mut s, linked) = document(&d, &d.join("red.png"));
+    s.execute("layer.duplicate", json!({})).unwrap();
+    let embedded = s.active().unwrap().active_layer.unwrap();
+    assert_ne!(linked, embedded);
+    relink(&mut s, linked, "readme");
+    s.edit("Embed", |doc, _| {
+        if let Some(LayerContent::Smart(sm)) = doc.layer_mut(embedded).map(|l| &mut l.content) {
+            sm.source = SmartSource::Embedded { file_name: "readme".into(), bytes: std::sync::Arc::new(TEXT.to_vec()) };
+        }
+        Ok(())
+    })
+    .unwrap();
+    for ext in ["psd", "psb", "tif"] {
+        let out = d.join(format!("copy.{ext}"));
+        let r = s.execute("file.saveACopy", json!({"path": out.to_string_lossy(), "tiffLayers": true})).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let copies = bytes.windows(TEXT.len()).filter(|w| *w == TEXT).count();
+        assert_eq!(copies, 1, "{ext}: only the embedded copy is kept: {r}");
+        assert!(r["warnings"].to_string().contains("written as pixels"), "{ext}: {r}");
+    }
+}
