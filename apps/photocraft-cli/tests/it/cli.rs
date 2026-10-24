@@ -166,13 +166,11 @@ fn server_modes_reject_ignored_or_conflicting_options() {
         }
         let transport = if sub == "mcp" { "--bridge" } else { "--port" };
         for flag in [transport, "--control-token", "--control-token-file"] {
-            server_usage_error(&[sub, flag, "one", &format!("{flag}=two")], "cannot be used multiple times");
+            // Valid values, so the repeat is what is refused (a transport value is parsed first).
+            server_usage_error(&[sub, flag, "7878", &format!("{flag}=7879")], "cannot be used multiple times");
             server_usage_error(&[sub, flag, ""], &format!("'{flag} "));
         }
-        server_usage_error(
-            &[sub, transport, "7878", "--control-token", "unused", "--control-token-file", "unused"],
-            "cannot be used with",
-        );
+        server_usage_error(&[sub, transport, "7878", "--control-token", "unused", "--control-token-file", "unused"], "cannot be used with");
     }
     for flag in ["--automation-read-root", "--automation-write-root"] {
         server_usage_error(&["mcp", "--bridge", "127.0.0.1:7878", flag, "."], "configure automation roots on the desktop app");
