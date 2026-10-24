@@ -135,15 +135,16 @@ pub fn parse_cube(text: &str) -> Result<LutFile, LutError> {
             "DOMAIN_MIN" => dmin = nums(it)?,
             "DOMAIN_MAX" => dmax = nums(it)?,
             "LUT_3D_INPUT_RANGE" | "LUT_1D_INPUT_RANGE" => {
-                let v: Vec<f32> = it.filter_map(|s| s.parse().ok()).collect();
-                if v.len() == 2 {
-                    dmin = [v[0]; 3];
-                    dmax = [v[1]; 3];
-                    if key == "LUT_1D_INPUT_RANGE" {
-                        range1 = Some([v[0], v[1]]);
-                    } else {
-                        range3 = Some([v[0], v[1]]);
-                    }
+                // Exactly two numbers, as OpenColorIO reads it: a malformed range is refused, not
+                // replaced by the default 0..1.
+                let v: Vec<f32> = it.map(|s| s.parse()).collect::<Result<_, _>>().map_err(|_| LutError(format!("bad line `{line}`")))?;
+                let [lo, hi] = v[..] else { return err(format!("bad line `{line}`")) };
+                dmin = [lo; 3];
+                dmax = [hi; 3];
+                if key == "LUT_1D_INPUT_RANGE" {
+                    range1 = Some([lo, hi]);
+                } else {
+                    range3 = Some([lo, hi]);
                 }
             }
             k if k.starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '+' || c == '.') => {
@@ -365,6 +366,19 @@ pub fn builtin(id: &str) -> Option<LutFile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #9183 review: an input-range header must be exactly two numbers; a malformed one is
+    /// refused rather than silently replaced by the default 0..1 (as OpenColorIO does).
+    #[test]
+    fn cube_malformed_input_range_is_refused() {
+        let table = "0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+        let combined = |range: &str| format!("LUT_1D_SIZE 2\nLUT_3D_SIZE 2\n{range}\n0 0 0\n1 1 1\n{table}");
+        assert!(parse_cube(&combined("LUT_3D_INPUT_RANGE 0 1")).is_ok());
+        for bad in ["LUT_3D_INPUT_RANGE 0 bad", "LUT_1D_INPUT_RANGE 0", "LUT_3D_INPUT_RANGE 0 bad 1", "LUT_1D_INPUT_RANGE 0 1 2"] {
+            assert!(parse_cube(&combined(bad)).is_err(), "{bad}");
+        }
+        assert!(parse_cube(&format!("LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0 bad\n{table}")).is_err(), "a 3D-only file too");
+    }
 
     #[test]
     fn cube_title_with_hash_round_trips() {
