@@ -26,6 +26,10 @@ const PSD_MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 /// Room kept under [`PSD_MAX_FILE_SIZE`] for what the save adds after the conversion (the image
 /// preview resource, a few KB).
 const PSD_SAVE_HEADROOM: u64 = 1024 * 1024;
+/// Most bytes of one layer's interleaved samples the exporter gathers. The interleaved bytes and
+/// the channel planes made from them (or the band parts and the joined buffer) are alive together,
+/// so the peak is about twice this; it is also what fits in a file of at most [`PSD_MAX_FILE_SIZE`].
+const MAX_LAYER_GATHER_BYTES: u64 = if cfg!(target_pointer_width = "64") { 1 << 30 } else { 256 << 20 };
 
 /// Options for [`document_to_psd_with`].
 #[derive(Debug, Clone)]
@@ -381,6 +385,13 @@ impl Ex {
         };
         let r = s.content_bounds();
         if r.is_empty() {
+            return (PsdRect::default(), self.empty_channels(), warnings);
+        }
+        // A layer record is one dense rectangle, so a few pixels far apart make a box of mostly
+        // nothing, gathered and then copied again. Past the cap the layer is saved empty, said so.
+        let dense = u64::from(r.width()).saturating_mul(u64::from(r.height())).saturating_mul(s.format().bytes_per_pixel() as u64);
+        if dense > MAX_LAYER_GATHER_BYTES {
+            warnings.push(format!("layer \"{name}\" spans {}×{} px, too large to write: saved without its pixels", r.width(), r.height()));
             return (PsdRect::default(), self.empty_channels(), warnings);
         }
         // The interleaved gather is the sequential pass for full-canvas layers, so it runs

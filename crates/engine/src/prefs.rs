@@ -1929,7 +1929,11 @@ impl Session {
     /// Batches defer colour validation until their complete candidate is staged. Returns
     /// whether colour settings were touched, including whole-section/root-object updates.
     fn set_pref(&mut self, path: &str, value: Value, validate_color: bool) -> std::result::Result<bool, String> {
-        if let Some(rest) = path.strip_prefix("colorSettings") {
+        // The section itself or a path inside it: `colorSettingsworkingRgb`, `colorSettings.` and
+        // `colorSettings..workingRgb` are none, and the authorization policy doesn't treat them as one.
+        if let Some(rest) =
+            path.strip_prefix("colorSettings").filter(|r| r.is_empty() || r.strip_prefix('.').is_some_and(|c| c.split('.').all(|part| !part.is_empty())))
+        {
             let mut cur = serde_json::to_value(&self.color.settings).map_err(|e| e.to_string())?;
             let rest = rest.trim_start_matches('.');
             if rest.is_empty() {
@@ -2735,3 +2739,19 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "prefs/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod color_settings_path_tests {
+    use crate::Session;
+    use serde_json::json;
+
+    #[test]
+    fn a_path_that_only_starts_with_color_settings_is_not_in_that_section() {
+        let mut s = Session::new();
+        let before = s.color.settings.clone();
+        for path in ["colorSettingsworkingRgb", "colorSettings.", "colorSettings..workingRgb"] {
+            assert!(s.execute("prefs.set", json!({"path": path, "value": "/dev/zero"})).is_err(), "{path}");
+        }
+        assert_eq!(s.color.settings, before);
+    }
+}

@@ -315,6 +315,25 @@ fn load_renames_each_play_target_once() {
     assert_eq!(s.actions.list[1].steps[0].1, json!({"action": "A"}), "B still plays the A it had");
 }
 
+/// A name over the 1,024-character limit is clipped for the action and for the steps that call it,
+/// so a rename still finds its Play target.
+#[test]
+fn load_renames_play_targets_longer_than_the_name_limit() {
+    let mut s = Session::new();
+    let long = "x".repeat(2000);
+    let clipped = "x".repeat(1024);
+    let mut mine = Action::new(clipped.clone(), vec![]);
+    mine.set = Some("Mine".into());
+    s.actions.list.push(mine);
+    let a = Action::new(long.clone(), vec![]);
+    let caller = Action::new("Caller", vec![("actions.play".into(), json!({"action": long}))]);
+    let (bytes, _) = export("File", &[&a, &caller], &[], false).unwrap();
+    s.execute("actions.load", json!({"data": b64(&bytes)})).unwrap();
+    let renamed = format!("{clipped} 2");
+    let caller = s.actions.list.iter().find(|a| a.name == "Caller").unwrap();
+    assert_eq!(caller.steps[0].1["action"], renamed.as_str());
+}
+
 #[test]
 fn load_many_duplicate_names_get_sequential_suffixes() {
     // Several actions share one base name. Deduplication must stay O(n) overall and produce
@@ -3081,4 +3100,22 @@ fn saves_round_trip_through_photoshop_events() {
     // plain Save.
     let odd = Action::new("B", vec![("file.saveAs".to_string(), json!({"path": "/out/result.xcf"}))]);
     assert!(export("Saves", &[&odd], &[], false).is_err());
+}
+
+#[test]
+fn long_names_are_clipped_instead_of_copied_into_every_diagnostic() {
+    let long = "N".repeat(5000);
+    let unknown = |n: usize| (0..n).map(|_| item("zzzz", "Mystery", None)).collect::<Vec<_>>();
+    let file = AtnFile {
+        name: UnicodeString::new_nul(&long),
+        expanded: false,
+        actions: vec![AtnAction { name: UnicodeString::new_nul(&long), items: unknown(50), ..Default::default() }],
+        warnings: vec![],
+    };
+    let imp = import(&atn::write(&file).unwrap()).unwrap();
+    assert_eq!(imp.set.chars().count(), MAX_NAME_CHARS);
+    assert_eq!(imp.actions[0].name.chars().count(), MAX_NAME_CHARS);
+    assert_eq!(imp.actions[0].set.as_deref().map(|s| s.chars().count()), Some(MAX_NAME_CHARS));
+    assert_eq!(imp.unsupported.len(), 50);
+    assert!(imp.unsupported.iter().all(|u| u.action.chars().count() == MAX_NAME_CHARS));
 }
