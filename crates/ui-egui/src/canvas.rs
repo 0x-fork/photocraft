@@ -3609,6 +3609,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         let img_rect = xf.doc_rect(doc.bounds());
         // The canvas edge the Line border outlines: a size-changing preview's own (CPU canvas).
         let mut edge_rect = img_rect;
+        // The document area the image is drawn over: a size-changing preview's own on the CPU
+        // canvas (Image › Rotation). Overlays drawn from the same preview follow it.
+        let mut shown_area = doc.bounds();
         // Crop tool: the layers' pixels past the canvas while a frame is edited, under the canvas
         // (whose edge blends into them) and without its shadow.
         let beyond = draw_beyond_canvas(app, &painter, &xf, idx, output);
@@ -3695,6 +3698,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let tex = textures.as_ref().map(|t| t.texture);
             // The area the image covers: a size-changing preview's own (Image › Rotation).
             let area = textures.as_ref().map_or(doc.bounds(), |t| t.bounds);
+            shown_area = area;
             if area != doc.bounds() {
                 edge_rect = xf.doc_rect(area);
             }
@@ -3725,18 +3729,21 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
         // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
         if let Some(tex) = crate::channel_view::ensure(app, &ctx, idx) {
+            // Rendered from the live preview, so over the area the preview is shown in.
+            let a = shown_area;
             if view.rotation.abs() > 0.05 {
-                paint_mapped_image(
+                paint_mapped_image_at(
                     &painter,
                     &xf,
                     tex,
                     Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
-                    [doc.size.width as f32, doc.size.height as f32],
+                    [a.x0 as f32, a.y0 as f32],
+                    [a.width() as f32, a.height() as f32],
                     Color32::WHITE,
                 );
             } else {
                 let uv = if flip { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)) };
-                painter.image(tex, img_rect, uv, Color32::WHITE);
+                painter.image(tex, xf.doc_rect(a), uv, Color32::WHITE);
             }
         }
         crate::color_range_ui::paint_selection_preview(app, &ctx, &painter, doc.id, img_rect, flip);
@@ -4962,12 +4969,7 @@ fn zoom_about(view: &mut View, xf: &ViewXform, p: Pos2, new_zoom: f32, center_on
     view.center = [before[0] as f32 - u.x, before[1] as f32 - u.y];
 }
 
-/// Textured document quad whose corners follow [`ViewXform`] (rotation + flip).
-fn paint_mapped_image(painter: &egui::Painter, xf: &ViewXform, tex: egui::TextureId, uv: Rect, size: [f32; 2], tint: Color32) {
-    paint_mapped_image_at(painter, xf, tex, uv, [0.0, 0.0], size, tint);
-}
-
-/// [`paint_mapped_image`] over the `size` document area starting at `origin`.
+/// A texture mapped over the `size` document area starting at `origin` (follows a rotated view).
 fn paint_mapped_image_at(painter: &egui::Painter, xf: &ViewXform, tex: egui::TextureId, uv: Rect, origin: [f32; 2], size: [f32; 2], tint: Color32) {
     let ([x, y], [w, h]) = (origin, size);
     let pts = [xf.to_screen(x, y), xf.to_screen(x + w, y), xf.to_screen(x + w, y + h), xf.to_screen(x, y + h)];
@@ -7017,6 +7019,51 @@ mod tests {
         assert_eq!(t.bounds, DRect::new(0, 0, 64, 32), "after Cancel");
         assert_eq!(app.session.active().unwrap().revision, revision, "the document untouched");
         assert_eq!(app.session.active().unwrap().doc.size, photocraft_geom::Size::new(64, 32));
+    }
+
+    /// A channel overlay drawn from a size-changing preview covers the preview's own area, as the
+    /// image does, not the document's: a 90° rotation of a 64×32 document shows a 32×64 overlay.
+    #[test]
+    fn a_channel_overlay_follows_a_size_changing_preview() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.background_jobs = false;
+        app.run("file.new", json!({"width": 64, "height": 32, "background": "white"})).unwrap();
+        app.run("channel.new", json!({"name": "Alpha", "fill": "black"})).unwrap();
+        let id = crate::filter_dialog::open(&mut app, "image.rotation.arbitrary").unwrap();
+        let d = app.ui.dialogs.iter_mut().find(|d| d.id == id).unwrap();
+        d.fields.insert("angle".into(), json!(90.0));
+        d.fields.insert("__preview".into(), json!(true));
+        let ctx = egui::Context::default();
+        for rotation in [0.0f32, 30.0] {
+            let view = View { zoom: 4.0, center: [32.0, 16.0], rotation, ..app.ui.views[0].clone() };
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                canvas_view(&mut app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0)), view.clone(), true);
+            });
+            output.textures_delta.clear();
+            let overlay = crate::channel_view::ensure(&mut app, &ctx, 0).expect("the channel overlay");
+            let mesh = output
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Mesh(m) if m.texture_id == overlay => Some(m.clone()),
+                    _ => None,
+                })
+                .expect("the overlay is painted");
+            // The quad's sides, in screen points: the two shortest distances from a corner (the
+            // third is the diagonal; a rotated view turns the quad, not its side lengths).
+            let v: Vec<Pos2> = mesh.vertices.iter().map(|v| v.pos).collect();
+            let mut d: Vec<f32> = v[1..4].iter().map(|p| v[0].distance(*p)).collect();
+            d.sort_by(f32::total_cmp);
+            let (short, long) = (d[0], d[1]);
+            // Which side is the width: the one along the view's x axis turned by the rotation.
+            let along = |p: Pos2| {
+                let r = rotation.to_radians();
+                ((p - v[0]).x * r.cos() + (p - v[0]).y * r.sin()).abs()
+            };
+            let width = v[1..4].iter().map(|p| along(*p)).fold(0.0f32, f32::max);
+            assert!((long / short - 2.0).abs() < 0.01, "rotation {rotation}: sides {short}×{long}, the preview's 1:2");
+            assert!((width - short).abs() < 0.5, "rotation {rotation}: the short side ({short}) runs across the view (width {width})");
+        }
     }
 
     #[test]
