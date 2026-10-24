@@ -510,6 +510,8 @@ pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> R
         psd_maximize_compatibility: save.psd_maximize_compatibility,
         // Linked files a PSD embeds are resolved against the document being worked on.
         document_path: crate::doc_path::current(),
+        // An untrusted session's stored paths are document data: embed none of them.
+        read_linked_files: !crate::jobs::authorization_installed(),
         ..Default::default()
     };
     // No quality chosen: write the file the way it was opened (a JPEG at its own quality, a WebP
@@ -1114,7 +1116,7 @@ fn file_info(s: &mut Session, p: &Value) -> Result<Value> {
         let xmp = s.active().ok_or(EngineError::NoDocument)?.doc.metadata.xmp.clone();
         let new = write_file_info(xmp.as_deref(), p);
         s.edit("File Info", |doc, _| {
-            doc.metadata.xmp = Some(new);
+            doc.metadata.xmp = Some(new.into());
             Ok(())
         })?;
     }
@@ -1666,41 +1668,77 @@ fn flatten_all_masks(s: &mut Session) -> Result<Value> {
 fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.layersToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
-    let names = export_layers_with(s, p, |name, bytes| write_file(&join(&dir, name), bytes))?;
-    let files: Vec<String> = names.iter().map(|name| join(&dir, name)).collect();
-    Ok(json!({"files": files}))
+    let report = export_layers_report_with(s, p, |name, bytes| write_file(&join(&dir, name), bytes))?;
+    let files: Vec<String> = report.files.iter().map(|name| join(&dir, name)).collect();
+    Ok(json!({"files": files, "skipped": report.skipped}))
 }
 
 /// The bodies of `file.export.layersToFiles`, streamed to `write` as a single-component filename
 /// plus its bytes: one file per exported layer (top to bottom, like Photoshop's numbering),
 /// encoded but never touched as a path. Automation writes exactly these bytes beneath its write
 /// root (#3216), so the two paths cannot drift. Returns the filenames written, in order.
-pub fn export_layers_with(s: &Session, p: &Value, mut write: impl FnMut(&str, &[u8]) -> Result<()>) -> Result<Vec<String>> {
+pub fn export_layers_with(s: &Session, p: &Value, write: impl FnMut(&str, &[u8]) -> Result<()>) -> Result<Vec<String>> {
+    export_layers_report_with(s, p, write).map(|report| report.files)
+}
+
+/// A top-level layer omitted from a successful Layers to Files export.
+#[derive(Debug, serde::Serialize)]
+pub struct SkippedExportLayer {
+    /// Session layer id (names need not be unique).
+    pub layer: u64,
+    /// Original name, not the sanitized filename component.
+    pub name: String,
+    /// Why the layer produced no file.
+    pub reason: &'static str,
+}
+
+/// Filenames written and layers skipped, each in top-to-bottom order.
+#[derive(Debug, Default)]
+pub struct LayerExportReport {
+    pub files: Vec<String>,
+    pub skipped: Vec<SkippedExportLayer>,
+}
+
+/// The same export as [`export_layers_with`], with an explanation for every omitted top-level
+/// layer. Groups export merged, so their children are not separate exports or skips. Encoding
+/// and write failures remain errors, never successful skips. Existing numbering is preserved.
+pub fn export_layers_report_with(s: &Session, p: &Value, mut write: impl FnMut(&str, &[u8]) -> Result<()>) -> Result<LayerExportReport> {
     let cmd = "file.export.layersToFiles";
     let format = p.get("format").and_then(Value::as_str).unwrap_or("png").trim_start_matches('.').to_ascii_lowercase();
     let visible_only = p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(true);
+    // Callers outside `Session::execute` (headless workspace exports) carry the session's gate
+    // into `encode`, so a PSD embeds no file a linked smart object names.
+    let _authorization = crate::jobs::render_authorization_scope(s.authorize);
     let save = SaveOpts::from_params(s, p, cmd)?;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
     let doc = d.doc.clone();
-    let mut written = Vec::new();
-    // Top-level layers (groups export merged), top to bottom like Photoshop's numbering.
-    let layers: Vec<&Layer> = doc.layers.iter().rev().filter(|l| l.visible || !visible_only).collect();
-    for (i, l) in layers.iter().enumerate() {
+    let mut report = LayerExportReport::default();
+    // Hidden layers never consumed a filename index; adjustments that pass the visibility
+    // filter did. Keep those filenames stable while reporting both kinds of omission.
+    let mut i = 0usize;
+    for l in doc.layers.iter().rev() {
+        if !l.visible && visible_only {
+            report.skipped.push(SkippedExportLayer { layer: l.id.0, name: l.name.clone(), reason: "hidden by visibleOnly" });
+            continue;
+        }
+        let index = i;
+        i += 1;
         if matches!(l.content, LayerContent::Adjustment(_)) {
+            report.skipped.push(SkippedExportLayer { layer: l.id.0, name: l.name.clone(), reason: "adjustment layer has no pixels of its own" });
             continue;
         }
         let mut one = (*doc).clone();
-        let mut only = (*l).clone();
+        let mut only = l.clone();
         only.visible = true;
         only.clipped = false;
         one.layers = vec![only];
-        let name = format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&l.name));
+        let name = format!("{}_{:04}_{}.{format}", sanitize(&prefix), index, sanitize(&l.name));
         let (bytes, _warnings) = encode(&one, &name, save)?;
         write(&name, &bytes)?;
-        written.push(name);
+        report.files.push(name);
     }
-    Ok(written)
+    Ok(report)
 }
 
 /// Adjustment layers that can be represented as an RGB-only LUT, in document stack order.
@@ -2056,7 +2094,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "New Guide Layout…",
             &["View"],
             None,
-            r##"{"columns":n=0,"width":px?,"gutter":px=0,"rows":n=0,"height":px?,"rowGutter":px=gutter,"margin":px|[top,left,bottom,right]=0,"centerColumns":bool=false,"clearExisting":bool=false,"target":"document|selectedArtboards"="document"}"##,
+            r##"{"columns":n=0,"width":len?,"gutter":len=0,"rows":n=0,"height":len?,"rowGutter":len=gutter,"margin":len|[top,left,bottom,right]=0,"centerColumns":bool=false,"clearExisting":bool=false,"target":"document|selectedArtboards"="document"} (len: pixels, or text with px, in, cm, mm, pt, pc or % as typed in Photoshop, e.g. "1 cm"; % is of the target's width for columns, gutters and left/right margins, its height for rows and top/bottom margins)"##,
             has_doc,
             new_guide_layout
         ),

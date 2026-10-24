@@ -715,7 +715,12 @@ fn convert_layer_colors(l: &mut Layer, cc: &mut dyn FnMut(&mut Color)) {
             Effect::OuterGlow(g) | Effect::InnerGlow(g) => paint_colors(&mut g.paint, cc),
             Effect::Stroke(s) => paint_colors(&mut s.paint, cc),
             Effect::ColorOverlay { color, .. } => cc(color),
-            Effect::GradientOverlay { gradient, .. } => gradient.stops.iter_mut().for_each(|s| cc(&mut s.1)),
+            Effect::GradientOverlay { gradient, interpolation, .. } => {
+                gradient.stops.iter_mut().for_each(|s| cc(&mut s.1));
+                if let Some(source) = interpolation {
+                    source.stops.iter_mut().for_each(|s| cc(&mut s.1));
+                }
+            }
             Effect::Satin(s) => cc(&mut s.color),
             Effect::BevelEmboss(b) => {
                 cc(&mut b.highlight_color);
