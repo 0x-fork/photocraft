@@ -199,6 +199,10 @@ pub(crate) struct CommandsArgs {
 }
 
 /// Run the MCP server on stdio (headless engine, or bridge to a running `photocraft --control <port>`)
+///
+/// Headless: each automation root grants that direction of file access; an omitted root denies it.
+/// Prefer absolute root paths in MCP client configurations. Bridge: set the roots on the desktop
+/// app; root flags are refused. The token flags require --bridge (or PHOTOCRAFT_CONTROL_PORT).
 #[derive(Args)]
 pub(crate) struct McpArgs {
     /// Bridge to the PhotoCraft app listening here instead of a headless engine; a bare port means
@@ -219,7 +223,8 @@ pub(crate) struct McpArgs {
 /// Each request is a JSON line {"id", "method", "params"}. Methods: engine.execute,
 /// jobs.list/cancel, engine.commands,
 /// doc.open/new/place/save/exportLayers/exportDataSets/importDataSets/inspect/render/select/close,
-/// session.list, batch, methods (docs/control-protocol.md#headless-server).
+/// session.list, batch, methods (docs/control-protocol.md#headless-server). The token flags require
+/// --port (or PHOTOCRAFT_CONTROL_PORT); stdio needs no control token.
 #[derive(Args)]
 pub(crate) struct ServeArgs {
     /// Listen on 127.0.0.1:<PORT> instead of stdio
@@ -326,16 +331,16 @@ fn steps(m: &ArgMatches) -> Vec<Step> {
 
 /// Parse the arguments (without the binary name). clap reads them as `OsString`s: a path need not
 /// be valid Unicode (#1108), text must. A flag left out falls back to its environment variable,
-/// unless that is empty, and a bad value from one is a usage error naming the variable (#2491).
+/// unless that is empty, and a bad value from one is a usage error naming the variable (#2491). A
+/// bare `--help` or `-h` is help even after a mistake on the same line (`--out --help`, `mcp
+/// stray.psd --help`): clap reports the mistake first.
 pub(crate) fn parse(args: &[OsString]) -> Result<Cli, clap::Error> {
     let mut cmd = Cli::command().mut_subcommands(|sub| sub.mut_args(blank_env_is_unset));
     let argv = std::iter::once(OsString::from("photocraft-cli")).chain(args.iter().cloned());
     let matches = match cmd.try_get_matches_from_mut(argv) {
-        // Help where a flag's value should be (`--out --help`) is still help: clap reports the
-        // missing value first.
-        Err(e) if e.kind() == ErrorKind::InvalidValue && args.iter().take_while(|a| *a != "--").any(|a| *a == "--help" || *a == "-h") => {
+        Err(e) if args.iter().take_while(|a| *a != "--").any(|a| *a == "--help" || *a == "-h") => {
             let help = [OsString::from("photocraft-cli"), args.first().cloned().unwrap_or_default(), OsString::from("--help")];
-            return Err(Cli::command().try_get_matches_from(help).err().unwrap_or(e));
+            return Err(cmd.try_get_matches_from_mut(help).err().unwrap_or(e));
         }
         matches => matches.map_err(|e| name_env_vars(e, &cmd, args))?,
     };
@@ -359,43 +364,44 @@ pub(crate) fn parse(args: &[OsString]) -> Result<Cli, clap::Error> {
                     conflict(sub, m, "control_token", "control_token_file")?;
                 }
                 // The roots are the headless engine's: the variable switching to the bridge would
-                // drop them.
+                // drop them, and the error names it.
                 if a.bridge_from_env {
                     conflict(sub, m, "automation_read_root", "bridge")?;
                     conflict(sub, m, "automation_write_root", "bridge")?;
                 }
+                // With --bridge they are the desktop process's to set: accepting them here promises
+                // authority the bridge can't give (#8035).
+                if a.bridge.is_some() && (a.automation.automation_read_root.is_some() || a.automation.automation_write_root.is_some()) {
+                    return Err(sub.error(ErrorKind::ArgumentConflict, BRIDGE_ROOTS));
+                }
+                check_server(sub, m, a.bridge.is_some(), "--bridge")?;
             }
-            check_server(cmd.find_subcommand_mut(name), m, "bridge")?;
         }
         (Command::Serve(a), Some((name, m))) => {
             a.port_from_env = from_env(m, "port");
-            // Only the TCP server reads a token, so a stale exported pair doesn't stop stdio.
-            if a.port.is_some()
-                && let Some(sub) = cmd.find_subcommand_mut(name)
-            {
-                conflict(sub, m, "control_token", "control_token_file")?;
+            if let Some(sub) = cmd.find_subcommand_mut(name) {
+                // Only the TCP server reads a token, so a stale exported pair doesn't stop stdio.
+                if a.port.is_some() {
+                    conflict(sub, m, "control_token", "control_token_file")?;
+                }
+                check_server(sub, m, a.port.is_some(), "--port")?;
             }
-            check_server(cmd.find_subcommand_mut(name), m, "port")?;
         }
         _ => {}
     }
     Ok(cli)
 }
 
+const BRIDGE_ROOTS: &str = "configure automation roots on the desktop app; --automation-read-root and --automation-write-root require headless MCP mode";
+
 /// Refuse `mcp` and `serve` launch options that would otherwise be silently ignored (#8035): a
-/// token flag without the bridge or port that reads it (flag or variable; a token variable alone
-/// may be a stale export), and bridge roots, which belong to the desktop process: accepting them
-/// here promises authority the bridge cannot set.
-fn check_server(sub: Option<&mut clap::Command>, m: &ArgMatches, transport: &str) -> Result<(), clap::Error> {
-    let Some(sub) = sub else { return Ok(()) };
+/// token flag without the bridge or port that reads it (as a flag or its variable). A token
+/// variable alone may be a stale export, so it isn't refused.
+fn check_server(sub: &mut clap::Command, m: &ArgMatches, has_transport: bool, transport: &str) -> Result<(), clap::Error> {
     for (id, flag) in [("control_token", "--control-token"), ("control_token_file", "--control-token-file")] {
-        if m.value_source(id) == Some(ValueSource::CommandLine) && !m.contains_id(transport) {
-            return Err(sub.error(ErrorKind::MissingRequiredArgument, format!("{flag} requires --{transport}")));
+        if m.value_source(id) == Some(ValueSource::CommandLine) && !has_transport {
+            return Err(sub.error(ErrorKind::MissingRequiredArgument, format!("{flag} requires {transport}")));
         }
-    }
-    if transport == "bridge" && m.contains_id(transport) && (m.contains_id("automation_read_root") || m.contains_id("automation_write_root")) {
-        let message = "configure automation roots on the desktop app; --automation-read-root and --automation-write-root require headless MCP mode";
-        return Err(sub.error(ErrorKind::ArgumentConflict, message));
     }
     Ok(())
 }
