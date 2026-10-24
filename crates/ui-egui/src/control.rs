@@ -1590,7 +1590,7 @@ mod tests {
         app.run("layer.new.layer", json!({})).unwrap();
         app.run("edit.fill", json!({"color":"#808080"})).unwrap();
         app.run("select.rect", json!({"x":8,"y":8,"width":8,"height":8})).unwrap();
-        for workspace in ["filter.liquify", "edit.contentAwareFill", "filter.filterGallery"] {
+        for workspace in ["filter.liquify", "edit.contentAwareFill", "filter.filterGallery", "filter.adaptiveWideAngle"] {
             let opened = call(&mut app, &ctx, "ui.menu.invoke", json!({"id":workspace}));
             assert_eq!(opened["ok"], true, "{workspace}: {opened}");
             assert_eq!(crate::distort_ui::modal_workspace(&app), Some(workspace));
