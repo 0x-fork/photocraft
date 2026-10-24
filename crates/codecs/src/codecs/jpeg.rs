@@ -213,7 +213,9 @@ fn craft_jpeg_error(e: craft_jpeg::Error) -> CodecError {
 /// Decode a file [`uses_craft_jpeg`] routes away from `zune-jpeg`; `damaged` says entropy-coded
 /// data was cut short or corrupt.
 fn decode_craft_jpeg(bytes: &[u8], limits: &Limits, adobe_transform: Option<u8>) -> Result<(Image, bool), CodecError> {
-    let lim = craft_jpeg::Limits { max_pixels: limits.max_pixels, max_alloc: limits.max_alloc };
+    let mut lim = craft_jpeg::Limits::default();
+    lim.max_pixels = limits.max_pixels;
+    lim.max_alloc = limits.max_alloc;
     let d = craft_jpeg::decode(bytes, &lim, adobe_transform).map_err(craft_jpeg_error)?;
     let layout = match d.components {
         1 => ChannelLayout::Gray,

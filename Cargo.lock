@@ -1314,7 +1314,7 @@ source = "git+https://github.com/storytold/craft-libs?rev=82a24b006eefa036b43c09
 [[package]]
 name = "craft-jpeg"
 version = "0.1.0"
-source = "git+https://github.com/aiongg/craft-libs?rev=059d1519a6c90ecb0064ffe39020311014ce760d#059d1519a6c90ecb0064ffe39020311014ce760d"
+source = "git+https://github.com/aiongg/craft-libs?rev=955831a3a260e398a8e060c4336fe1277d82a2fa#955831a3a260e398a8e060c4336fe1277d82a2fa"
 dependencies = [
  "thiserror 2.0.21",
 ]
