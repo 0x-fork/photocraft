@@ -150,12 +150,10 @@ fn data_end(b: &[u8]) -> (DataEnd, u64) {
         let Some(&byte) = b.get(i) else { return cut(scan_data, scanned) };
         if byte != 0xFF {
             // Not where a marker should be: skip to the next one, as a lenient decoder does, so
-            // segments after the stray bytes (padding among them) are still recognised. The
-            // skipped bytes count as scan data; with no marker left, the file is too odd to judge.
-            let Some(p) = b.get(i..).and_then(|r| r.iter().position(|&v| v == 0xFF)) else {
-                return (DataEnd::Complete, scanned.saturating_add(u64::try_from(b.len().saturating_sub(i)).unwrap_or(u64::MAX)));
-            };
-            scanned = scanned.saturating_add(p as u64);
+            // segments after the stray bytes (padding among them) are still recognised. Stray
+            // bytes are not scan data, so they never count (junk would buy budget as padding
+            // did); with no marker left, the image data ends here.
+            let Some(p) = b.get(i..).and_then(|r| r.iter().position(|&v| v == 0xFF)) else { return cut(scan_data, scanned) };
             i += p;
             continue;
         }
@@ -544,11 +542,21 @@ mod tests {
         assert!(scanned < 1024, "the padding after a stray byte isn't scan data: {scanned}");
         let e = crate::decode_as(Format::Jpeg, &odd).unwrap_err();
         assert!(e.to_string().contains("too short"), "{e}");
-        // Bytes with no marker after them are too odd to judge: they all count.
-        let tail = [0x00u8; 4096];
-        let mut trailing = vec![0xFF, 0xD8];
-        trailing.extend_from_slice(&tail);
-        assert_eq!(data_end(&trailing), (DataEnd::Complete, tail.len() as u64));
+        // Stray bytes never count: 256 KiB of junk where a marker should be (the decoder skips
+        // it), then the oversized frame's segments, is refused. (Bytes after a scan starts are
+        // entropy-coded data, any value, and count as such.)
+        let mut junk = huge[..2].to_vec();
+        junk.extend(std::iter::repeat_n(0x00u8, 4 * 65536));
+        junk.extend_from_slice(&huge[2..]);
+        let (end, scanned) = data_end(&junk);
+        assert_eq!(end, DataEnd::Complete);
+        assert!(scanned < 1024, "junk isn't scan data: {scanned}");
+        let e = crate::decode_as(Format::Jpeg, &junk).unwrap_err();
+        assert!(e.to_string().contains("too short"), "{e}");
+        // Junk with no marker after it: no image data at all.
+        let mut tail = vec![0xFF, 0xD8];
+        tail.extend(std::iter::repeat_n(0x00u8, 4096));
+        assert_eq!(data_end(&tail), (DataEnd::Empty, 0));
     }
 
     /// CMYK JPEG output must omit JFIF while retaining Adobe's CMYK marker.
