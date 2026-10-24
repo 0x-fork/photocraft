@@ -1621,7 +1621,10 @@ mod tests {
             assert_eq!(crate::distort_ui::modal_workspace(&app), None);
             assert!(crate::menus::modal_allows(&app, "select.all"), "{workspace}: menus are free again");
             let listed = call(&mut app, &ctx, "ui.menu.list", json!({}));
-            assert!(listed["result"].as_array().unwrap().iter().any(|it| it["id"] == "select.all" && it["enabled"] == true), "{workspace}: listed as enabled again");
+            assert!(
+                listed["result"].as_array().unwrap().iter().any(|it| it["id"] == "select.all" && it["enabled"] == true),
+                "{workspace}: listed as enabled again"
+            );
         }
         // engine.execute stays programmatic: it is not a menu click.
         assert_eq!(call(&mut app, &ctx, "ui.menu.invoke", json!({"id":"filter.liquify"}))["ok"], true);
