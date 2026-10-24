@@ -304,3 +304,41 @@ fn failed_cleanup_after_commit_does_not_fail_the_save() {
     assert_eq!(load_path(&dir).unwrap(), doc);
     std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+/// #9034: while a document's autosave replaces its entry, a listing (another launch's recovery
+/// prompt, or the launch's own check after closing a second document) sees that entry exactly
+/// once. On Windows the sidecar used to be replaced through `ReplaceFileW`, which moves the old
+/// sidecar to a backup name before moving the new one in: a listing in between found the bundle
+/// without a sidecar and listed it a second time (or, the other way round, not at all).
+#[test]
+fn a_listing_during_an_autosave_sees_the_entry_exactly_once() {
+    let dir = temp_dir("listing-during-autosave");
+    let doc = Document::new("Busy", photocraft_doc::Size { width: 4, height: 4 }, ColorMode::Rgb, SampleType::U8);
+    save_once(&dir, "busy", doc.clone());
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let writer = {
+        let (dir, done) = (dir.clone(), done.clone());
+        std::thread::spawn(move || {
+            let saver = Autosaver::new(&dir, "busy");
+            for revision in 2..=200 {
+                saver.request(Arc::new(doc.clone()), revision, None, SaveOptions::default());
+                // Wait for this write, so every revision replaces the sidecar once.
+                while saver.take_completed().is_empty() {
+                    std::thread::yield_now();
+                }
+            }
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+            saver.flush()
+        })
+    };
+    let mut listings = 0u32;
+    while !done.load(std::sync::atomic::Ordering::SeqCst) {
+        let entries = list_recovery(&dir);
+        let keys: Vec<&str> = entries.iter().map(|e| e.info.key.as_str()).collect();
+        assert_eq!(keys, ["busy"], "listing {listings} during an autosave: {entries:?}");
+        listings += 1;
+    }
+    assert!(writer.join().unwrap().is_some_and(|r| r.is_ok()));
+    assert!(listings > 0);
+    std::fs::remove_dir_all(dir).unwrap();
+}
