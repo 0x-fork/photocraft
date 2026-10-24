@@ -2022,7 +2022,16 @@ pub(crate) fn target(app: &PhotocraftApp) -> Option<(u64, Option<[usize; 2]>)> {
 /// The type layer whose properties the Type controls and dialogs show (see [`target`]).
 pub(crate) fn target_text(app: &PhotocraftApp) -> Option<&TextLayer> {
     let (id, _) = target(app)?;
-    text_layer(&app.session.active()?.doc, LayerId(id))
+    text_layer(&target_doc(app)?.doc, LayerId(id))
+}
+
+/// The document [`target`]'s layer is in: a text edit's own, which can stay in a background
+/// document where the same layer id may name another layer, else the active one.
+fn target_doc(app: &PhotocraftApp) -> Option<&photocraft_engine::DocState> {
+    match &app.ui.text_edit {
+        Some(ed) => app.session.documents().get(edit_home(app, ed)?),
+        None => app.session.active(),
+    }
 }
 
 /// Snapshot the mutation scope separately from the representative used to display properties.
@@ -2405,8 +2414,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// Character and paragraph style at the target (selection start, else the layer's first run).
 pub(crate) fn styles_at(app: &PhotocraftApp) -> Option<(photocraft_doc::text::CharStyle, photocraft_doc::text::ParagraphStyle)> {
     let (layer, range) = target(app)?;
-    let st = app.session.active()?;
-    let t = text_layer(&st.doc, LayerId(layer))?;
+    let t = text_layer(&target_doc(app)?.doc, LayerId(layer))?;
     let at = range.map_or(0, |r| byte_of(&t.text, r[0]));
     let pick = |lens: Vec<usize>| -> usize {
         let mut acc = 0;

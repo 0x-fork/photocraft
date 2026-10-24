@@ -3110,3 +3110,32 @@ fn options_bar_alignment_follows_the_target_paragraph() {
     h.run_steps(2);
     assert!(on(&h, "Left align text") && !on(&h, "Center text"), "no type target: the tool default");
 }
+
+/// #9179 review: a text edit left in a background document shows its own paragraph, not that of
+/// a same-id layer in the active document (layer ids repeat across documents).
+#[test]
+fn styles_at_follows_the_text_edit_document() {
+    let mut app = new_app();
+    let a = app.session.active().unwrap().doc.id.0;
+    let id = app.run("type.create", json!({"text": "Edited", "size": 20, "x": 300, "y": 420})).unwrap()["layer"].as_u64().unwrap();
+    app.run("type.setStyle", json!({"layer": id, "align": "center"})).unwrap();
+    app.ui.text_edit = Some(crate::state::TextEdit {
+        layer: id,
+        document: Some(a),
+        caret: 2,
+        anchor: 2,
+        session: "s".into(),
+        created: false,
+        mask: false,
+        dragging: false,
+        resize: None,
+        preedit: None,
+    });
+    // The same file opened twice: a second document whose layers have the same ids.
+    let twin = app.session.active().unwrap().doc.as_ref().clone();
+    app.session.open_document(twin, None);
+    app.run("type.setStyle", json!({"layer": id, "align": "right"})).unwrap();
+    assert_ne!(app.session.active().unwrap().doc.id.0, a, "the other document is active");
+    let (_, p) = super::styles_at(&app).unwrap();
+    assert_eq!(p.align, photocraft_doc::text::TextAlign::Center, "the edited document's paragraph");
+}
