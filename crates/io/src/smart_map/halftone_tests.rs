@@ -1,6 +1,7 @@
 //! Halftone Pattern descriptors measured in Photoshop 27.11.0 (#8940).
 use super::*;
 
+/// Builds an editable Halftone Pattern filter with explicit foreground/background colours.
 fn filter(pattern: &str, size: i32, contrast: i32) -> SmartFilter {
     SmartFilter {
         command: GALLERY_COMMAND.into(),
@@ -14,6 +15,7 @@ fn filter(pattern: &str, size: i32, contrast: i32) -> SmartFilter {
     }
 }
 
+/// Builds the inline Halftone descriptor measured in Photoshop.
 fn native_effect(pattern: &str, size: i32, contrast: i32) -> Descriptor {
     let mut d = Descriptor::new("GEfc")
         .with("GEfk", enumv("GEft", "HlfS"))
@@ -24,6 +26,7 @@ fn native_effect(pattern: &str, size: i32, contrast: i32) -> Descriptor {
     d
 }
 
+/// Wraps a Gallery descriptor in a Photoshop smart-filter item.
 fn native_item(effect: Descriptor) -> Descriptor {
     let f = filter("dot", 2, 5);
     Descriptor::new("filterFX")
@@ -37,6 +40,7 @@ fn native_item(effect: Descriptor) -> Descriptor {
         .with("filterID", Value::Integer(code(b"GEfc")))
 }
 
+/// Checks the measured pattern enums and editable settings in both mapping directions.
 #[test]
 fn halftone_pattern_reads_and_writes_photoshop_inline_descriptors() {
     for (pattern, native) in [("dot", "Dt  "), ("circle", "Crc "), ("line", "Ln  ")] {
@@ -51,6 +55,7 @@ fn halftone_pattern_reads_and_writes_photoshop_inline_descriptors() {
     }
 }
 
+/// Keeps defaults, hidden effects, stack order, and blending intact on round trip.
 #[test]
 fn halftone_pattern_defaults_and_mixed_hidden_stack_round_trip() {
     let defaults = SmartFilter { params: json!({"effects": [{"filter": "halftonePattern"}]}), ..filter("dot", 1, 5) };
@@ -66,6 +71,7 @@ fn halftone_pattern_defaults_and_mixed_hidden_stack_round_trip() {
     assert_eq!(filter_from_item(&Descriptor::from_bytes(&item.to_bytes()).unwrap()), f);
 }
 
+/// Preserves unfamiliar and malformed settings instead of substituting editable defaults.
 #[test]
 fn halftone_pattern_unknown_or_malformed_descriptors_stay_verbatim() {
     let valid = native_effect("Dt  ", 2, 5);
@@ -103,6 +109,23 @@ fn halftone_pattern_unknown_or_malformed_descriptors_stay_verbatim() {
     }
 }
 
+/// Keeps a whole Gallery stack opaque when a Halftone entry has an unfamiliar class ID.
+#[test]
+fn halftone_pattern_unknown_nested_class_stays_verbatim() {
+    let valid = native_effect("Dt  ", 2, 5);
+    let mut unknown = valid.clone();
+    unknown.class_id = Id::new("Xxxx");
+    for effects in [vec![unknown.clone()], vec![valid.clone(), unknown.clone()], vec![unknown, valid]] {
+        let gallery = Descriptor::new(GALLERY_CLASS).with("GEfs", Value::List(effects.into_iter().map(Value::Descriptor).collect()));
+        let item = native_item(gallery);
+        let parsed = Descriptor::from_bytes(&item.to_bytes()).unwrap();
+        let filter = filter_from_item(&parsed);
+        assert_eq!(filter.command, UNSUPPORTED_FILTER);
+        assert_eq!(item_for_filter(&filter).unwrap().to_bytes(), item.to_bytes());
+    }
+}
+
+/// Rejects unsupported export values instead of silently changing their meaning.
 #[test]
 fn halftone_pattern_invalid_export_settings_are_reported() {
     for (key, value) in [
@@ -124,6 +147,7 @@ fn halftone_pattern_invalid_export_settings_are_reported() {
     }
 }
 
+/// Checks complete PSD/PSB round trips for every pattern at 8-, 16-, and 32-bit depth.
 #[test]
 fn halftone_pattern_survives_complete_psd_and_psb_export() {
     use photocraft_doc::{Document, Layer, LayerContent, SmartObject, SmartSource};

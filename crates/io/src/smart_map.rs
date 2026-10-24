@@ -794,7 +794,8 @@ fn gallery_params(item: &Descriptor, f: &Descriptor) -> Option<J> {
         if g.key == "halftonePattern" {
             // Do not turn an unfamiliar shape or malformed setting into the engine's defaults:
             // keeping the whole item opaque preserves it through a subsequent save.
-            if !only_keys(e, &["GEfk", "Sz  ", "Cntr", "Ptrn", "GELv"])
+            if !e.class_id.is(GALLERY_CLASS)
+                || !only_keys(e, &["GEfk", "Sz  ", "Cntr", "Ptrn", "GELv"])
                 || !matches!(e.get("GEfk"), Some(Value::Enumerated { type_id, .. }) if type_id.is("GEft"))
                 || e.get("GELv").is_some_and(|v| !matches!(v, Value::Boolean(_)))
             {
