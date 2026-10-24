@@ -116,6 +116,32 @@ fn selecting_a_saved_path_keeps_the_hidden_work_path_hidden() {
 }
 
 #[test]
+fn reselecting_the_hidden_work_path_ends_the_hide() {
+    // #6079 review: once the Work Path is selected again in the Paths panel, deselecting it there
+    // leaves an ordinary unselected Work Path (drawn and edited with a path tool, #6551), not the
+    // hidden one from before.
+    let mut h = harness();
+    h.state_mut().ui.tool = Tool::Pen;
+    let p = |x: f64, y: f64| [[x, y], [x, y], [x, y]];
+    h.state_mut().ui.pen = Some(PenPath { knots: vec![p(20.0, 20.0), p(120.0, 20.0), p(120.0, 80.0)], ..Default::default() });
+    h.run_steps(2);
+    press(&mut h, Key::Enter, command());
+    assert!(!crate::vector_ui::work_path_shown(h.state()), "⌘↩ hid the work path");
+    panel(&mut h, 2);
+    let work = h.get_by_label("Work Path").rect();
+    click(&mut h, egui::pos2(work.left() + 70.0, work.center().y), Modifiers::NONE);
+    assert_eq!(h.state().ui.selected_path.as_deref(), Some("work"));
+    // Clicking the panel's empty area deselects it.
+    click(&mut h, egui::pos2(work.left() + 70.0, work.bottom() + 40.0), Modifiers::NONE);
+    assert_eq!(h.state().ui.selected_path, None);
+    assert!(crate::vector_ui::work_path_shown(h.state()), "the unchanged Work Path didn't go back into hiding");
+    assert_eq!(crate::vector_ui::active_path_name(h.state()).as_deref(), Some("work"));
+    // So Delete with the Pen deletes it, like any unselected Work Path.
+    press(&mut h, Key::Delete, Modifiers::NONE);
+    assert!(h.state().session.active().unwrap().doc.work_path.is_none(), "{}", h.state().ui.status);
+}
+
+#[test]
 fn cmd_enter_loads_the_path_selected_in_the_paths_panel() {
     let mut h = harness();
     h.state_mut().run("path.set", json!({"name": "work", "path": rect_path(0.0, 0.0, 30.0, 30.0)})).unwrap();

@@ -900,8 +900,8 @@ pub(crate) fn deselect_loaded_path(app: &mut PhotocraftApp, name: &str) {
 }
 
 /// Is the active document's Work Path drawn and edited on the canvas? Not after
-/// [`deselect_loaded_path`] hid it, until the Work Path is selected again in the Paths panel (a
-/// saved path or a layer's path doesn't show it) or it changes (a new one drawn, Make Work Path,
+/// [`deselect_loaded_path`] hid it, until the Work Path is selected again in the Paths panel (which
+/// ends the hide; a saved path or a layer's path doesn't show it) or it changes (a new one drawn, Make Work Path,
 /// `path.set`…) (#6079).
 pub(crate) fn work_path_shown(app: &PhotocraftApp) -> bool {
     if app.ui.selected_path.as_deref() == Some("work") {
@@ -2185,6 +2185,11 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     };
                     action = Some(("path.toSelection", json!({"name": key, "mode": mode})));
                 } else if resp.clicked() {
+                    // Selecting the Work Path ends the hide from Make Selection (#6079): deselected
+                    // again, it is an ordinary unselected Work Path (#6551).
+                    if *kind == PathRow::Work {
+                        app.ui.hidden_work_path = None;
+                    }
                     app.ui.selected_path = Some(key.clone());
                 }
                 // As in Photoshop, double-clicking a saved path's name renames it, and double-clicking
