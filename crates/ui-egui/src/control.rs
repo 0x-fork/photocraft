@@ -472,7 +472,14 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 None => err("`job` must be a job id"),
             }
         }
-        "ui.menu.list" => ok(serde_json::to_value(crate::menus::menu_items(app)).unwrap_or_default()),
+        "ui.menu.list" => {
+            // Report the same enablement the native menu shows, so a listed item is invokable.
+            let mut items = crate::menus::menu_items(app);
+            for item in &mut items {
+                item.enabled &= crate::menus::modal_allows(app, &item.id);
+            }
+            ok(serde_json::to_value(items).unwrap_or_default())
+        }
         "ui.inspect" => ok(inspect(app, ctx)),
         "ui.set" => {
             if let Some(field) = p.as_object().and_then(|o| o.keys().find(|k| !UI_SET_FIELDS.contains(&k.as_str()))) {
@@ -1599,6 +1606,9 @@ mod tests {
                 assert_eq!(blocked["ok"], false, "{workspace}: {request} → {blocked}");
                 assert!(!crate::menus::modal_allows(&app, request["id"].as_str().unwrap()), "{workspace}: native menu greys {request}");
             }
+            let listed = call(&mut app, &ctx, "ui.menu.list", json!({}));
+            let enabled = |id: &str| listed["result"].as_array().unwrap().iter().find(|it| it["id"] == id).map(|it| it["enabled"].clone());
+            assert_eq!(enabled("select.all"), Some(json!(false)), "{workspace}: ui.menu.list greys what invoke refuses");
             assert_eq!(crate::distort_ui::modal_workspace(&app), Some(workspace), "{workspace} stays open with its work");
             assert_eq!(app.session.active().unwrap().doc.id, doc);
             // An open dialog still takes precedence over the workspace's own requests.
@@ -1610,6 +1620,8 @@ mod tests {
             assert_eq!(cancelled["ok"], true, "{workspace}: {cancelled}");
             assert_eq!(crate::distort_ui::modal_workspace(&app), None);
             assert!(crate::menus::modal_allows(&app, "select.all"), "{workspace}: menus are free again");
+            let listed = call(&mut app, &ctx, "ui.menu.list", json!({}));
+            assert!(listed["result"].as_array().unwrap().iter().any(|it| it["id"] == "select.all" && it["enabled"] == true), "{workspace}: listed as enabled again");
         }
         // engine.execute stays programmatic: it is not a menu click.
         assert_eq!(call(&mut app, &ctx, "ui.menu.invoke", json!({"id":"filter.liquify"}))["ok"], true);
