@@ -117,6 +117,8 @@ struct Clip {
 }
 
 pub struct VpSession {
+    /// Document this session belongs to (#5115).
+    pub document: DocId,
     pub layer: LayerId,
     canvas: Rect,
     /// The planes' corners; torn-off planes' are derived from their parents ([`Self::resolve`]).
@@ -200,6 +202,7 @@ impl VpSession {
             })
             .collect();
         json!({
+            "document": self.document.0,
             "layer": self.layer.0,
             "tool": self.tool,
             "planes": planes,
@@ -710,6 +713,7 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
         })
     });
     app.distort.vanishing = Some(VpSession {
+        document: st.doc.id,
         layer,
         canvas,
         planes: Vec::new(),
