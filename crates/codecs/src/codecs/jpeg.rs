@@ -149,9 +149,15 @@ fn data_end(b: &[u8]) -> (DataEnd, u64) {
     loop {
         let Some(&byte) = b.get(i) else { return cut(scan_data, scanned) };
         if byte != 0xFF {
-            // Not where a marker should be: too odd to judge. What the walk couldn't read may all
-            // be scan data, so it counts as such (padding before this point still doesn't).
-            return (DataEnd::Complete, scanned.saturating_add(u64::try_from(b.len().saturating_sub(i)).unwrap_or(u64::MAX)));
+            // Not where a marker should be: skip to the next one, as a lenient decoder does, so
+            // segments after the stray bytes (padding among them) are still recognised. The
+            // skipped bytes count as scan data; with no marker left, the file is too odd to judge.
+            let Some(p) = b.get(i..).and_then(|r| r.iter().position(|&v| v == 0xFF)) else {
+                return (DataEnd::Complete, scanned.saturating_add(u64::try_from(b.len().saturating_sub(i)).unwrap_or(u64::MAX)));
+            };
+            scanned = scanned.saturating_add(p as u64);
+            i += p;
+            continue;
         }
         let Some(&code) = b.get(i + 1) else { return cut(scan_data, scanned) };
         match code {
@@ -529,12 +535,20 @@ mod tests {
         huge[sof + 5..sof + 9].copy_from_slice(&[0x4E, 0x20, 0x4E, 0x20]);
         let e = crate::decode_as(Format::Jpeg, &huge).unwrap_err();
         assert!(e.to_string().contains("too short"), "{e}");
-        // A stray byte where a marker should be: the walk stops, and the rest counts.
-        let mut odd = full.clone();
+        // A stray byte where a marker should be, before the padding: the walk skips it and still
+        // recognises the padding, so an oversized frame is refused there too.
+        let mut odd = huge.clone();
         odd.insert(2, 0x00);
         let (end, scanned) = data_end(&odd);
         assert_eq!(end, DataEnd::Complete);
-        assert_eq!(scanned, (odd.len() - 2) as u64);
+        assert!(scanned < 1024, "the padding after a stray byte isn't scan data: {scanned}");
+        let e = crate::decode_as(Format::Jpeg, &odd).unwrap_err();
+        assert!(e.to_string().contains("too short"), "{e}");
+        // Bytes with no marker after them are too odd to judge: they all count.
+        let tail = [0x00u8; 4096];
+        let mut trailing = vec![0xFF, 0xD8];
+        trailing.extend_from_slice(&tail);
+        assert_eq!(data_end(&trailing), (DataEnd::Complete, tail.len() as u64));
     }
 
     /// CMYK JPEG output must omit JFIF while retaining Adobe's CMYK marker.
