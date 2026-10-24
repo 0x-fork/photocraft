@@ -214,7 +214,13 @@ impl<'a> InkStack<'a> {
                     }
                 }
                 Item::Adjust(op, opacity, mask) => {
+                    // The result is rounded to the document's levels, as the compositor and the
+                    // export path do after every adjustment layer, at any opacity (#9033).
+                    let quantum = crate::adjustment_quantum(self.depth);
                     if *opacity <= 0.0 {
+                        if let Some(q) = quantum {
+                            crate::cmyk::quantize_inks(acc, q);
+                        }
                         continue;
                     }
                     masked(*mask, mv);
@@ -227,6 +233,9 @@ impl<'a> InkStack<'a> {
                         for (c, v) in ink.iter().enumerate() {
                             d[c] += (v - d[c]) * mix;
                         }
+                    }
+                    if let Some(q) = quantum {
+                        crate::cmyk::quantize_inks(acc, q);
                     }
                 }
             }
