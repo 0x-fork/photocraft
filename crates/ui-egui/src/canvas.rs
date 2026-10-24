@@ -932,16 +932,30 @@ pub(crate) fn live_retouch_points(app: &PhotocraftApp) -> Option<Vec<photocraft_
     }
 }
 
-/// Offer the Clone Stamp's or History Brush's live stroke, with the drag points it hasn't rendered
-/// yet, to the command `retouch_ui::finish_stroke` commits, which then takes its pixels.
+/// Offer the Clone Stamp's or History Brush's live stroke, or a Dodge, Burn, Sponge, Blur, Sharpen
+/// or Smudge one, with the drag points it hasn't rendered yet, to the command
+/// `retouch_ui::finish_stroke` commits, which then takes its pixels instead of rendering the
+/// stroke again.
 fn offer_live_retouch(app: &mut PhotocraftApp, d: &Drag) {
-    if !matches!(d.tool, Tool::CloneStamp | Tool::HistoryBrush) {
+    let dab = crate::retouch_ui::dab_params(app, d.tool).is_some();
+    if !dab && !matches!(d.tool, Tool::CloneStamp | Tool::HistoryBrush) {
         return;
     }
-    let Some(LiveStroke { stroke: EngineStroke::Retouch(mut live), fed, .. }) = app.live_stroke.take() else { return };
+    let Some(LiveStroke { stroke, fed, .. }) = app.live_stroke.take() else { return };
     let rest: Vec<_> = d.points.get(fed..).unwrap_or_default().iter().map(|q| photocraft_engine::paint::StrokePoint::new(q[0], q[1], q[2] as f32)).collect();
-    if rest.is_empty() || live.push(&rest).is_ok() {
-        let _ = app.session.offer_live_retouch(live);
+    // A refused offer (the brush changed mid-stroke, say) leaves the commit to render the stroke.
+    match stroke {
+        EngineStroke::Retouch(mut live) if !dab => {
+            if rest.is_empty() || live.push(&rest).is_ok() {
+                let _ = app.session.offer_live_retouch(live);
+            }
+        }
+        EngineStroke::Dab(mut live) if dab => {
+            if rest.is_empty() || live.push(&rest).is_ok() {
+                let _ = app.session.offer_live_dab(live);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -6538,8 +6552,8 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
     {
         app.last_stroke_end = Some((st.doc.id, end));
     }
-    // A live Clone Stamp preview ends here; the commit below replaces it (the Clone Stamp's and
-    // History Brush's with the pixels it already drew).
+    // A live retouching preview ends here; the commit below replaces it (the Clone Stamp's,
+    // History Brush's and sequential-dab tools' with the pixels it already drew).
     offer_live_retouch(app, &d);
     if live_retouch_command(d.tool).is_some() || crate::retouch_ui::dab_params(app, d.tool).is_some() || d.tool == Tool::ColorReplacement {
         app.live_stroke = None;

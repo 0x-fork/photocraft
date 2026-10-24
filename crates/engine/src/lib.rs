@@ -715,6 +715,17 @@ impl Session {
         Ok(())
     }
 
+    /// [`Self::offer_live_stroke`] for a live Dodge, Burn, Sponge, Blur, Sharpen or Smudge stroke,
+    /// taken by the command it was drawn for: the stroke's finishing dabs are run first. Refused
+    /// when the brush, tool options or layer changed during the stroke.
+    pub fn offer_live_dab(&mut self, live: retouch_cmds::LiveDab) -> Result<()> {
+        // A refused offer withdraws the previous one too.
+        self.live_commit = None;
+        let commit = live.into_commit(self)?;
+        self.live_commit = Some(commit);
+        Ok(())
+    }
+
     /// Withdraw an offer the command didn't take.
     pub fn clear_live_stroke(&mut self) {
         self.live_commit = None;
