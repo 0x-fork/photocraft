@@ -46,11 +46,12 @@ echo "==> PhotoCraft $VERSION for FreeBSD $ARCH"
 
 # The release VM has 12 GB; full parallelism on the biggest crates runs it out of memory.
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
-# The man-and-completions example is built with the binaries: it writes photocraft-cli's man pages
-# and shell completions below.
+# The man-and-completions example writes photocraft-cli's man pages and shell completions below. It
+# is built in its own cargo run: built with the binaries, its dev-dependencies' features would be
+# unified into them.
 if [[ "$SKIP_BUILD" = 0 ]]; then
-  (cd "$ROOT" && cargo build --release --locked -p photocraft -p photocraft-cli --features heif \
-    --bins --example man-and-completions)
+  (cd "$ROOT" && cargo build --release --locked -p photocraft -p photocraft-cli --features heif --bins)
+  (cd "$ROOT" && cargo build --release --locked -p photocraft-cli --features heif --example man-and-completions)
 fi
 WORK="$CARGO_TARGET_DIR/freebsd-package"
 STAGE="$WORK/$BASENAME"
