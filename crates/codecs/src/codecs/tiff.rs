@@ -1719,7 +1719,10 @@ fn encode_ready(img: &Image, opts: &EncodeOptions) -> Result<Vec<u8>, CodecError
     if img.meta.extra_samples.len() > crate::MAX_EXTRA_SAMPLES {
         return Err(CodecError::encode(F, format!("TIFF stores at most {} extra samples", crate::MAX_EXTRA_SAMPLES)));
     }
-    // The planes must match the image actually written: the Lab path re-types it to 8 or 16 bits.
+    // Validate again in the sample type the planes now hold: `Image::convert` takes a plane's
+    // bytes before it rebuilds them, so one it could not rebuild would arrive here empty. The Lab
+    // path's later re-type through `lab_file` converts a plane only when its length already
+    // matches the image, which this guarantees.
     check_extra_planes(img)?;
     let mut kinds = Vec::with_capacity(img.meta.extra_samples.len().saturating_add(1));
     if img.layout().has_alpha() {
