@@ -257,6 +257,34 @@ enum ValueError {
     Bridge,
 }
 
+/// Why `parse` refuses `mcp` or `serve` options clap accepted: clap prints it as a usage error
+/// (exit 2).
+#[derive(Debug, thiserror::Error)]
+enum ServerOptionError {
+    /// PHOTOCRAFT_CONTROL_PORT holds a port, as for the desktop app's --control: only the flag
+    /// takes host:port.
+    #[error("invalid value '{0}' for 'PHOTOCRAFT_CONTROL_PORT': {bridge}", bridge = ValueError::Bridge)]
+    BridgeVar(String),
+    /// With --bridge the roots are the desktop process's to set: accepting them here promises
+    /// authority the bridge can't give (#8035).
+    #[error("configure automation roots on the desktop app; --automation-read-root and --automation-write-root require headless MCP mode")]
+    BridgeRoots,
+    /// A token flag without the bridge or port that reads it would be ignored (#8035).
+    #[error("{flag} requires {transport}")]
+    NeedsTransport { flag: &'static str, transport: &'static str },
+}
+
+impl ServerOptionError {
+    fn into_clap(self, cmd: &mut clap::Command) -> clap::Error {
+        let kind = match self {
+            Self::BridgeVar(_) => ErrorKind::ValueValidation,
+            Self::BridgeRoots => ErrorKind::ArgumentConflict,
+            Self::NeedsTransport { .. } => ErrorKind::MissingRequiredArgument,
+        };
+        cmd.error(kind, self)
+    }
+}
+
 fn tga_bits(s: &str) -> Result<TgaBits, ValueError> {
     s.parse().ok().and_then(TgaBits::from_bits).ok_or(ValueError::TgaBits)
 }
@@ -350,12 +378,10 @@ pub(crate) fn parse(args: &[OsString]) -> Result<Cli, clap::Error> {
         (Command::Run(r), Some((_, m))) => r.steps = steps(m),
         (Command::Mcp(a), Some((name, m))) => {
             a.bridge_from_env = from_env(m, "bridge");
-            // The variable holds a port, as for the desktop app's --control: only the flag takes
-            // host:port, which `bridge` lets through.
             if a.bridge_from_env
                 && let Some(Bridge::Addr(v)) = &a.bridge
             {
-                return Err(cmd.error(ErrorKind::ValueValidation, format!("invalid value '{v}' for 'PHOTOCRAFT_CONTROL_PORT': {}", ValueError::Bridge)));
+                return Err(ServerOptionError::BridgeVar(v.clone()).into_clap(&mut cmd));
             }
             if let Some(sub) = cmd.find_subcommand_mut(name) {
                 // Only the bridge reads a token, so a stale exported pair doesn't stop a headless
@@ -369,10 +395,8 @@ pub(crate) fn parse(args: &[OsString]) -> Result<Cli, clap::Error> {
                     conflict(sub, m, "automation_read_root", "bridge")?;
                     conflict(sub, m, "automation_write_root", "bridge")?;
                 }
-                // With --bridge they are the desktop process's to set: accepting them here promises
-                // authority the bridge can't give (#8035).
                 if a.bridge.is_some() && (a.automation.automation_read_root.is_some() || a.automation.automation_write_root.is_some()) {
-                    return Err(sub.error(ErrorKind::ArgumentConflict, BRIDGE_ROOTS));
+                    return Err(ServerOptionError::BridgeRoots.into_clap(sub));
                 }
                 check_server(sub, m, a.bridge.is_some(), "--bridge")?;
             }
@@ -392,15 +416,12 @@ pub(crate) fn parse(args: &[OsString]) -> Result<Cli, clap::Error> {
     Ok(cli)
 }
 
-const BRIDGE_ROOTS: &str = "configure automation roots on the desktop app; --automation-read-root and --automation-write-root require headless MCP mode";
-
-/// Refuse `mcp` and `serve` launch options that would otherwise be silently ignored (#8035): a
-/// token flag without the bridge or port that reads it (as a flag or its variable). A token
-/// variable alone may be a stale export, so it isn't refused.
-fn check_server(sub: &mut clap::Command, m: &ArgMatches, has_transport: bool, transport: &str) -> Result<(), clap::Error> {
+/// Refuse a token flag without the bridge or port that reads it (as a flag or its variable). A
+/// token variable alone may be a stale export, so it isn't refused.
+fn check_server(sub: &mut clap::Command, m: &ArgMatches, has_transport: bool, transport: &'static str) -> Result<(), clap::Error> {
     for (id, flag) in [("control_token", "--control-token"), ("control_token_file", "--control-token-file")] {
         if m.value_source(id) == Some(ValueSource::CommandLine) && !has_transport {
-            return Err(sub.error(ErrorKind::MissingRequiredArgument, format!("{flag} requires {transport}")));
+            return Err(ServerOptionError::NeedsTransport { flag, transport }.into_clap(sub));
         }
     }
     Ok(())
