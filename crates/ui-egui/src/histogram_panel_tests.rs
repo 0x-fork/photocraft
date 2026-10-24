@@ -251,10 +251,12 @@ fn every_view_and_channel_draws_without_panicking() {
         settle(&mut app);
         for view in [HistView::Compact, HistView::Expanded, HistView::AllChannels] {
             for channel in [HistChannel::Composite, HistChannel::Red, HistChannel::Cyan, HistChannel::A, HistChannel::Luminosity, HistChannel::Colors] {
-                app.ui.histogram_panel.view = view;
-                app.ui.histogram_panel.channel = channel;
-                app.ui.histogram_range = Some([200, 10]);
-                frame(&mut app);
+                for range in [[200, 10], [0, 255]] {
+                    app.ui.histogram_panel.view = view;
+                    app.ui.histogram_panel.channel = channel;
+                    app.ui.histogram_range = Some(range);
+                    frame(&mut app);
+                }
             }
         }
         assert!(inspect(&app)["stats"]["count"].is_u64(), "{mode}: the range has a count");

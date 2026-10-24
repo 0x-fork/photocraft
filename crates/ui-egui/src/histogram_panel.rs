@@ -371,7 +371,8 @@ pub fn update(app: &mut PhotocraftApp, ctx: &egui::Context) {
         match rx.try_recv() {
             Ok((key, ms, hist)) => {
                 app.perf.span("histogram", ms);
-                let entry = PanelHist { key, at: crate::gpu_canvas::now_ms(), hist };
+                // egui's clock works on every target; `gpu_canvas::now_ms` is always 0 on wasm32.
+                let entry = PanelHist { key, at: ctx.input(|i| i.time) * 1000.0, hist };
                 if key.preview == 0 {
                     app.doc_hist = Some(entry);
                 } else {
@@ -407,7 +408,7 @@ pub fn update(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ctx.request_repaint_after(std::time::Duration::from_millis(30));
         return;
     }
-    let now = crate::gpu_canvas::now_ms();
+    let now = ctx.input(|i| i.time) * 1000.0;
     let due = |e: &Option<PanelHist>| e.as_ref().is_none_or(|e| e.key.doc != want.committed.doc || now - e.at > 250.0);
     let stale = |e: &Option<PanelHist>, k: &HistKey| e.as_ref().is_none_or(|e| e.key != *k);
     // An Uncached Refresh is asked for, so it doesn't wait out the throttle.
@@ -622,7 +623,7 @@ fn graph(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &Shown, channel: HistCha
     // The selected range behind the bars.
     if let Some([a, b]) = app.ui.histogram_range {
         let (lo, hi) = (a.min(b), a.max(b));
-        let band = Rect::from_x_y_ranges(r.left() + f32::from(lo) / 256.0 * r.width()..=r.left() + f32::from(hi + 1) / 256.0 * r.width(), r.y_range());
+        let band = Rect::from_x_y_ranges(r.left() + f32::from(lo) / 256.0 * r.width()..=r.left() + (f32::from(hi) + 1.0) / 256.0 * r.width(), r.y_range());
         p.rect_filled(band, 0.0, t.accent.gamma_multiply(0.35));
     }
     draw_channel(&p, r, &s.hist, s.mode, channel, colored, &t);
