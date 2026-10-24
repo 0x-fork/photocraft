@@ -319,15 +319,28 @@ fn a_listing_during_an_autosave_sees_the_entry_exactly_once() {
     let writer = {
         let (dir, done) = (dir.clone(), done.clone());
         std::thread::spawn(move || {
+            // Sets `done` however the thread ends, so a failing writer stops the listing loop
+            // and `join` reports its panic instead of the test hanging.
+            struct SetOnDrop(Arc<std::sync::atomic::AtomicBool>);
+            impl Drop for SetOnDrop {
+                fn drop(&mut self) {
+                    self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+            let _done = SetOnDrop(done);
             let saver = Autosaver::new(&dir, "busy");
             for revision in 2..=200 {
                 saver.request(Arc::new(doc.clone()), revision, None, SaveOptions::default());
                 // Wait for this write, so every revision replaces the sidecar once.
-                while saver.take_completed().is_empty() {
+                let completed = loop {
+                    let completed = saver.take_completed();
+                    if !completed.is_empty() {
+                        break completed;
+                    }
                     std::thread::yield_now();
-                }
+                };
+                assert!(completed.iter().all(|(_, result)| result.is_ok()), "revision {revision}: {completed:?}");
             }
-            done.store(true, std::sync::atomic::Ordering::SeqCst);
             saver.flush()
         })
     };
