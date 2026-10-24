@@ -21,6 +21,10 @@ use crate::psd_import::REGENERATED;
 const RASTER_STALE_KEYS: [&[u8; 4]; 8] = [b"SoCo", b"GdFl", b"PtFl", b"SoLd", b"PlLd", b"SoLE", b"TySh", b"vscg"];
 
 const PSD_MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+/// Most bytes of one layer's interleaved samples the exporter gathers. The interleaved bytes and
+/// the channel planes made from them (or the band parts and the joined buffer) are alive together,
+/// so the peak is about twice this; it is also what fits in a file of at most [`PSD_MAX_FILE_SIZE`].
+const MAX_LAYER_GATHER_BYTES: u64 = if cfg!(target_pointer_width = "64") { 1 << 30 } else { 256 << 20 };
 const PSD_ESTIMATE_FIXED_OVERHEAD: u64 = 1024 * 1024;
 const PSD_ESTIMATE_LAYER_OVERHEAD: u64 = 64 * 1024;
 
@@ -380,6 +384,13 @@ impl Ex {
         };
         let r = s.content_bounds();
         if r.is_empty() {
+            return (PsdRect::default(), self.empty_channels(), warnings);
+        }
+        // A layer record is one dense rectangle, so a few pixels far apart make a box of mostly
+        // nothing, gathered and then copied again. Past the cap the layer is saved empty, said so.
+        let dense = u64::from(r.width()).saturating_mul(u64::from(r.height())).saturating_mul(s.format().bytes_per_pixel() as u64);
+        if dense > MAX_LAYER_GATHER_BYTES {
+            warnings.push(format!("layer \"{name}\" spans {}×{} px, too large to write: saved without its pixels", r.width(), r.height()));
             return (PsdRect::default(), self.empty_channels(), warnings);
         }
         // The interleaved gather is the sequential pass for full-canvas layers, so it runs
