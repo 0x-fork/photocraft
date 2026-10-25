@@ -1216,6 +1216,17 @@ pub fn build_txt2_at(objects: &[(i32, &TextLayer)], previous: Option<&[u8]>, dpi
     // The frame each written object is drawn in, with its layer's shape (type on a path lives
     // only in the frame, #7962).
     let mut frame_shapes: Vec<(usize, &TextShape)> = Vec::new();
+    // A new or rebuilt object must not be drawn in a frame another object is drawn in: the two
+    // layers would share one shape. The frames the file's objects name are taken; a free one is
+    // found past the frame list and the slots (`pad_frames` adds it).
+    let frame_count = prev.as_ref().and_then(|p| p.path(&["0", "8", "0"])).and_then(E::as_array).map(<[E]>::len);
+    let mut taken: std::collections::HashSet<usize> = prev_objects.iter().filter_map(|o| object_frame(o, true)).collect();
+    let slot_count =
+        objects.iter().filter_map(|(i, _)| usize::try_from(*i).ok().filter(|_| (0..=MAX_TEXT_INDEX).contains(i))).map(|i| i + 1).max().unwrap_or(0);
+    let mut next_free = frame_count.unwrap_or(0).max(prev_objects.len()).max(slot_count);
+    // The frame list grows only for the frames handed out here, never for a frame number an
+    // object the file kept names past its list.
+    let mut frames_needed = 0usize;
     for (index, layer) in objects {
         if !(0..=MAX_TEXT_INDEX).contains(index) {
             continue;
@@ -1251,8 +1262,28 @@ pub fn build_txt2_at(objects: &[(i32, &TextLayer)], previous: Option<&[u8]>, dpi
         // A new object (#7698): a layer the file's block has no object for (a type layer added
         // here) takes the shape of one of the file's own objects, refitted the same way, with its
         // view naming its own frame. A bare stub beside Photoshop's objects, its slot without a
-        // frame in `/0 /8 /0`, made Photoshop and Photopea refuse the file.
-        let fresh = (kept.is_none() && edited.is_none()).then(|| template.and_then(|t| new_object(t, at, &text))).flatten();
+        // frame in `/0 /8 /0`, made Photoshop and Photopea refuse the file. A slot whose object
+        // can't be refitted keeps the frame that object was drawn in.
+        let fresh = (kept.is_none() && edited.is_none())
+            .then(|| {
+                let template = template?;
+                let own = slot.and_then(|o| object_frame(o, true)).filter(|f| frame_count.is_some_and(|n| *f < n));
+                let frame = match own {
+                    Some(f) => f,
+                    None if frame_count.is_some() && taken.contains(&at) => {
+                        while taken.contains(&next_free) {
+                            next_free += 1;
+                        }
+                        if next_free > MAX_TEXT_INDEX as usize { at } else { next_free }
+                    }
+                    None => at,
+                };
+                let object = new_object(template, frame, &text)?;
+                taken.insert(frame);
+                frames_needed = frames_needed.max(frame.saturating_add(1));
+                Some(object)
+            })
+            .flatten();
         let reuse = kept.is_some() || edited.is_some();
         let unchanged = kept.is_some();
         let mut object = kept.cloned().or(edited).or(fresh).unwrap_or_else(E::dict);
@@ -1295,11 +1326,19 @@ pub fn build_txt2_at(objects: &[(i32, &TextLayer)], previous: Option<&[u8]>, dpi
     // The outer dictionary keeps whatever the block held (`/98` version, block extras, …), and
     // `/1` whatever it holds beside the text objects.
     let mut outer = prev.clone().unwrap_or_else(|| E::Dict(vec![("98".into(), E::Dict(vec![("0".into(), E::Int(14))])), ("0".into(), E::dict())]));
-    pad_frames(&mut outer, slots.len());
+    pad_frames(&mut outer, slots.len().max(frames_needed));
     // A path layer's frame holds its path; a layer taken off its path loses its path frame. An
-    // unchanged path leaves the file's frame as it was.
+    // unchanged path leaves the file's frame as it was, and so does a frame the file already had
+    // more than one object drawn in (which layer's shape it should hold is unknown).
+    let mut claims: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for (at, _) in &frame_shapes {
+        *claims.entry(*at).or_default() += 1;
+    }
     if let Some(E::Array(frames)) = outer.get_mut("0").and_then(|v| v.get_mut("8")).and_then(|v| v.get_mut("0")) {
         for (at, shape) in frame_shapes {
+            if claims.get(&at) != Some(&1) {
+                continue;
+            }
             if let Some(entry) = frames.get_mut(at) {
                 crate::psd_path::update_frame(entry, shape);
             }

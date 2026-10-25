@@ -406,23 +406,32 @@ mod tests {
 
     /// [`photoshop_txt2`] with the frame list entry `frame`.
     fn photoshop_txt2_in(text: &str, frame: E) -> Vec<u8> {
+        photoshop_txt2_of(vec![photoshop_object(text, 0)], vec![frame])
+    }
+
+    /// A Photoshop-shaped `Txt2` block holding `objects` and the frame list `frames`.
+    fn photoshop_txt2_of(objects: Vec<E>, frames: Vec<E>) -> Vec<u8> {
+        crate::engine_data::write_bare(&[
+            ("98".into(), d(vec![("0", E::Int(14))])),
+            ("0".into(), d(vec![("8", d(vec![("0", E::Array(frames))]))])),
+            ("1".into(), d(vec![("1", E::Array(objects))])),
+        ])
+    }
+
+    /// A Photoshop-shaped text object for `text` drawn in frame `at`.
+    fn photoshop_object(text: &str, at: i64) -> E {
         let len = text.encode_utf16().count() as i64;
         let run = || {
             d(vec![("0", d(vec![("0", d(vec![("0", E::String(String::new())), ("6", d(vec![("0", E::Int(0)), ("1", E::Real(12.0))]))]))])), ("1", E::Int(len))])
         };
         let model = d(vec![("0", E::String(text.into())), ("5", d(vec![("0", E::Array(vec![run()]))])), ("6", d(vec![("0", E::Array(vec![run()]))]))]);
-        let strike = d(vec![("99", E::Name("PC".into())), ("6", E::Array(vec![d(vec![("99", E::Name("F".into())), ("10", E::Int(0))])]))]);
+        let strike = d(vec![("99", E::Name("PC".into())), ("6", E::Array(vec![d(vec![("99", E::Name("F".into())), ("10", E::Int(at))])]))]);
         let view = d(vec![
-            ("0", E::Array(vec![d(vec![("0", E::Int(0))])])),
+            ("0", E::Array(vec![d(vec![("0", E::Int(at))])])),
             ("1", d(vec![("0", E::Array(vec![d(vec![("0", d(vec![("1", E::Int(1))])), ("1", E::Int(len))])]))])),
             ("2", E::Array(vec![strike])),
         ]);
-        let object = d(vec![("0", model), ("1", view)]);
-        crate::engine_data::write_bare(&[
-            ("98".into(), d(vec![("0", E::Int(14))])),
-            ("0".into(), d(vec![("8", d(vec![("0", E::Array(vec![frame]))]))])),
-            ("1".into(), d(vec![("1", E::Array(vec![object]))])),
-        ])
+        d(vec![("0", model), ("1", view)])
     }
 
     fn layer(text: &str, shape: TextShape) -> photocraft_doc::TextLayer {
@@ -534,5 +543,99 @@ mod tests {
             update_frame(&mut entry, &shape);
             assert_eq!(entry, before, "{shape:?}");
         }
+    }
+
+    /// The frame number the object at `index` of the saved `txt2` names, and that frame.
+    fn saved_frame(txt2: &[u8], index: usize) -> (i64, E) {
+        let t = crate::psd::parse_txt2(txt2).unwrap();
+        let object = &t.path(&["1", "1"]).and_then(E::as_array).unwrap()[index];
+        let at = object.path(&["1", "0"]).and_then(E::as_array).unwrap()[0].get("0").and_then(E::as_i64).unwrap();
+        (at, t.path(&["0", "8", "0"]).and_then(E::as_array).unwrap()[at as usize].clone())
+    }
+
+    /// An edited layer whose object the save can't refit keeps drawing in that object's own frame,
+    /// not in the frame its slot number names, which is the path layer's here.
+    #[test]
+    fn an_object_rebuilt_from_a_template_keeps_its_own_frame() {
+        let circle = read(&frame(CIRCLE)).unwrap();
+        let on_path = layer("On a circle", TextShape::Path { path: circle, start: 0.0, flip: false });
+        // Object 1's style run has a length that is no count, so it can't be refitted.
+        let mut broken = photoshop_object("Old\r", 0);
+        let run = d(vec![("0", d(vec![("0", d(vec![("0", E::String(String::new()))]))])), ("1", E::String("x".into()))]);
+        broken.get_mut("0").unwrap().set("6", d(vec![("0", E::Array(vec![run]))]));
+        let path_frame = E::Dict(vec![("0".into(), frame(CIRCLE))]);
+        let prev = photoshop_txt2_of(vec![photoshop_object("On a circle\r", 1), broken], vec![point_frame(), path_frame.clone()]);
+        let (txt2, back) = save_and_open(&[&on_path, &layer("New", TextShape::Point)], &prev);
+        assert_eq!(saved_frame(&txt2, 1).0, 0, "the rebuilt object draws in its own frame");
+        assert_eq!(saved_frame(&txt2, 0), (1, path_frame));
+        assert_eq!(back[0].1, Ok(true));
+        assert!(matches!(back[0].0.shape, TextShape::Path { .. }), "{:?}", back[0].0.shape);
+    }
+
+    /// A new layer whose slot number is the frame another object is drawn in gets a frame of its
+    /// own: neither layer takes the other's shape, on this save or the next.
+    #[test]
+    fn a_new_object_gets_a_frame_no_other_object_is_drawn_in() {
+        let circle = read(&frame(CIRCLE)).unwrap();
+        let on_path = layer("On a circle", TextShape::Path { path: circle, start: 0.0, flip: false });
+        let path_frame = E::Dict(vec![("0".into(), frame(CIRCLE))]);
+        let prev = photoshop_txt2_of(vec![photoshop_object("On a circle\r", 1)], vec![point_frame(), path_frame.clone()]);
+        let new = layer("New", TextShape::Point);
+        let (txt2, back) = save_and_open(&[&on_path, &new], &prev);
+        assert_eq!(saved_frame(&txt2, 1), (2, point_frame()), "a frame past the file's own");
+        assert_eq!(saved_frame(&txt2, 0), (1, path_frame));
+        assert_eq!(back[0].1, Ok(true));
+        assert_eq!((&back[1].1, &back[1].0.shape), (&Ok(false), &TextShape::Point));
+        // The path layer taken off its path on the next save loses its path frame.
+        let (again, _) = save_and_open(&[&layer("On a circle", TextShape::Point), &new], &txt2);
+        assert_eq!(saved_frame(&again, 0), (1, point_frame()));
+    }
+
+    /// A rebuilt object whose old frame number is past the frame list doesn't name a frame the
+    /// block lacks (Photoshop refuses such files, #7698).
+    #[test]
+    fn a_rebuilt_object_never_names_a_missing_frame() {
+        let mut broken = photoshop_object("Old\r", 70_000);
+        let run = d(vec![("0", d(vec![("0", d(vec![("0", E::String(String::new()))]))])), ("1", E::String("x".into()))]);
+        broken.get_mut("0").unwrap().set("6", d(vec![("0", E::Array(vec![run]))]));
+        let path_frame = E::Dict(vec![("0".into(), frame(CIRCLE))]);
+        let prev = photoshop_txt2_of(vec![photoshop_object("On a circle\r", 1), broken], vec![point_frame(), path_frame.clone()]);
+        let on_path = layer("On a circle", TextShape::Path { path: read(&frame(CIRCLE)).unwrap(), start: 0.0, flip: false });
+        let (txt2, _) = save_and_open(&[&on_path, &layer("New", TextShape::Point)], &prev);
+        assert_eq!(saved_frame(&txt2, 1), (2, point_frame()));
+        assert_eq!(saved_frame(&txt2, 0), (1, path_frame));
+    }
+
+    /// An object the file keeps that names a frame past the frame list doesn't grow the list (to
+    /// 65536 point frames here).
+    #[test]
+    fn a_kept_object_naming_a_far_frame_adds_no_frames() {
+        let prev = photoshop_txt2_of(vec![photoshop_object("Far\r", crate::psd::MAX_TEXT_INDEX.into())], vec![point_frame()]);
+        let out = crate::psd::parse_txt2(&crate::psd::build_txt2(&[(0, &layer("Far", TextShape::Point))], Some(&prev))).unwrap();
+        assert_eq!(out.path(&["0", "8", "0"]).and_then(E::as_array).map(<[E]>::len), Some(1));
+    }
+
+    /// A frame the file already has two objects drawn in is left as the file has it, not given
+    /// the shape of whichever layer comes last.
+    #[test]
+    fn a_frame_two_objects_name_is_kept() {
+        let circle = read(&frame(CIRCLE)).unwrap();
+        let on_path = layer("On a circle", TextShape::Path { path: circle, start: 0.0, flip: false });
+        let path_frame = E::Dict(vec![("0".into(), frame(CIRCLE))]);
+        let objects = vec![photoshop_object("On a circle\r", 1), photoshop_object("Point\r", 1)];
+        let prev = photoshop_txt2_of(objects, vec![point_frame(), path_frame.clone()]);
+        let (txt2, _) = save_and_open(&[&on_path, &layer("Point", TextShape::Point)], &prev);
+        assert_eq!(saved_frame(&txt2, 0), (1, path_frame));
+        assert_eq!(saved_frame(&txt2, 1).0, 1);
+    }
+
+    /// Area type's frame becomes a text box over its path's bounds, as its EngineData describes it.
+    #[test]
+    fn an_area_layer_gets_a_box_frame() {
+        let square =
+            photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polygon(&[(10.0, 20.0), (50.0, 20.0), (50.0, 80.0), (10.0, 80.0)])]);
+        let mut entry = E::Dict(vec![("0".into(), frame(CIRCLE))]);
+        update_frame(&mut entry, &TextShape::Area { path: square });
+        assert_eq!(entry, box_frame(10.0, 20.0, 40.0, 60.0));
     }
 }
