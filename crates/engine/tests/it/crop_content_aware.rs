@@ -173,24 +173,25 @@ fn hidden_red(background: &str) -> Session {
 
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 
-/// A frame pulled back out over pixels a Delete Cropped Pixels off crop hid keeps them: only what
-/// lies past them is filled (#8060). Before, the whole strip past the old canvas was filled over.
+/// A straight frame pulled back out over pixels a Delete Cropped Pixels off crop hid fills over
+/// them from the canvas, as Photoshop does with Delete Cropped Pixels off or on (#8060).
 #[test]
-fn extending_crop_keeps_the_hidden_pixels() {
-    let mut s = hidden_red("transparent");
-    let green = layer(&s).rgba(24, 24);
-    crop(&mut s, json!({"x": -24, "y": 0, "width": 72, "height": 48, "deleteCroppedPixels": false}), true).unwrap();
-    assert_eq!(size(&s), (72, 48));
-    let surf = layer(&s);
-    for y in 0..48 {
-        for x in 8..24 {
-            assert_eq!(surf.rgba(x, y), RED, "the hidden red at ({x}, {y}) is kept");
+fn extending_crop_fills_over_the_hidden_pixels() {
+    for background in ["transparent", "white"] {
+        for delete in [false, true] {
+            let mut s = hidden_red(background);
+            let green = layer(&s).rgba(24, 24);
+            crop(&mut s, json!({"x": -24, "y": 0, "width": 72, "height": 48, "deleteCroppedPixels": delete}), true).unwrap();
+            assert_eq!(size(&s), (72, 48));
+            let surf = layer(&s);
+            for y in 0..48 {
+                for x in 0..24 {
+                    let px = surf.rgba(x, y);
+                    assert!(close(px, green, 0.06), "{background} delete {delete}: ({x}, {y}) is filled from the canvas, not the hidden red: {px:?}");
+                }
+                assert!(close(surf.rgba(40, y), green, 1e-6), "{background} delete {delete}: the canvas is unchanged");
+            }
         }
-        for x in 0..8 {
-            let px = surf.rgba(x, y);
-            assert!(px[3] > 0.99, "past the hidden pixels ({x}, {y}) is filled: {px:?}");
-        }
-        assert!(close(surf.rgba(40, y), green, 1e-6), "the canvas is unchanged");
     }
 }
 

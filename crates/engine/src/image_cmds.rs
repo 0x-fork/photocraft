@@ -609,11 +609,11 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
     let extension = s.tools.background;
     s.edit("Crop", |doc, active| {
         let original = doc.size;
-        // Taken before the crop: the pixels a Delete Cropped Pixels off crop hid count as image (#8060).
-        let coverage = content_aware.then(|| crate::crop_fill::Coverage::crop(r, original.width, original.height).holding(doc, *active));
         crop_doc(doc, "image.crop", r, delete, extension)?;
-        if let Some(coverage) = &coverage {
-            crate::crop_fill::fill_uncovered(doc, *active, coverage)?;
+        // A straight crop fills all of the area past the old canvas, pixels an earlier Delete Cropped
+        // Pixels off crop hid there included, as Photoshop does; only a turned frame keeps them (#8060).
+        if content_aware {
+            crate::crop_fill::fill_uncovered(doc, *active, &crate::crop_fill::Coverage::crop(r, original.width, original.height))?;
         }
         doc.selection = None;
         target.apply(doc);
@@ -773,7 +773,8 @@ fn rotated_crop(s: &mut Session, r: Rect, angle: f64, delete: bool, content_awar
         rotated: true,
         held: None,
     };
-    // The pixels before the turn: a Delete Cropped Pixels off crop's hidden ones count as image (#8060).
+    // The pixels before the turn: under a turned frame a Delete Cropped Pixels off crop's hidden ones
+    // count as image, as in Photoshop (a straight crop fills over them) (#8060).
     let coverage = if content_aware {
         let d = s.active().ok_or(EngineError::NoDocument)?;
         coverage.holding(&d.doc, d.active_layer)
