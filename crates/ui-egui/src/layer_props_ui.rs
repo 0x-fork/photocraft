@@ -48,7 +48,7 @@ fn edit_tolerance(layer: &Layer, u: LenUnit, extent: f64) -> f32 {
 
 /// A number field that reports a value once committed (drag released, Enter, focus lost). `label` is its own
 /// label and the one stacked with it in the same column ("W" over "X"), which share a centre.
-/// `len` is the unit shown and its 100% extent (for percent).
+/// `len` is the unit shown and its 100% extent (for percent); `name` is the field's accessible name.
 // The explicit accessible name accompanies the existing numeric-field parameters.
 #[expect(clippy::too_many_arguments)]
 fn field(ui: &mut egui::Ui, id: &str, label: (&str, &str), name: &str, current: f32, width: f32, len: (LenUnit, f64), tol: f32) -> Option<f32> {

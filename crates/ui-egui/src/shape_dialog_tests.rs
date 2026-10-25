@@ -157,7 +157,11 @@ fn radius_fields_are_named_for_their_corners() {
     // The visible rows are [top-left, top-right], [bottom-left, bottom-right]; the field for each
     // radius index must carry its own corner name (a permutation would still pass a set check).
     let corners: Vec<&str> = labels.iter().map(String::as_str).filter(|label| !matches!(*label, "Width:" | "Height:")).collect();
-    assert_eq!(corners, vec!["Top Left", "Top Right", "Bottom Left", "Bottom Right"], "radius fields name their corner in layout order: {labels:?}");
+    assert_eq!(
+        corners,
+        vec!["Top Left Radius:", "Top Right Radius:", "Bottom Left Radius:", "Bottom Right Radius:"],
+        "radius fields name their corner in layout order: {labels:?}"
+    );
     assert!(!labels.iter().any(|label| label == "Radius:"), "the generic name would leave the corners indistinguishable");
 }
 

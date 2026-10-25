@@ -873,11 +873,11 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
         fonts.families.entry(FontFamily::Monospace).or_default().insert(0, mono);
     }
     // The optional craft-fonts input carries Japanese, Simplified Chinese, Korean, Arabic, Thai and
-    // other faces. `cjk_fonts` installs a per-character font provider for them, so a broad
-    // Simplified Chinese face is not put in the family stack ahead of the Japanese or Korean face,
-    // and a locale without a Traditional Chinese craft face leaves Han to the system font. (A
-    // single linear per-family chain still decides a glyph once a broad face is discovered; see
-    // `cjk_fonts`.)
+    // other faces. They are not registered into this static stack: `cjk_fonts` installs a
+    // per-character font provider for them, so a broad Simplified Chinese face is not put in the
+    // family stack ahead of the Japanese or Korean face, and a locale without a Traditional Chinese
+    // craft face leaves Han to the system font. (A single linear per-family chain still decides a
+    // glyph once a broad face is discovered; see `cjk_fonts`.)
     // Named weights fall back to the default stack for missing glyphs.
     let fallback: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     for (fam, primary) in [("medium", medium), ("semibold", semibold)] {

@@ -145,6 +145,9 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
             edit = Some(json!({"layer": layer.id.0, "preset": preset}));
         }
     });
+    // W/H use a short visible label but the full word as the accessible name (a screen reader
+    // says "Width", not "W"); X/Y already name their axis, so their name comes from the call site
+    // too.
     let num = |ui: &mut egui::Ui, label: &str, name: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>| -> bool {
         ui.label(egui::RichText::new(tl!(&label)).color(t.text_dim).size(12.0));
         crate::widgets::value_field(ui, v, range, "px", 64.0).accessible_name(name).changed()
