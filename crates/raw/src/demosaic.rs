@@ -811,7 +811,11 @@ mod tests {
                     let mut want = vec![0.0f32; w * h * 3];
                     ahd_ref(&p, phase, &m, &mut want, jobs);
                     let got = demosaic(&p, phase, Demosaic::Ahd, &m, jobs);
-                    assert_eq!(want.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), "{w}x{h} {phase:?} {jobs}");
+                    assert_eq!(
+                        want.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                        got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                        "{w}x{h} {phase:?} {jobs}"
+                    );
                 }
             }
         }
