@@ -244,6 +244,11 @@ pub(crate) struct Opcodes {
     pub skipped: Vec<String>,
 }
 
+/// The most MapPolynomial opcodes kept from one list. Real files carry one per plane; every
+/// polynomial is checked for every sample, so a crafted list of thousands would hang the open.
+/// Those past the cap are named as not applied.
+const MAX_POLYNOMIALS: usize = 64;
+
 /// Parses an opcode list.
 pub(crate) fn parse(list: &[u8]) -> Opcodes {
     let mut out = Opcodes::default();
@@ -255,7 +260,7 @@ pub(crate) fn parse(list: &[u8]) -> Opcodes {
         let Some(params) = list.get(start..start.saturating_add(size as usize)) else { break };
         let applied = match id {
             9 => gain_map(params).map(|m| out.gain_maps.push(m)).is_some(),
-            8 => map_polynomial(params).map(|p| out.polynomials.push(p)).is_some(),
+            8 if out.polynomials.len() < MAX_POLYNOMIALS => map_polynomial(params).map(|p| out.polynomials.push(p)).is_some(),
             _ => false,
         };
         if !applied {
@@ -355,6 +360,13 @@ mod tests {
             assert!(ops.polynomials.is_empty());
             assert_eq!(ops.skipped, vec!["MapPolynomial".to_string()]);
         }
+    }
+
+    #[test]
+    fn map_polynomials_past_the_cap_are_named_not_applied() {
+        let ops = parse(&list(&vec![(8, polynomial_params(1, 1, &[0.0, 1.0])); MAX_POLYNOMIALS + 1]));
+        assert_eq!(ops.polynomials.len(), MAX_POLYNOMIALS);
+        assert_eq!(ops.skipped, vec!["MapPolynomial".to_string()]);
     }
 
     #[test]

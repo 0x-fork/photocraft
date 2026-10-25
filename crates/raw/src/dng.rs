@@ -234,7 +234,7 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
     // Floating-point levels are in the floats' units: scale them as the samples were.
     let unit = plane.float_scale.unwrap_or(1.0);
     let wl = t.tag_floats(&raw, tag::WHITE_LEVEL);
-    let white = [0, 1, 2].map(|s| wl.get(s).or_else(|| wl.first()).map(|v| *v as f32 * unit).filter(|v| *v > 0.0).unwrap_or(white_default));
+    let white = [0, 1, 2].map(|s| wl.get(s).or_else(|| wl.first()).map(|v| *v as f32 * unit).filter(|v| v.is_finite() && *v > 0.0).unwrap_or(white_default));
 
     let (rows, cols) = match t.tag_uints(&raw, tag::BLACK_LEVEL_REPEAT_DIM).as_slice() {
         [r, c] if (1..=16).contains(r) && (1..=16).contains(c) => (*r as usize, *c as usize),

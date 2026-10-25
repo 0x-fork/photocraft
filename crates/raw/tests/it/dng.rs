@@ -850,6 +850,57 @@ fn a_jpeg_xl_preview_that_does_not_decode_gives_way_to_a_smaller_one() {
     assert_eq!(p.rgb, small);
 }
 
+/// Only a rendered RGB picture is a preview: a reduced-resolution LinearRaw image (NewSubFileType 1,
+/// three samples, JPEG XL) holds undeveloped sensor data, so the RGB one is used even when smaller.
+#[test]
+fn a_reduced_resolution_linear_raw_is_not_a_jpeg_xl_preview() {
+    use photocraft_raw::testgen::TiffBuilder;
+    let mut t = TiffBuilder::default();
+    let mut ifd = |w: usize, h: usize, photometric: u16, data: &[u16]| {
+        let stream = jxl(data, w, h, 3, 8);
+        let len = stream.len() as u32;
+        let strip = t.blob(stream);
+        t.ifd(vec![
+            (254, Val::Long(vec![1])),
+            (256, Val::Long(vec![w as u32])),
+            (257, Val::Long(vec![h as u32])),
+            (258, Val::Short(vec![8, 8, 8])),
+            (259, Val::Short(vec![52546])),
+            (262, Val::Short(vec![photometric])),
+            (273, Val::Blobs(vec![strip])),
+            (277, Val::Short(vec![3])),
+            (278, Val::Long(vec![h as u32])),
+            (279, Val::Long(vec![len])),
+        ])
+    };
+    let small = noise(20 * 15 * 3, 8);
+    let linear_raw = ifd(40, 30, 34892, &noise(40 * 30 * 3, 8));
+    let rgb = ifd(20, 15, 2, &small);
+    let ifd0 = t.ifd(vec![(254, Val::Long(vec![1])), (330, Val::Ifds(vec![linear_raw, rgb])), (50706, Val::Byte(vec![1, 7, 0, 0]))]);
+    t.chain = vec![ifd0];
+    let p = embedded_jxl_preview(&t.build(), &Limits::default()).expect("the 20×15 RGB preview");
+    assert_eq!((p.width, p.height), (20, 15));
+    assert_eq!(p.rgb, small);
+}
+
+/// A WhiteLevel too large for the sensor's levels (a DOUBLE past f32::MAX) is ignored, as a zero
+/// one is: the samples keep the default white instead of an infinite one that blacks them out.
+#[test]
+fn an_infinite_white_level_falls_back_to_the_default() {
+    let (w, h) = (24, 16);
+    let pixels: Vec<u16> = scene(w, h).iter().flat_map(|p| p.map(|v| (v * 20000.0) as u16)).collect();
+    let mut ints = DngSpec::cfa(w, h, pixels.clone());
+    ints.samples = 3;
+    ints.storage = DngStorage::Strips { rows: h };
+    ints.white = 0;
+    ints.raw_extra.push((50717, Val::Double(vec![1e300; 3])));
+    assert_eq!(sensor(&ints.build()).white, [65535.0; 3], "integer data");
+    let float = float_jxl_dng(&pixels, w, h, Some(1e300)).build();
+    assert_eq!(sensor(&float).white, [65535.0; 3], "floating-point data");
+    let default = develop(&float_jxl_dng(&pixels, w, h, None).build(), &DevelopOptions::default()).unwrap();
+    assert_eq!(develop(&float, &DevelopOptions::default()).unwrap().rgb, default.rgb);
+}
+
 #[test]
 fn jpeg_xl_mismatches_are_errors() {
     let (w, h) = (16, 8);

@@ -136,6 +136,8 @@ pub fn embedded_jxl_preview(bytes: &[u8], limits: &Limits) -> Option<DecodedPrev
         .into_iter()
         .filter(|i| t.tag_uint(i, tag::NEW_SUBFILE_TYPE) == Some(1))
         .filter(|i| t.tag_uint(i, tag::COMPRESSION) == Some(JPEG_XL) && t.tag_uint(i, tag::SAMPLES_PER_PIXEL) == Some(3))
+        // A rendered RGB (or YCbCr) picture, not a reduced-resolution LinearRaw or CFA image.
+        .filter(|i| matches!(t.tag_uint(i, tag::PHOTOMETRIC), Some(2 | 6)))
         .collect();
     previews.sort_by_key(|i| std::cmp::Reverse(area(i)));
     let (ifd, plane) = previews.into_iter().find_map(|i| read_plane(&t, &i, limits, JpegLayout::Flat).ok().map(|p| (i, p)))?;
