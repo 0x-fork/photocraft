@@ -462,10 +462,19 @@ const AHD_BAND: usize = 32;
 /// Extra band rows above and below the output rows.
 const M: usize = 3;
 
-/// Maximum scratch allocation of one AHD band: two green, RGB and Lab float
-/// planes and two byte homogeneity planes, including their border rows.
+/// Scratch rows one AHD worker allocates: the output rows of the tallest band
+/// this image has, plus their border rows.
+fn ahd_scratch_rows(h: usize) -> usize {
+    h.min(AHD_BAND) + 2 * M
+}
+
+/// Scratch allocation of one AHD worker ([`AhdScratch::for_image`]): two green,
+/// RGB and Lab float planes and two byte homogeneity planes over
+/// [`ahd_scratch_rows`], plus the two `u32` rows of vertical sums.
 pub(crate) fn ahd_scratch(w: u64, h: u64) -> u64 {
-    w.saturating_add(2 * PAD as u64).saturating_mul(h.min(AHD_BAND as u64).saturating_add(2 * M as u64)).saturating_mul(58)
+    let s = w.saturating_add(2 * PAD as u64);
+    let rows = h.min(AHD_BAND as u64).saturating_add(2 * M as u64);
+    s.saturating_mul(rows.saturating_mul(58).saturating_add(8))
 }
 
 pub(crate) fn ahd_bands(h: usize) -> usize {
@@ -474,7 +483,7 @@ pub(crate) fn ahd_bands(h: usize) -> usize {
 
 pub(crate) const AHD_TABLE_BYTES: u64 = (LABF_STEPS as u64 + 1) * 8;
 
-/// One AHD band's working planes, reused for every band a worker runs (sized for a full band).
+/// One AHD band's working planes, reused for every band a worker runs (sized for the tallest band).
 struct AhdScratch {
     /// Green interpolated horizontally (0) and vertically (1).
     g: [Vec<f32>; 2],
@@ -498,6 +507,11 @@ impl AhdScratch {
             vs: [vec![0u32; s], vec![0u32; s]],
         }
     }
+
+    /// The scratch for an image `h` rows tall with stride `s`: the size [`ahd_scratch`] budgets.
+    fn for_image(h: usize, s: usize) -> Self {
+        AhdScratch::new(ahd_scratch_rows(h) * s, s)
+    }
 }
 
 /// AHD (see [`ahd_ref`] for the plain statement): the same arithmetic in the same order, per
@@ -513,9 +527,8 @@ fn ahd(p: &Padded, phase: [u8; 4], to_xyz: &Mat3, out: &mut [f32], jobs: usize) 
     // A few groups per worker for balance; each group allocates its scratch once.
     let groups = (par::workers().min(jobs.max(1)) * 4).clamp(1, bands.max(1));
     let per_group = bands.div_ceil(groups).max(1);
-    let cap = (AHD_BAND + 2 * M) * s;
     par::chunks_mut_limited(out, per_group * AHD_BAND * w * 3, jobs, |group, gchunk| {
-        let mut sc = AhdScratch::new(cap, s);
+        let mut sc = AhdScratch::for_image(h, s);
         for (j, chunk) in gchunk.chunks_mut(AHD_BAND * w * 3).enumerate() {
             ahd_band(d, w, s, phase, &m, &labf, group * per_group + j, chunk, &mut sc);
         }
@@ -817,6 +830,52 @@ mod tests {
                         "{w}x{h} {phase:?} {jobs}"
                     );
                 }
+            }
+        }
+    }
+
+    /// Bytes the scratch planes actually hold.
+    fn scratch_bytes(sc: &AhdScratch) -> u64 {
+        let f = sc.g.iter().chain(sc.rgb.iter().flatten()).chain(sc.lab.iter().flatten()).map(|v| v.capacity() * 4).sum::<usize>();
+        let b = sc.hom.iter().map(Vec::capacity).sum::<usize>();
+        let u = sc.vs.iter().map(|v| v.capacity() * 4).sum::<usize>();
+        (f + b + u) as u64
+    }
+
+    /// The memory check in `develop` admits a file on [`ahd_scratch`] per worker; the scratch
+    /// `ahd` allocates must not exceed it. A short wide strip used to allocate the 38 rows of a
+    /// full band against a budget of `h + 6` rows (5.4x at `h = 1`).
+    #[test]
+    fn ahd_scratch_fits_its_budget() {
+        for w in [1usize, 2, 33, 4000] {
+            for h in [1usize, 2, 7, 31, 32, 33, 100, 5000] {
+                let s = w + 2 * PAD;
+                let sc = AhdScratch::for_image(h, s);
+                let budget = ahd_scratch(w as u64, h as u64);
+                assert_eq!(scratch_bytes(&sc), budget, "{w}x{h}: allocated vs budgeted bytes");
+                // The tallest band `ahd` hands out (at most 32 rows, plus 3 above and below) fits.
+                assert!(sc.g[0].len() >= (h.min(32) + 6) * s, "{w}x{h}");
+            }
+        }
+    }
+
+    /// One scratch serves many bands (1100 rows are 35 bands, the last one short, over 4 scratches
+    /// with jobs 1 and at most 8 with jobs 2), so a stage reading a cell left over from an earlier band would show.
+    #[test]
+    fn ahd_matches_reference_with_reused_scratch() {
+        let m = [[0.41, 0.36, 0.18], [0.21, 0.72, 0.07], [0.02, 0.12, 0.95]];
+        let (w, h) = (37, 1100);
+        let cfa: Vec<f32> = (0..w * h).map(|i| ((i * 7919 + i / w * 104729) % 1013) as f32 / 1000.0 - 0.006).collect();
+        let p = Padded::from_plane(&cfa, w, h);
+        for jobs in [1, 2] {
+            let groups = (par::workers().min(jobs) * 4).clamp(1, ahd_bands(h));
+            assert!(ahd_bands(h).div_ceil(groups) >= 2, "jobs {jobs}: each scratch must serve several bands");
+            for phase in [[0, 1, 1, 2], [2, 1, 1, 0], [1, 0, 2, 1], [1, 2, 0, 1]] {
+                let mut want = vec![0.0f32; w * h * 3];
+                ahd_ref(&p, phase, &m, &mut want, jobs);
+                let got = demosaic(&p, phase, Demosaic::Ahd, &m, jobs);
+                assert_eq!(want.len(), got.len());
+                assert!(want.iter().zip(&got).all(|(a, b)| a.to_bits() == b.to_bits()), "{w}x{h} {phase:?} jobs {jobs}");
             }
         }
     }
