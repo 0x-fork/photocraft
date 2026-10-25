@@ -3091,3 +3091,16 @@ curves	Smooth	平滑
 	Exported {path}	已导出 {path}
 	Exported {n} files	已导出 {n} 个文件
 	Driver: {driver}	驱动程序：{driver}
+# Art History Brush (#213).
+	Art History Brush	艺术历史画笔
+	Art History Brush Tool	艺术历史画笔工具
+	Tight Short	紧密短
+	Tight Medium	紧密中
+	Tight Long	紧密长
+	Loose Medium	宽松中
+	Loose Long	宽松长
+	Dab	点涂
+	Tight Curl	紧密卷曲
+	Loose Curl	宽松卷曲
+	Area	区域
+	Stylized dabs from a history state	从历史状态绘制风格化点涂

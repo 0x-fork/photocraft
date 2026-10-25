@@ -4101,3 +4101,14 @@ curves	Smooth	スムーズ
 	Grayscale Ramp	グレースケールランプ
 	Current Colors	現在のカラー
 	Make Ramp Web Safe	ランプを Web セーフにする
+# Art History Brush (#213).
+	Art History Brush Tool	アートヒストリーブラシツール
+	Tight Short	タイト・ショート
+	Tight Medium	タイト・ミディアム
+	Tight Long	タイト・ロング
+	Loose Medium	ルーズ・ミディアム
+	Loose Long	ルーズ・ロング
+	Dab	ダブ
+	Tight Curl	タイトカール
+	Loose Curl	ルーズカール
+	Stylized dabs from a history state	履歴状態から様式化したダブを描きます

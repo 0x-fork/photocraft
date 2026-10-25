@@ -3435,3 +3435,15 @@ curves	Smooth	Glätten
 	Grayscale Ramp	Graustufenbalken
 	Current Colors	Aktuelle Farben
 	Make Ramp Web Safe	Farbbalken auf Webfarben beschränken
+# Art History Brush (#213).
+	Art History Brush	Künstlerischer Protokollpinsel
+	Art History Brush Tool	Künstlerischer-Protokollpinsel-Werkzeug
+	Tight Short	Eng kurz
+	Tight Medium	Eng mittel
+	Tight Long	Eng lang
+	Loose Medium	Locker mittel
+	Loose Long	Locker lang
+	Dab	Tupfer
+	Tight Curl	Eng gewellt
+	Loose Curl	Locker gewellt
+	Stylized dabs from a history state	Stilisierte Tupfer aus einem Protokollzustand

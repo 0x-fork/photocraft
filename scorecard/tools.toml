@@ -312,3 +312,10 @@ target = "Color Replacement tool on the toolbar"
 status = "done"
 issue = 1045
 note = "Tool::ColorReplacement in the Brush (B) flyout after the Mixer Brush; Mode/Sampling/Limits/Tolerance/Anti-alias options drive paint.colorReplacement with the foreground colour; live preview (LiveDab with the stroke's finishing dab), one History step; color_replacement_tests.rs"
+
+[[item]]
+id = "TOOL-213-20"
+target = "Art History Brush: Y-group, styles, Area, Tolerance, paints from a history state"
+status = "partial"
+issue = 213
+note = "paint.artHistoryBrush + Tool::ArtHistoryBrush in the Y flyout; 8 of 10 styles (no Tight Curl Long / Loose Curl Long); Area scales spacing, not coverage; rotated-patch look; no Mode/Opacity on the options bar, no pen pressure"

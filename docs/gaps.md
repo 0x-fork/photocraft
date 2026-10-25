@@ -61,7 +61,8 @@ what an agent can't finish alone.
   scripted check there) is the only real oracle.
 
 ### G6. Missing tools
-- **Missing (1 of 68):** Art History Brush. Convert Point landed (#3204). Freeform
+- **Missing (0 of 68):** Art History Brush landed as partial (TOOL-213-20: 8 of 10 styles, Area
+  scales spacing, no Mode/Opacity on the options bar). Convert Point landed (#3204). Freeform
   Pen and Curvature Pen landed (#1054); Color Sampler landed (#1046, `view.colorSamplers.*`); Horizontal and Vertical Type Mask landed (#1055,
   `type.createSelection`); Perspective Crop landed (#1043, `image.perspectiveCrop`); Frame landed
   (#2914).
@@ -358,6 +359,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | minor | G6: Art History Brush landed as partial (TOOL-213-20, #1610), so no toolbar tool is missing; no percentage or estimate changed |
 | 2026-10-22 | minor | G17: Help › Check for Updates and an opt-out check once per launch (#5485), DIST-220-1 partial; estimate unchanged |
 | 2026-10-22 | minor | G1: 32-bit Hue/Saturation unclipped with Photoshop's saturation factor, bright colours keep their hue, Colorize's saturation scaled by 1 − \|Lightness\|; photoshop rgb32 hue-saturation and hue-saturation-colorize pass; Photoshop-oracle floor 188 → 190 of 258 (#5781) |
 | 2026-10-21 | minor | G9: adjustment clipping remains visible in compact Properties (#5231); no readiness percentage or estimate changed |

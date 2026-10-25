@@ -36,7 +36,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Retouch | Remove, Spot Healing, Healing, Patch, Content-Aware Move, Red Eye | |
 | Brush | Brush, Pencil, Mixer Brush | |
 | Stamp | Clone Stamp, Pattern Stamp | |
-| History | History Brush | Art History Brush |
+| History | History Brush, Art History Brush (partial: 8 of 10 styles, TOOL-213-20) | |
 | Eraser | Eraser, Background Eraser, Magic Eraser | |
 | Fill | Gradient, Paint Bucket | |
 | Focus, toning | Blur, Sharpen, Smudge, Dodge, Burn, Sponge | |
@@ -245,6 +245,7 @@ Paragraph; the rest open as in-app floating windows.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | minor | Art History Brush is in the History group of the Y flyout (partial, TOOL-213-20, #1610) |
 | 2026-10-22 | minor | Crop default mode: a drag inside an upright box snaps the frame's edges and centre to the document, layers, guides and grid, as a Classic Mode frame's move does (#8580); no percentage changed |
 | 2026-10-21 | minor | Adjustment clipping moved above Properties editors to remain visible in compact docks (#5231); scope, undo/redo and 8/16/32-bit pixel regressions; readiness estimate unchanged |
 | 2026-10-19 | minor | A guide being moved or dragged out of a ruler shows an `X:` / `Y:` position readout beside the pointer, from the zero point in the ruler unit (#7680) |

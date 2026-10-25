@@ -96,7 +96,8 @@ tablets against Photoshop side by side.
 | Mixer Brush (Wet, Load, Mix, Flow, Sample All Layers, Current Brush Load with Load Brush and Clean Brush, automatic Load and Clean) | partial | No live result while dragging, no Alt-click loading (#2247) |
 | Clone Stamp (mode, opacity, flow, aligned, sample, overlay) | partial | Clone Source W/H link and Alt target cursor (TOOL-213-8) |
 | Pattern Stamp (mode, aligned, impressionist) | done | |
-| History Brush (mode) | done | Art History Brush missing |
+| History Brush (mode) | done | |
+| Art History Brush (styles, Area, Tolerance) | partial | 8 of 10 styles (no Tight Curl Long / Loose Curl Long); Area scales spacing, not Photoshop's coverage; no Mode/Opacity on the options bar, no pen pressure (TOOL-213-20) |
 | Spot Healing, Healing (Healing mode: Normal, Multiply, Screen, Darken, Lighten, Color, Luminosity) | partial | Healing's Replace mode and Spot Healing's Mode missing; grain not matched on flat colour (#2104), "horrible in general" (#1092), stops responding after switching (#1751) |
 | Blur, Sharpen, Smudge (premultiplied, Sample All Layers, spacing) | done | BUG-207-2/3, #2171 |
 | Dodge, Burn, Sponge | done | |
@@ -118,6 +119,7 @@ tablets against Photoshop side by side.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | minor | Art History Brush row added as partial (8 of 10 styles, TOOL-213-20, #1610). No brush-feel estimate changed. |
 | 2026-10-14 | minor | Brush Pose tilt overrides are independent end to end (#3825 partial); ABR flags, legacy JSON/commands, presets and three pixel depths covered; no readiness percentage or estimate changed |
 | 2026-10-13 | minor | Stale "missing tool" row corrected against main: Color Replacement (`paint.colorReplacement`) is a live toolbar tool; no brush-feel estimate changed |
 | 2026-10-11 | minor | Pattern Stamp and Background Eraser draw live (#3754); live retouch row now partial (Mixer Brush left) |
