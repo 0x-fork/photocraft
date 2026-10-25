@@ -825,6 +825,107 @@ fn open_menu_shows_the_current_family_without_animating() {
     assert!(popup.contains_rect(row), "Family 40 is in view: {row:?} in {popup:?}");
 }
 
+/// Photoshop: ↑ on the top recent row stays there, without wrapping or changing the font.
+#[test]
+fn open_menu_arrow_up_on_the_top_recent_row_stays_there() {
+    use egui_kittest::kittest::NodeT;
+    let mut h = harness_with_recents(FontPreview::Off, vec!["Family 05".into(), "Family 09".into()]);
+    h.state_mut().current = "Family 05".into();
+    h.run();
+    open(&mut h);
+    let marked_top = |h: &Harness<'static, State>| -> Vec<f32> {
+        h.query_all_by_label("Family 05").filter(|n| n.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)).map(|n| n.rect().top()).collect()
+    };
+    let before = marked_top(&h);
+    assert_eq!(before.len(), 1, "one row marked");
+    for _ in 0..2 {
+        h.key_press(Key::ArrowUp);
+        h.run();
+        assert_eq!(h.state().current, "Family 05", "↑ on the top row keeps the font");
+        assert_eq!(marked_top(&h), before, "and the mark stays on the top row");
+    }
+}
+
+/// #9160: when the marked recent row fits below the top of the recent group, the menu opens
+/// with the whole group in view, its first row just below the search field.
+#[test]
+fn open_menu_shows_the_recent_group_when_the_marked_row_fits_below_it() {
+    use egui_kittest::kittest::NodeT;
+    let recents: Vec<String> = (10..15).map(|i| format!("Family {i}")).collect();
+    let mut h = harness_with_recents(FontPreview::Off, recents);
+    h.state_mut().current = "Family 12".into();
+    h.run();
+    open(&mut h);
+    h.run();
+    let popup = popup_rect(&h).expect("the menu is open");
+    let search = h.get_by_role(Role::TextInput).rect();
+    let first = h.query_all_by_label("Family 10").map(|n| n.rect()).min_by(|a, b| a.top().total_cmp(&b.top())).expect("the recent group's first row");
+    let row = h.query_all_by_label("Family 12").find(|n| n.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)).expect("its marked row").rect();
+    assert!(popup.contains_rect(row) && row.top() >= search.bottom(), "recent #3 is in view: {row:?} in {popup:?}");
+    assert!(
+        popup.contains_rect(first) && (0.0..=12.0).contains(&(first.top() - search.bottom())),
+        "the group's first row sits just below the search field: {first:?} under {search:?}"
+    );
+}
+
+/// #9160 with large previews: a recent family further down the default ten recents opens in view,
+/// not below the fold because the menu scrolled to the top of the recent group.
+#[test]
+fn open_menu_shows_a_lower_recent_family_with_large_previews() {
+    use egui_kittest::kittest::NodeT;
+    for preview in [FontPreview::Huge, FontPreview::ExtraLarge] {
+        let recents: Vec<String> = (10..20).map(|i| format!("Family {i}")).collect();
+        let mut h = harness_with_recents(preview, recents);
+        h.state_mut().current = "Family 17".into();
+        h.run();
+        open(&mut h);
+        h.run();
+        let popup = popup_rect(&h).expect("the menu is open");
+        let search = h.get_by_role(Role::TextInput).rect();
+        let row =
+            h.query_all_by_label("Family 17").find(|n| n.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)).expect("its marked row").rect();
+        assert!(popup.contains_rect(row) && row.top() >= search.bottom(), "{preview:?}: recent #8 is in view: {row:?} in {popup:?} below {search:?}");
+    }
+}
+
+/// The open-scroll happens once, when the menu opens. With no row for the current family then
+/// (a missing font, a mixed selection), the list the user scrolled does not jump later when one
+/// turns up: the font finishes loading, or the selection settles on one family.
+#[test]
+fn open_menu_without_the_current_family_never_jumps_later() {
+    for missing in [true, false] {
+        let mut h = harness_with_recents(FontPreview::Off, Vec::new());
+        if missing {
+            h.state_mut().families.retain(|f| f != "Family 40");
+            h.state_mut().current = "Family 40".into();
+        } else {
+            h.state_mut().current = String::new();
+        }
+        h.run();
+        open(&mut h);
+        h.run();
+        h.hover_at(h.get_by_label("Family 05").rect().center());
+        for _ in 0..3 {
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, -3.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            });
+            h.run();
+        }
+        let scrolled = h.get_by_label("Family 00").rect();
+        if missing {
+            h.state_mut().families.push("Family 40".into());
+        } else {
+            h.state_mut().current = "Family 40".into();
+        }
+        h.run_steps(3);
+        assert!(popup_rect(&h).is_some(), "the menu stays open");
+        assert_eq!(h.get_by_label("Family 00").rect(), scrolled, "missing = {missing}: the list jumped");
+    }
+}
+
 /// The same through the real options bar, where the pick itself records the recent family.
 #[test]
 fn options_bar_menu_arrows_walk_on_while_recording_recent_fonts() {

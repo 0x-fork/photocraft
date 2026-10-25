@@ -1838,16 +1838,21 @@ pub(crate) fn family_picker_in(
             .data(|d| d.get_temp::<usize>(row_id))
             .filter(|&i| rows.get(i).is_some_and(|(f, _)| *f == current))
             .or_else(|| rows.iter().position(|(f, _)| *f == current));
-        // The menu opens on the current family, as Photoshop's does: at the top of the list when
-        // it is a recent one, else its row at the top of the view. Kept until a laid-out pass
-        // (the popup's first pass only measures).
+        // The menu opens on the current family, as Photoshop's does: with the recent group at the
+        // top of the view when the marked row fits below it, else the marked row itself, at the
+        // top of the view when it is not a recent one. Applied on the first laid-out pass (the
+        // popup's first pass only measures), whether or not a row matches, so a missing font or
+        // a filtered list never scrolls the menu later.
         let reveal_id = search_id.with("reveal");
         if opening {
             ui.data_mut(|d| d.insert_temp(reveal_id, true));
         }
-        let reveal = (ui.data(|d| d.get_temp::<bool>(reveal_id)).unwrap_or(false) && !ui.is_sizing_pass())
-            .then(|| selected.map(|i| if i < n_recent { 0 } else { i }))
-            .flatten();
+        let revealing = ui.data(|d| d.get_temp::<bool>(reveal_id)).unwrap_or(false) && !ui.is_sizing_pass();
+        if revealing {
+            ui.data_mut(|d| d.remove::<bool>(reveal_id));
+        }
+        let reveal = if revealing { selected } else { None };
+        let reveal_from = reveal.map(|i| if i < n_recent { 0 } else { i });
         let mut stepped = None;
         if down || up {
             let next = match selected {
@@ -1878,6 +1883,8 @@ pub(crate) fn family_picker_in(
         // Wrap the font rows in a ScrollArea so only the list scrolls: the search field above
         // stays fixed at the top of the popup.
         let mut hovered: Option<String> = None;
+        let reveal = if stepped.is_some() { None } else { reveal };
+        let mut reveal_top: Option<egui::Rect> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, (f, label)) in rows.into_iter().enumerate() {
                 if i == n_recent && n_recent > 0 {
@@ -1896,11 +1903,22 @@ pub(crate) fn family_picker_in(
                 let response = ui.add_sized([330.0, row_h], button);
                 if stepped == Some(i) {
                     response.scroll_to_me(Some(egui::Align::Center));
-                } else if reveal == Some(i) {
-                    // Jump, not glide: the menu opens with its current family in view. Arrow
-                    // steps above keep the animation.
-                    response.scroll_to_me_animation(Some(egui::Align::Min), egui::style::ScrollAnimation::none());
-                    ui.data_mut(|d| d.remove::<bool>(reveal_id));
+                } else if reveal.is_some() {
+                    if reveal_from == Some(i) {
+                        reveal_top = Some(response.rect);
+                    }
+                    if reveal == Some(i) {
+                        // Jump, not glide: the menu opens with its current family in view. Arrow
+                        // steps above keep the animation. A recent row too far below the top of
+                        // the group (large previews, many recents) is brought up to the bottom.
+                        let top = reveal_top.unwrap_or(response.rect);
+                        let (rect, align) = if response.rect.bottom() - top.top() <= ui.clip_rect().height() {
+                            (top, egui::Align::Min)
+                        } else {
+                            (response.rect, egui::Align::Max)
+                        };
+                        ui.scroll_to_rect_animation(rect, Some(align), egui::style::ScrollAnimation::none());
+                    }
                 }
                 if let Some((size, _)) = preview
                     && ui.is_rect_visible(response.rect)
