@@ -157,7 +157,7 @@ fn target(tool: Tool) -> Target {
         return Target::Tool(modes);
     }
     match tool {
-        Tool::SpotHealing | Tool::ColorReplacement | Tool::Blur | Tool::Sharpen | Tool::Smudge => Target::Nothing,
+        Tool::SpotHealing | Tool::ColorReplacement | Tool::Blur | Tool::Sharpen | Tool::Smudge | Tool::ArtHistoryBrush => Target::Nothing,
         // Photoshop's ⇧⌥S/M/H pick the Dodge and Burn Range and ⇧⌥D/S the Sponge's mode: never
         // the layer's.
         Tool::Dodge | Tool::Burn | Tool::Sponge => Target::Nothing,
@@ -700,5 +700,16 @@ mod tests {
             assert_eq!(layer_blend(&a), BlendMode::Normal, "{tool:?}");
             assert_eq!(a.ui.tool, tool);
         }
+    }
+
+    #[test]
+    fn art_history_brush_leaves_the_layer_alone() {
+        // Photoshop's Art History Brush has a Mode of its own; ours has no Mode control yet.
+        let ctx = egui::Context::default();
+        let mut a = app(Tool::ArtHistoryBrush);
+        alt_shift(&mut a, &ctx, Key::M, Key::M);
+        key_press(&mut a, &ctx, 1);
+        assert_eq!(layer_blend(&a), BlendMode::Normal);
+        assert_eq!(a.ui.tool, Tool::ArtHistoryBrush);
     }
 }
