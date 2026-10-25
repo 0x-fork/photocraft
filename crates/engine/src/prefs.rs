@@ -120,6 +120,8 @@ choice!(
     /// fastest and softest. Photoshop's Camera Raw has no such choice.
     RawDemosaic { Ahd = "ahd", Mhc = "mhc", Bilinear = "bilinear" } default Ahd
 );
+choice!(SubjectModel { Classical = "classical", BiRefNet = "birefnet-hr-matting" } default Classical);
+choice!(ObjectModel { Classical = "classical", Sam2 = "sam2.1-large" } default Classical);
 
 impl Unit {
     /// Document pixels → this unit. `dpi` is the document resolution, `extent` the 100% length
@@ -973,11 +975,14 @@ pub struct Integrations {
     pub allow_agent_control: bool,
     /// Default control port (0 = only when `--control` is given).
     pub control_port: u32,
+    /// Optional, downloaded local model; classical selection remains the default.
+    pub subject_model: SubjectModel,
+    pub object_model: ObjectModel,
 }
 
 impl Default for Integrations {
     fn default() -> Self {
-        Self { allow_agent_control: true, control_port: 0 }
+        Self { allow_agent_control: true, control_port: 0, subject_model: SubjectModel::Classical, object_model: ObjectModel::Classical }
     }
 }
 
@@ -1170,8 +1175,15 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
 
 /// Is the preference at `path` (`"section.key"`) hidden from the Preferences dialog?
 pub fn is_hidden(path: &str) -> bool {
-    HIDDEN_UNTIL_IMPLEMENTED.contains(&path) || (!cfg!(target_os = "linux") && LINUX_ONLY.contains(&path))
+    HIDDEN_UNTIL_IMPLEMENTED.contains(&path) || (!cfg!(target_os = "linux") && LINUX_ONLY.contains(&path)) || (!NATIVE_MODELS && LOCAL_ML_ONLY.contains(&path))
 }
+
+/// Whether this build can run local models (the `local-ml` feature, native only).
+pub const NATIVE_MODELS: bool = cfg!(all(feature = "local-ml", not(target_arch = "wasm32")));
+
+/// Model choices; builds without local models don't show them (#204). A choice saved by a build
+/// with them (the preferences file is shared) still round-trips, and means Classical here.
+pub const LOCAL_ML_ONLY: &[&str] = &["integrations.subjectModel", "integrations.objectModel"];
 
 /// Preferences that only do something on Linux; the dialog doesn't show them elsewhere. They
 /// still load, save and round-trip on every platform.
@@ -1224,6 +1236,8 @@ pub fn choices(path: &str) -> Option<&'static [&'static str]> {
         "performance.gpuBackend" => GpuBackend::NAMES,
         "performance.linuxDisplayServer" => LinuxDisplayServer::NAMES,
         "performance.renderingMode" => RenderingMode::NAMES,
+        "integrations.subjectModel" => SubjectModel::NAMES,
+        "integrations.objectModel" => ObjectModel::NAMES,
         _ => return None,
     })
 }

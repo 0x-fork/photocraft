@@ -68,6 +68,23 @@ where
     }
 }
 
+/// Only explicit, trusted CLI invocations receive a model-cache capability. MCP sessions keep
+/// their existing filesystem authority; merely starting the CLI never downloads a model.
+pub(crate) fn local_headless() -> photocraft_automation::Headless {
+    let mut h = photocraft_automation::Headless::trusted_local();
+    configure_cli_models(&mut h.session);
+    h
+}
+
+pub(crate) fn configure_cli_models(session: &mut photocraft_engine::Session) {
+    #[cfg(all(feature = "local-ml", not(target_arch = "wasm32")))]
+    if let Some(dir) = std::env::var_os("PHOTOCRAFT_MODEL_DIR") {
+        session.configure_local_models(dir.into());
+    }
+    #[cfg(any(not(feature = "local-ml"), target_arch = "wasm32"))]
+    let _ = session;
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     /// What [`crate::run`] returned and wrote.

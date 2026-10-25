@@ -1489,12 +1489,18 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
     let names = batch_naming::plan(&inputs, &output, &format, p)?;
     let save = SaveOpts::from_params(s, p, cmd)?;
     let authorize = s.authorize;
+    // Reuse a host-granted backend (and its resident model) across inputs. A default or
+    // untrusted session still has no model-cache capability; nested steps retain its gate.
+    let model_backend = s.model_backend.clone();
+    let integrations = s.prefs().integrations.clone();
     // Each input runs in its own scratch session, so what the played steps spend is carried from
     // one input to the next (failed or not) and back to this session, not restarted per input.
     let carried = std::cell::Cell::new(playback_steps);
     let carried = &carried;
     let run = move |scratch: &mut Session, out: &str| {
         scratch.authorize = authorize;
+        scratch.model_backend = model_backend.clone();
+        scratch.edit_prefs(|p| p.integrations = integrations.clone());
         scratch.actions = actions.clone();
         scratch.actions.playback_steps = carried.get();
         let result = (|| {

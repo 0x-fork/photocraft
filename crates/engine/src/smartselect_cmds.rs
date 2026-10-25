@@ -74,7 +74,7 @@ pub(crate) fn with_doc_sampler<R>(doc: &Document, layer: Option<LayerId>, all_la
 /// caller gets `changed: false`, whatever the mode. (Select Subject and Object Selection run
 /// heuristics that often find nothing on busy photos; clearing the selection then looks like
 /// a dead button.)
-fn apply(s: &mut Session, label: &str, region: Option<&Region>, m: SelectionMode) -> Result<Value> {
+pub(crate) fn apply(s: &mut Session, label: &str, region: Option<&Region>, m: SelectionMode) -> Result<Value> {
     if region.is_none() {
         // Nothing found: leave the selection (and history) alone.
         let selected = s.active().ok_or(EngineError::NoDocument)?.doc.selection.is_some();
@@ -121,13 +121,16 @@ fn quick_selection(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn rect_param(p: &Value) -> Option<Rect> {
     let a = p.get("rect")?.as_array()?;
-    let v: Vec<f64> = a.iter().filter_map(Value::as_f64).collect();
-    if v.len() < 4 {
+    let v: Vec<f64> = a.iter().map(Value::as_f64).collect::<Option<_>>()?;
+    if v.len() != 4 || v.iter().any(|v| !v.is_finite()) {
         return None;
     }
     // Negative sizes (dragging up/left) are normalised.
     let (x0, x1) = (v[0].min(v[0] + v[2]), v[0].max(v[0] + v[2]));
     let (y0, y1) = (v[1].min(v[1] + v[3]), v[1].max(v[1] + v[3]));
+    if [x0, y0, x1, y1].iter().any(|v| !v.is_finite() || *v < i32::MIN as f64 || *v > i32::MAX as f64) {
+        return None;
+    }
     Some(Rect::new(x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32))
 }
 
@@ -267,12 +270,30 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
     if p.get("rect").is_none()
         && let Some(pt) = point_param(p)
     {
+        if crate::model_cmds::object_model(s, p)?.is_some() {
+            return Err(bad("select.object", "SAM Object Selection needs a rectangle; point clicks use the Classical Object Finder"));
+        }
         return object_at_point(s, p, pt);
     }
     let rect = rect_param(p).ok_or_else(|| bad("select.object", "needs \"rect\": [x, y, w, h] or \"point\": [x, y]"))?;
     let all_layers = b(p, "sampleAllLayers", false);
     let d = s.active().ok_or(EngineError::NoDocument)?;
     check_sampled_pixels(&d.doc, d.active_layer, all_layers, rect)?;
+    if let Some(id) = crate::model_cmds::object_model(s, p)? {
+        let d = s.active().ok_or(EngineError::NoDocument)?;
+        let canvas = d.doc.bounds();
+        let rect = rect.intersect(&canvas);
+        if rect.is_empty() {
+            return Err(bad("select.object", "box must overlap the canvas"));
+        }
+        let prompt = photocraft_ml::Prompt::Box([
+            (rect.x0 - canvas.x0) as f32 / canvas.width() as f32,
+            (rect.y0 - canvas.y0) as f32 / canvas.height() as f32,
+            (rect.x1 - canvas.x0) as f32 / canvas.width() as f32,
+            (rect.y1 - canvas.y0) as f32 / canvas.height() as f32,
+        ]);
+        return model_selection(s, p, id, prompt, "Object Selection", false);
+    }
     let region = with_sampler(s, all_layers, |smp, doc| grabcut::object_select(smp, doc.bounds(), rect, 160_000))?;
     apply(s, "Object Selection", region.as_ref(), mode(p, "replace"))
 }
@@ -303,6 +324,9 @@ impl SubjectCache {
 }
 
 fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
+    if let Some(id) = crate::model_cmds::subject_model(s, p)? {
+        return model_selection(s, p, id, photocraft_ml::Prompt::Subject, "Select Subject", true);
+    }
     let all_layers = b(p, "sampleAllLayers", true);
     let d = s.active().ok_or(EngineError::NoDocument)?;
     // What `with_doc_sampler` samples: the active layer's pixels, else the composite.
@@ -327,6 +351,31 @@ fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
         s.subject_cache.doc = std::sync::Arc::downgrade(&d.doc);
     }
     Ok(out)
+}
+
+fn model_selection(
+    s: &mut Session,
+    p: &Value,
+    id: photocraft_ml::ModelId,
+    prompt: photocraft_ml::Prompt,
+    label: &'static str,
+    all_default: bool,
+) -> Result<Value> {
+    let backend = crate::model_cmds::backend(s)?;
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    let (doc, layer) = (d.doc.clone(), d.active_layer);
+    let (all, m) = (b(p, "sampleAllLayers", all_default), mode(p, "replace"));
+    crate::jobs::run(
+        s,
+        label,
+        true,
+        move |ctx| with_doc_sampler(&doc, layer, all, |smp, d| crate::model_cmds::infer_region(backend.as_ref(), id, smp, d, prompt, ctx)),
+        move |s, region| {
+            let mut result = apply(s, label, region.as_ref(), m)?;
+            result["model"] = json!(id);
+            Ok(result)
+        },
+    )
 }
 
 fn focus_area(s: &mut Session, p: &Value) -> Result<Value> {
@@ -535,7 +584,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.object",
             "Object Selection",
             [],
-            r##"{"rect":[x,y,w,h] | "point":[x,y],"mode":"replace|add|subtract|intersect"="replace","sampleAllLayers":bool=false} (point: the Object Finder's object under the point, as hovering previews it)"##,
+            r##"{"rect":[x,y,w,h] | "point":[x,y],"mode":"replace|add|subtract|intersect"="replace","sampleAllLayers":bool=false,"model":"classical|sam2.1-large"? (box defaults to Preferences; point uses Classical Object Finder)}"##,
             has_doc,
             object_selection
         ),
@@ -543,7 +592,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.subject",
             "Subject",
             ["Select"],
-            r##"{"sampleAllLayers":bool=true,"mode":"replace|add|subtract|intersect"="replace"}"##,
+            r##"{"sampleAllLayers":bool=true,"mode":"replace|add|subtract|intersect"="replace","model":"classical|birefnet-hr-matting"? (defaults to Preferences)}"##,
             has_doc,
             select_subject
         ),
@@ -736,6 +785,27 @@ mod tests {
             let r = s.execute("select.object", json!({"point": [1, 1]})).unwrap();
             assert_eq!(r["changed"], false, "background at depth {depth}");
             assert!(s.active().unwrap().doc.selection.is_none());
+        }
+    }
+
+    #[test]
+    fn object_finder_point_actions_remain_classical_with_a_sam_box_preference() {
+        let (mut s, inside) = disc(16);
+        s.edit_prefs(|p| p.integrations.object_model = crate::prefs::ObjectModel::Sam2);
+        s.execute("actions.record", json!({"name":"Object Finder"})).unwrap();
+        s.execute("select.object", json!({"point":[100,80]})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.9);
+        assert_eq!(s.actions.list[0].steps[0].1["model"], "classical");
+        s.execute("select.deselect", json!({})).unwrap();
+        assert!(s.execute("actions.play", json!({"action":"Object Finder"})).unwrap().get("failed").is_none());
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.9);
+        let before = s.active().unwrap().doc.clone();
+        let history = s.active().unwrap().history.past_len();
+        for model in [json!("sam2.1-large"), json!("unknown"), json!(42)] {
+            assert!(s.execute("select.object", json!({"point":[100,80],"model":model})).is_err());
+            assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+            assert_eq!(s.active().unwrap().history.past_len(), history);
         }
     }
 

@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use photocraft_automation::{Headless, files};
+use photocraft_automation::files;
 use serde_json::{Value, json};
 
 use photocraft_engine::type_extra_cmds::missing_font_warnings;
@@ -42,7 +42,7 @@ pub(crate) fn convert(a: &ConvertArgs, _out: &mut dyn Write, err: &mut dyn Write
 
 pub(crate) fn info(a: &InfoArgs, out: &mut dyn Write) -> Result {
     let file = &a.file;
-    let mut h = Headless::trusted_local();
+    let mut h = crate::local_headless();
     let opened = h.open(file)?;
     let mut doc = h.inspect(None)?;
     let mut warnings = opened["warnings"].as_array().cloned().unwrap_or_default();
@@ -74,7 +74,7 @@ fn command_list(a: &RunArgs) -> Result<Vec<(String, Value)>> {
 
 pub(crate) fn run_cmds(a: &RunArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result {
     let opts = ExportOptions::from(&a.export);
-    let mut h = Headless::trusted_local();
+    let mut h = crate::local_headless();
     // Opening, running commands and exporting can all notice the same missing font:
     // one `run` invocation reports each warning line at most once.
     let mut reported_fonts = std::collections::HashSet::<String>::new();

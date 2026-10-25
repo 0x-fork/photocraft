@@ -68,6 +68,9 @@ pub(crate) fn batch(a: &BatchArgs, out: &mut dyn Write, err: &mut dyn Write) -> 
     inputs.sort();
     let (mut ok, mut failed) = (0, 0);
     let mut written = photocraft_engine::file_cmds::OutputClaims::default();
+    // Keep only model weights resident across files, rather than retaining their documents or
+    // loading a new native session for each image in the same explicit batch invocation.
+    let model_backend = crate::local_headless().session.model_backend;
     // `--format .jpg` names outputs `<stem>.jpg`, as `--format jpg` does (#490).
     let format = a.export.format.as_deref().map(|f| f.strip_prefix('.').unwrap_or(f));
     for input in &inputs {
@@ -78,6 +81,7 @@ pub(crate) fn batch(a: &BatchArgs, out: &mut dyn Write, err: &mut dyn Write) -> 
         let r = (|| -> Result<Vec<String>> {
             written.check(&target_text).map_err(CliError::OutputClaimed)?;
             let mut h = Headless::trusted_local();
+            h.session.model_backend = model_backend.clone();
             // Steps that play another action find it in the set; the session's playback stack
             // stops an action that calls itself.
             h.session.actions.list = set.clone();
@@ -119,6 +123,7 @@ pub(crate) fn droplet(a: &DropletArgs, out: &mut dyn Write, err: &mut dyn Write)
         p["output"] = json!(o);
     }
     let mut s = photocraft_engine::Session::new();
+    crate::configure_cli_models(&mut s);
     let r = s.execute("file.automate.runDroplet", p)?;
     for f in r["files"].as_array().into_iter().flatten() {
         let _ = writeln!(out, "ok    {}", f.as_str().unwrap_or_default());

@@ -324,7 +324,7 @@ pub enum Started {
 
 /// Commands that never edit the active document, allowed while a job runs on it.
 fn independent_of_document(id: &str) -> bool {
-    const PREFIXES: &[&str] = &["jobs.", "tools.", "view.", "window.", "help.", "brush.presets.", "gradient.presets."];
+    const PREFIXES: &[&str] = &["jobs.", "models.", "tools.", "view.", "window.", "help.", "brush.presets.", "gradient.presets."];
     const IDS: &[&str] = &["file.new", "file.close", "file.closeAll", "edit.preferences", "edit.colorSettings", "edit.keyboardShortcuts", "edit.menus"];
     PREFIXES.iter().any(|p| id.starts_with(p)) || IDS.contains(&id)
 }
@@ -794,6 +794,7 @@ impl Session {
         if let Some(v) = crate::float_cmds::before_command(self, id)? {
             return Ok(Started::Done(v));
         }
+        let params = crate::model_cmds::inject_model(self, id, params);
         // Pixel commands follow the Channels panel target unless the caller names one.
         let run_params = self.admit(id, spec, &params)?;
         // This UI-only disclosure preference applies to both `execute` and `start`:

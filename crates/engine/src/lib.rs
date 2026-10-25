@@ -82,6 +82,7 @@ pub mod magnetic_cmds;
 pub mod mask_view_cmds;
 mod migrate_cmds;
 pub mod mode_cmds;
+pub mod model_cmds;
 pub mod multichannel_cmds;
 pub mod new_layer;
 pub mod notes_cmds;
@@ -503,6 +504,9 @@ pub struct Session {
     pub prefs: prefs::PrefsStore,
     /// Release checks use an injected platform transport; no network I/O in the engine.
     pub updates: updates_cmds::Updates,
+    /// Optional native model service, injected by a platform frontend. An ordinary/test/web
+    /// session has none: creating a Session never downloads models or accesses a model directory.
+    pub model_backend: Option<Arc<dyn photocraft_ml::InferenceBackend>>,
     /// Edit menu state: Fade source, custom shape library (see `edit_menu_cmds`).
     pub edit_state: edit_menu_cmds::EditState,
     /// The pattern library (Window › Patterns; see `pattern.*`).

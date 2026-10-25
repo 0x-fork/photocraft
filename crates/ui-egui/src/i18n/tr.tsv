@@ -4175,3 +4175,22 @@ cameraData	Lens	Lens
 	Tight Curl	Sıkı Kıvrım
 	Loose Curl	Gevşek Kıvrım
 	Stylized dabs from a history state	Bir geçmiş durumundan stilize benekler
+# Optional local selection models.
+	Subject / background removal	Konu / arka plan kaldırma
+	Object selection	Nesne seçimi
+	Classical (built in)	Klasik (yerleşik)
+	BiRefNet HR Matting	BiRefNet HR Matting
+	SAM 2.1 Large	SAM 2.1 Large
+	Download	İndir
+	Download a model before choosing it. Downloads do not change the current method.	Seçmeden önce bir model indirin. İndirme işlemi geçerli yöntemi değiştirmez.
+	Downloaded	İndirildi
+	In use…	Kullanımda…
+	Large models can take time and use several GB of memory. Progress and Cancel appear in the status bar.	Büyük modeller zaman alabilir ve birkaç GB bellek kullanabilir. İlerleme ve İptal durum çubuğunda görünür.
+	Local models aren't available in this build or session.	Yerel modeller bu derlemede veya oturumda kullanılamıyor.
+	Local selection models	Yerel seçim modelleri
+	Model details	Model ayrıntıları
+	Models run on this device. Images stay on this device.	Modeller bu cihazda çalışır. Görüntüler bu cihazda kalır.
+	Not downloaded	İndirilmedi
+	Remove download	İndirmeyi kaldır
+	Select Subject and Remove Background; detailed, soft edges	Konu Seç ve Arka Planı Kaldır; ayrıntılı, yumuşak kenarlar
+	Object Selection; drag a box around the object	Nesne Seçimi; nesnenin etrafına bir kutu sürükleyin
