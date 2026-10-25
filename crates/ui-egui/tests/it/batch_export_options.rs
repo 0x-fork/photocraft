@@ -44,12 +44,13 @@ fn evidence(h: &mut Harness, name: &str) {
 fn open_format_choices(h: &mut Harness) {
     let label = h.get_by_label("Format").rect();
     // The full app also draws the workspace and layer-blend dropdowns behind this modal.
-    // Target the actual form field beside Format, like the existing numeric-field harnesses.
+    // Target the nearest form field beside Format: the dock's fields can share its row.
     h.query_all_by_role(egui::accesskit::Role::ComboBox)
-        .find(|n| {
+        .filter(|n| {
             let r = n.rect();
             r.left() >= label.right() && (r.center().y - label.center().y).abs() < 3.0
         })
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
         .expect("format dropdown beside its label")
         .click();
     h.run_steps(3);
@@ -71,10 +72,11 @@ fn replace_text(h: &mut Harness, value: &str) {
 fn edit_path(h: &mut Harness, name: &str, value: &Path) {
     let label = h.get_by_label(name).rect();
     h.query_all_by_role(egui::accesskit::Role::TextInput)
-        .find(|n| {
+        .filter(|n| {
             let r = n.rect();
             r.left() >= label.right() && (r.center().y - label.center().y).abs() < 3.0
         })
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
         .expect("path text field beside its label")
         .click();
     h.run_steps(2);
@@ -86,10 +88,11 @@ fn edit_path(h: &mut Harness, name: &str, value: &Path) {
 fn edit_quality(h: &mut Harness, value: &str) {
     let label = h.get_by_label("Quality").rect();
     h.query_all_by_role(egui::accesskit::Role::SpinButton)
-        .find(|n| {
+        .filter(|n| {
             let r = n.rect();
             r.left() >= label.right() && (r.center().y - label.center().y).abs() < 3.0
         })
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
         .expect("quality numeric field beside its label")
         .click();
     h.run_steps(2);
@@ -312,10 +315,11 @@ fn batch_naming_controls_export_the_requested_names_and_reset_on_cancel() {
     replace_text(&mut h, "{serial}_{name}");
     let label = h.get_by_label("Starting serial").rect();
     h.query_all_by_role(egui::accesskit::Role::SpinButton)
-        .find(|n| {
+        .filter(|n| {
             let r = n.rect();
             r.left() >= label.right() && r.left() < label.right() + 100.0 && (r.center().y - label.center().y).abs() < 3.0
         })
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
         .expect("starting serial number control")
         .click();
     h.run_steps(2);
