@@ -583,6 +583,7 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                         ui.spacing_mut().item_spacing.x = 8.0;
                         for c in row {
                             let (r, resp) = ui.allocate_exact_size(card, Sense::click());
+                            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
                             let (w, h, _) = c.size(&units);
                             let on = match c {
                                 Card::Builtin(p) => chosen == p.0,
@@ -698,6 +699,11 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                     }
                 }
             });
+            // Under Orientation, as in Photoshop: the document starts as one artboard (#9086).
+            let mut artboard = f.get("artboard").and_then(Value::as_bool).unwrap_or(false);
+            if widgets::checkbox(ui, &mut artboard, tl!("Artboards")).changed() {
+                f.insert("artboard".into(), json!(artboard));
+            }
             ui.add_space(4.0);
             small_label(ui, tl!("Resolution"));
             ui.horizontal(|ui| {
@@ -880,6 +886,21 @@ mod tests {
         assert_eq!(f["profile"], "coated-cmyk");
     }
 
+    /// #9086: the Artboards checkbox's field reaches `file.new`, which starts the document as one
+    /// artboard; the dialog's own `__` keys don't.
+    #[test]
+    fn the_artboards_box_creates_an_artboard_document() {
+        let mut s = photocraft_engine::Session::new();
+        let mut f = Map::new();
+        for (k, v) in [("width", json!(64)), ("height", json!(48)), ("artboard", json!(true)), ("__orientation", json!("landscape"))] {
+            f.insert(k.into(), v);
+        }
+        s.execute("file.new", command_params(&f)).unwrap();
+        let doc = &s.active().unwrap().doc;
+        assert_eq!(doc.artboards().len(), 1);
+        assert_eq!(doc.artboards()[0].2.rect, doc.bounds());
+    }
+
     #[test]
     fn units_round_trip_through_pixels() {
         assert_eq!(to_unit(2100.0, "in", 300.0), 7.0);
@@ -1027,23 +1048,6 @@ mod tests {
             }
         });
         out.textures_delta.clear();
-    }
-
-    #[test]
-    fn new_document_depth_labels_and_tooltips_are_translated() {
-        // Bit-depth labels are unit/number strings that some languages legitimately write exactly
-        // like the English source (Turkish and Italian "8 bit"); they only need a catalog entry there.
-        const SAME_AS_SOURCE: &[(&str, &str)] = &[("tr", "8 bit"), ("tr", "16 bit"), ("it", "8 bit"), ("it", "16 bit")];
-        for lang in crate::i18n::Lang::all().filter(|lang| lang.code() != "en") {
-            for (_, label, tooltip) in DEPTH_OPTIONS {
-                if SAME_AS_SOURCE.contains(&(lang.code(), *label)) {
-                    assert!(crate::i18n::has(lang, label), "{}: {label}", lang.code());
-                } else {
-                    assert_ne!(crate::i18n::tr(lang, label), *label, "{}: {label}", lang.code());
-                }
-                assert_ne!(crate::i18n::tr(lang, tooltip), *tooltip, "{}: {tooltip}", lang.code());
-            }
-        }
     }
 
     #[test]

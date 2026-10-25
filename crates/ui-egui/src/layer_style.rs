@@ -23,6 +23,8 @@ use crate::{PhotocraftApp, widgets};
 
 pub(crate) mod color_picker;
 mod contour;
+#[cfg(test)]
+mod gradient_method_tests;
 
 #[derive(Clone, Copy)]
 enum P {
@@ -30,6 +32,7 @@ enum P {
     Color,
     Blend,
     Choice(&'static [(&'static str, &'static str)]),
+    GradientMethod,
     Check,
     Angle,
     /// A pattern from the dialog's `patternList` field (`[[id, name], …]`).
@@ -159,6 +162,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("style", "Style", P::Choice(GSTYLE)),
             ("angle", "Angle", P::Angle),
             ("scale", "Scale", P::Slider(10.0, 150.0, "%")),
+            ("method", "Method", P::GradientMethod),
         ],
         "patternOverlay" => &[
             ("blend", "Blend Mode", P::Blend),
@@ -293,13 +297,19 @@ fn values_of(e: &Effect, light: f32) -> Value {
             set(&mut v, "opacity", json!((common.opacity * 100.0).round()));
             set(&mut v, "color", json!(hex(color)));
         }
-        Effect::GradientOverlay { common, gradient: g, .. } => {
+        Effect::GradientOverlay { common, gradient: g, interpolation, .. } => {
             set(&mut v, "blend", json!(common.blend.label()));
             set(&mut v, "opacity", json!((common.opacity * 100.0).round()));
-            // Endpoint colours and geometry always load into the dialog. A baked curve
-            // (classic interpolation, PSD import) keeps its interior stops in `fx`;
-            // `overlay_gradient` only retints the ends unless `method` is present.
-            if let (Some(first), Some(last)) = (g.stops.first(), g.stops.last()) {
+            let stops = interpolation.as_ref().map_or(&g.stops, |source| &source.stops);
+            if let Some(source) = interpolation {
+                set(&mut v, "method", json!(source.method));
+                set(&mut v, "smoothness", json!(source.smoothness));
+            }
+            // Endpoint colours and geometry always load into the dialog. Recorded
+            // interpolation exposes the original source ends; a baked curve without a
+            // record (PSD import) keeps its interior stops in `fx`, and an edit only
+            // retints its ends until a method is chosen.
+            if let (Some(first), Some(last)) = (stops.first(), stops.last()) {
                 set(&mut v, "from", json!(hex(&first.1)));
                 set(&mut v, "to", json!(hex(&last.1)));
             }
@@ -750,6 +760,9 @@ fn apply_style_preset(app: &PhotocraftApp, f: &mut Map<String, Value>, name: &st
     if let Some(fo) = style.fill_opacity {
         set_param(f, BLENDING, "fillOpacity", json!((fo * 100.0).round()));
     }
+    if let Some(o) = style.opacity {
+        set_param(f, BLENDING, "opacity", json!((o * 100.0).round()));
+    }
 }
 
 /// Saves the dialog's pending state (enabled instances + blending page) as a style preset.
@@ -776,6 +789,7 @@ fn save_new_style(app: &mut PhotocraftApp, f: &Map<String, Value>) {
             "effects": entries,
             "blend": bo.get("blend").cloned().unwrap_or(Value::Null),
             "fillOpacity": bo.get("fillOpacity").cloned().unwrap_or(Value::Null),
+            "opacity": bo.get("opacity").cloned().unwrap_or(Value::Null),
         }),
     ) {
         app.ui.status = crate::i18n::fmt(tl!("Style {name} saved"), &[("name", v["name"].as_str().unwrap_or("Style"))]);
@@ -1048,6 +1062,44 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                             let opts: Vec<(String, &str)> = options.iter().map(|(v, l)| (v.to_string(), *l)).collect();
                             if widgets::dropdown(ui, &format!("fx-{sel_kind}-{key}"), &mut cur, &opts, 150.0) {
                                 let value = json!(cur);
+                                disp[key] = value.clone();
+                                set_param(f, &selected, key, value);
+                            }
+                        });
+                    }
+                    P::GradientMethod => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(tl!("Method")).color(t.text_dim));
+                            let mut current = disp.get(key).and_then(Value::as_str).unwrap_or("custom").to_string();
+                            let mut options = vec![
+                                ("smooth".to_string(), "Smooth"),
+                                ("perceptual".to_string(), "Perceptual"),
+                                ("linear".to_string(), "Linear"),
+                                ("classic".to_string(), "Classic"),
+                            ];
+                            // Old/imported curves have no method record. Preserve them until
+                            // the user explicitly chooses an interpolation method.
+                            if photocraft_io::GradientMethod::from_name(&current).is_none() {
+                                current = "custom".into();
+                                options.insert(0, ("custom".into(), "Custom"));
+                            }
+                            if widgets::dropdown(ui, "fx-gradientOverlay-method", &mut current, &options, 150.0) {
+                                // The older dialog deliberately omits From/To for rich imported
+                                // curves. Once a method is chosen, show the real source ends.
+                                let snapshot = entry(f, &selected).and_then(|e| e.get("fx")).cloned();
+                                if let Some(Effect::GradientOverlay { gradient, interpolation, .. }) =
+                                    snapshot.and_then(|v| serde_json::from_value::<Effect>(v).ok())
+                                {
+                                    let stops = interpolation.as_ref().map_or(&gradient.stops, |source| &source.stops);
+                                    for (key, stop) in [("from", stops.first()), ("to", stops.last())] {
+                                        if entry(f, &selected).and_then(|e| e.get("params")).and_then(|p| p.get(key)).is_none()
+                                            && let Some(stop) = stop
+                                        {
+                                            set_param(f, &selected, key, json!(hex(&stop.1)));
+                                        }
+                                    }
+                                }
+                                let value = json!(current);
                                 disp[key] = value.clone();
                                 set_param(f, &selected, key, value);
                             }
@@ -1501,6 +1553,39 @@ mod tests {
         let column = boxes.iter().map(|r| r.min.x).fold(f32::INFINITY, f32::min);
         let rows = boxes.iter().filter(|r| (r.min.x - column).abs() < 0.5).count();
         assert_eq!(rows, KINDS.len(), "one empty checkbox per effect row");
+    }
+
+    // Regression test for #2209: Make Default and Reset to Default sat in a non-wrapping row, so
+    // translated labels wider than the page column (Russian) pushed one button over the other
+    // and out of the column instead of wrapping to a second row.
+    #[test]
+    fn default_buttons_wrap_inside_the_page_column_with_long_labels() {
+        use egui_kittest::kittest::Queryable;
+        let ru = crate::i18n::Lang::from_code("ru").unwrap();
+        crate::i18n::with_language(ru, || {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+            let l = Layer::raster("x", photocraft_doc::PixelFormat::RGBA8);
+            let fields = initial_fields(&l, Some("dropShadow"), 120.0);
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(900.0, 700.0)).build_ui_state(
+                move |ui, app: &mut PhotocraftApp| {
+                    if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                        return;
+                    }
+                    let mut f = fields.clone();
+                    body(app, ui, &mut f);
+                },
+                app,
+            );
+            PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
+            h.run_steps(3);
+            let reset = h.get_by_role_and_label(egui::accesskit::Role::Button, crate::i18n::tr(ru, "Reset to Default")).rect();
+            let make = h.get_by_role_and_label(egui::accesskit::Role::Button, crate::i18n::tr(ru, "Make Default")).rect();
+            // Together they are wider than the page column: the second wraps to a row below
+            // instead of sharing the row and running left over the effect list.
+            assert!(make.top() >= reset.bottom(), "the buttons share one row: {make:?} {reset:?}");
+            assert_eq!(make.right(), reset.right(), "the wrapped row stays right-aligned");
+        });
     }
 
     /// Double-clicking an effect row of a layer that isn't active selects that layer first, so
@@ -2352,9 +2437,11 @@ mod tests {
         let id = app.session.active().unwrap().active_layer.unwrap();
         let mut f = initial_fields(app.session.active().unwrap().doc.layer(id).unwrap(), Some("stroke"), 120.0);
         set_param(&mut f, "fx1", "size", json!(9));
+        set_param(&mut f, BLENDING, "opacity", json!(40));
         save_new_style(&mut app, &f);
         let preset = app.session.presets.styles.iter().flat_map(|g| g.items.iter()).find(|st| st.name == "Style").expect("the preset is created");
         assert_eq!(preset.effects.len(), 1, "only the enabled instance is saved");
+        assert_eq!(preset.opacity, Some(0.4), "the pending opacity is saved, not the layer's");
         // A second layer gets the pending style back through the swatch path.
         app.run("layer.new.layer", json!({})).unwrap();
         let mut f2 = initial_fields(app.session.active().unwrap().doc.layer(app.session.active().unwrap().active_layer.unwrap()).unwrap(), None, 120.0);
@@ -2363,6 +2450,7 @@ mod tests {
         // Swatch clicks update the dialog fields only; document is untouched until confirm.
         assert_eq!(effects_of(&f2).len(), 1);
         assert_eq!(effects_of(&f2)[0]["params"]["size"], json!(9.0));
+        assert_eq!(f2["p:blendingOptions"]["opacity"], json!(40.0), "the swatch brings the style's opacity");
         // Confirming applies the style to the layer.
         confirm(&mut app, &f2).unwrap();
         let st = app.session.active().unwrap();

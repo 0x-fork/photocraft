@@ -10,7 +10,7 @@
 
 use egui::{Align2, Color32, FontId, Pos2, Rect as ERect, Sense, Stroke, TextureHandle, pos2, vec2};
 use photocraft_algo::liquify::{LiquifyField, LiquifyStroke, LiquifyTool, ProxyImage, auto_cell};
-use photocraft_doc::{Document, LayerId};
+use photocraft_doc::{DocId, Document, LayerId};
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 use serde_json::{Value, json};
@@ -153,6 +153,8 @@ impl LiquifyOpts {
 }
 
 pub struct LiquifyDialog {
+    /// Document this dialog belongs to (#5115).
+    pub document: DocId,
     pub layer: LayerId,
     layer_name: String,
     canvas: Rect,
@@ -219,6 +221,7 @@ fn union_rect(a: Option<Rect>, b: Rect) -> Option<Rect> {
 impl LiquifyDialog {
     pub fn describe(&self) -> Value {
         json!({
+            "document": self.document.0,
             "layer": self.layer.0,
             "tool": self.opts.tool,
             "size": self.opts.size,
@@ -529,6 +532,7 @@ fn open_on(
     let out = vec![[0u8; 4]; proxy.w * proxy.h];
     let center = [f64::from(canvas.x0 + canvas.x1) / 2.0, f64::from(canvas.y0 + canvas.y1) / 2.0];
     let mut d = LiquifyDialog {
+        document: st.doc.id,
         layer,
         layer_name: name,
         canvas,
@@ -1721,6 +1725,80 @@ mod tests {
             crate::shortcuts::handle(&mut app, ui.ctx());
         });
         assert_eq!(app.distort.liquify.as_ref().unwrap().strokes.len(), 1, "Cmd+Shift+Z redoes the last stroke");
+    }
+
+    // Regression test for #4134: Cmd+Z and Cmd+Shift+Z were ignored in Liquify while a numeric
+    // field's text edit (Size, Pressure, ...) had keyboard focus, so a stroke could not be undone.
+    #[test]
+    fn liquify_undo_and_redo_work_while_a_numeric_field_is_focused() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        for ev in [ToolEvent::Down { x: 40.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 52.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 52.0, y: 40.0 }]
+        {
+            pointer(&mut app, ev, egui::Modifiers::NONE);
+        }
+        let strokes = |app: &PhotocraftApp| app.distort.liquify.as_ref().unwrap().strokes.len();
+        assert_eq!(strokes(&app), 1);
+
+        // One frame of the real shortcut handler, then a focused single-line text edit (the
+        // numeric fields are text edits), as the app orders them.
+        let mut text = String::from("100");
+        let field = egui::Id::new("liquify-size-field");
+        let mut frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| {
+                crate::shortcuts::handle(app, ui.ctx());
+                let edit = ui.add(egui::TextEdit::singleline(&mut text).id(field));
+                edit.request_focus();
+            });
+            out.textures_delta.clear();
+        };
+        frame(&mut app, Vec::new());
+        assert!(ctx.text_edit_focused(), "the numeric field is a focused text edit");
+
+        let z = |modifiers| egui::Event::Key { key: egui::Key::Z, physical_key: None, pressed: true, repeat: false, modifiers };
+        frame(&mut app, vec![z(egui::Modifiers::COMMAND)]);
+        assert_eq!(strokes(&app), 0, "Cmd+Z undoes the stroke with the field focused");
+        frame(&mut app, vec![z(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT)]);
+        assert_eq!(strokes(&app), 1, "Cmd+Shift+Z redoes it");
+    }
+
+    // Regression test for #4134: other Liquify keys must not steal characters from a focused
+    // numeric field, and the bracket keys step the brush by at least one pixel.
+    #[test]
+    fn liquify_tool_keys_leave_a_focused_field_alone_and_brackets_reach_one_pixel() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        app.distort.liquify.as_mut().unwrap().opts.size = 2.0;
+        let size = |app: &PhotocraftApp| app.distort.liquify.as_ref().unwrap().opts.size;
+        let press = |app: &mut PhotocraftApp, key: egui::Key| {
+            let ev = egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+            let mut out = ctx.run_ui(egui::RawInput { events: vec![ev], ..Default::default() }, |ui| crate::shortcuts::handle(app, ui.ctx()));
+            out.textures_delta.clear();
+        };
+        // 2 px * 0.9 used to round back to 2, so `[` never reached 1 px; `]` steps up from 1.
+        press(&mut app, egui::Key::OpenBracket);
+        assert_eq!(size(&app), 1.0, "`[` steps a 2 px brush down to 1 px");
+        press(&mut app, egui::Key::CloseBracket);
+        assert_eq!(size(&app), 2.0, "`]` steps it back up");
+
+        // With a text edit focused, `[` belongs to the field.
+        let mut text = String::new();
+        let field = egui::Id::new("liquify-size-field");
+        let focused_frame = |app: &mut PhotocraftApp, text: &mut String, events: Vec<egui::Event>| {
+            let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                crate::shortcuts::handle(app, ui.ctx());
+                ui.add(egui::TextEdit::singleline(text).id(field)).request_focus();
+            });
+            out.textures_delta.clear();
+        };
+        focused_frame(&mut app, &mut text, Vec::new());
+        assert!(ctx.text_edit_focused());
+        let bracket = egui::Event::Key { key: egui::Key::OpenBracket, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        focused_frame(&mut app, &mut text, vec![bracket]);
+        assert_eq!(size(&app), 2.0, "the focused field keeps its keys");
     }
 
     fn key(key: egui::Key) -> egui::Event {
