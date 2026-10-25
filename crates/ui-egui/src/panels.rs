@@ -3546,7 +3546,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let doc_id = st.doc.id;
     let source = photocraft_engine::history_source_cmds::source(st);
     let selected_snap = selected_snapshot(ui.ctx(), st);
-    let spot = (doc.id, history_spot(st));
+    let spot = (doc_id, history_spot(st));
     let ctx = ui.ctx().clone();
     // A row dragged onto the trash (#5324); a drag that never saw its release must not outlive it.
     if !ctx.input(|i| i.pointer.primary_down() || i.pointer.any_released()) {
