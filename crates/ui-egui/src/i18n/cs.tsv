@@ -3860,6 +3860,7 @@ navigator	Zoom	Zvětšení
 	Settings from {name}	Nastavení z {name}
 	Settings from {name}; {count} not supported: {names}	Nastavení z {name}; {count} nepodporováno: {names}
 	Could not write {name}: {error}	Nelze zapsat {name}: {error}
+	Kept {name}: written by another application	Soubor {name} ponechán: zapsala ho jiná aplikace
 	Shadow Tint	Odstín stínů
 # PhotoCraft release checks.
 	Check for Updates…	Zkontrolovat aktualizace…

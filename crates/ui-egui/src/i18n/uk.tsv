@@ -3948,6 +3948,7 @@ curves	Smooth	Згладити
 	Settings from {name}	Налаштування з {name}
 	Settings from {name}; {count} not supported: {names}	Налаштування з {name}; не підтримується: {count}: {names}
 	Could not write {name}: {error}	Не вдалося записати {name}: {error}
+	Kept {name}: written by another application	{name} залишено без змін: записаний іншою програмою
 	Shadow Tint	Відтінок тіней
 # PhotoCraft release checks.
 	Check for Updates…	Перевірити оновлення…

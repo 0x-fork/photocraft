@@ -274,6 +274,25 @@ fn escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
+/// The XMP toolkit [`save`] names on `x:xmpmeta`.
+const TOOLKIT: &str = "PhotoCraft";
+const META_NS: &str = "adobe:ns:meta/";
+
+/// Did [`save`] write this file? True when its `x:xmpmeta` names PhotoCraft as the toolkit
+/// (`x:xmptk`). Lightroom, Bridge and Camera Raw put their own toolkit there when they write a
+/// file, so a sidecar another application touched since reads false. Never panics.
+pub fn is_photocraft_xmp(bytes: &[u8]) -> bool {
+    if bytes.len() > MAX_XMP_BYTES {
+        return false;
+    }
+    let Ok(text) = std::str::from_utf8(bytes) else { return false };
+    let Ok(doc) = roxmltree::Document::parse(text.trim_start_matches('\u{feff}')) else { return false };
+    doc.descendants()
+        .find(|n| n.is_element() && n.tag_name().namespace() == Some(META_NS) && n.tag_name().name() == "xmpmeta")
+        .and_then(|n| n.attribute((META_NS, "xmptk")))
+        == Some(TOOLKIT)
+}
+
 /// Write `params` as a Camera Raw settings file Photoshop's Load Settings… reads.
 pub fn save(params: &CameraRaw) -> String {
     let mut p = params.clone();
@@ -429,5 +448,25 @@ mod tests {
         let r = load(&mut p, xmp).unwrap();
         assert_eq!(p, before);
         assert_eq!(r.ignored, vec!["Contrast2012".to_string(), "ToneCurvePV2012".to_string()]);
+    }
+
+    #[test]
+    fn is_photocraft_xmp_reads_the_toolkit_marker() {
+        let own = save(&CameraRaw { contrast: 15.0, ..CameraRaw::default() });
+        assert!(is_photocraft_xmp(own.as_bytes()));
+        let wrapped = format!("\u{feff}<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n{own}<?xpacket end=\"w\"?>");
+        assert!(is_photocraft_xmp(wrapped.as_bytes()), "an xpacket wrapper and a byte order mark");
+        assert!(!is_photocraft_xmp(FIXTURE), "Camera Raw's own toolkit");
+        for other in [
+            &b""[..],
+            b"<x:xmpmeta",
+            b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>",
+            b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" xmptk=\"PhotoCraft\"/>",
+            b"<x:xmpmeta xmlns:x=\"other:ns/\" x:xmptk=\"PhotoCraft\"/>",
+            b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"PhotoCraft 2\"/>",
+            b"\xff\xfe",
+        ] {
+            assert!(!is_photocraft_xmp(other), "{}", String::from_utf8_lossy(other));
+        }
     }
 }

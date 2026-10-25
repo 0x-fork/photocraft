@@ -3256,6 +3256,7 @@ curves	Smooth	Lisser
 	Settings from {name}	Réglages de {name}
 	Settings from {name}; {count} not supported: {names}	Réglages de {name} ; {count} non pris en charge : {names}
 	Could not write {name}: {error}	Impossible d’écrire {name} : {error}
+	Kept {name}: written by another application	{name} conservé : écrit par une autre application
 	Shadow Tint	Teinte des ombres
 # PhotoCraft release checks.
 	Check for Updates…	Rechercher des mises à jour…

@@ -4276,6 +4276,7 @@ shape	Appearance	Izgled
 	Settings from {name}	Podešavanja iz {name}
 	Settings from {name}; {count} not supported: {names}	Podešavanja iz {name}; {count} nije podržano: {names}
 	Could not write {name}: {error}	Nije moguće upisati {name}: {error}
+	Kept {name}: written by another application	{name} je zadržan: upisala ga je druga aplikacija
 	Shadow Tint	Nijansa senki
 	Redrawing	Ponovno iscrtavanje
 

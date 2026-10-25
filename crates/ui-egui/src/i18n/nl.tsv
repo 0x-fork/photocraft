@@ -4008,6 +4008,7 @@ curves	Smooth	Vloeiend maken
 	Settings from {name}	Instellingen uit {name}
 	Settings from {name}; {count} not supported: {names}	Instellingen uit {name}; {count} niet ondersteund: {names}
 	Could not write {name}: {error}	Kan {name} niet schrijven: {error}
+	Kept {name}: written by another application	{name} behouden: geschreven door een andere toepassing
 	Shadow Tint	Schaduwtint
 # PhotoCraft release checks.
 	Check for Updates…	Controleren op updates…

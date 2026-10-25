@@ -2861,6 +2861,7 @@ curves	Smooth	平滑
 	Settings from {name}	來自 {name} 的設定
 	Settings from {name}; {count} not supported: {names}	來自 {name} 的設定；{count} 項不支援：{names}
 	Could not write {name}: {error}	無法寫入 {name}：{error}
+	Kept {name}: written by another application	已保留 {name}：由其他應用程式寫入
 	Shadow Tint	陰影色調
 # PhotoCraft release checks.
 	Check for Updates…	檢查更新…

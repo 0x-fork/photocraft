@@ -3711,6 +3711,7 @@ curves	Smooth	Làm mượt
 	Settings from {name}	Thiết lập từ {name}
 	Settings from {name}; {count} not supported: {names}	Thiết lập từ {name}; {count} không được hỗ trợ: {names}
 	Could not write {name}: {error}	Không thể ghi {name}: {error}
+	Kept {name}: written by another application	Đã giữ {name}: do ứng dụng khác ghi
 	Shadow Tint	Sắc độ bóng tối
 	Check for Updates…	Kiểm tra bản cập nhật…
 	PhotoCraft Updates	Bản cập nhật PhotoCraft

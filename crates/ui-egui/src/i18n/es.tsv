@@ -4209,6 +4209,7 @@ navigator	Zoom	Zoom
 	Settings from {name}	Ajustes de {name}
 	Settings from {name}; {count} not supported: {names}	Ajustes de {name}; {count} no compatibles: {names}
 	Could not write {name}: {error}	No se pudo escribir {name}: {error}
+	Kept {name}: written by another application	Se conservó {name}: lo escribió otra aplicación
 	Shadow Tint	Tinte de sombras
 # PhotoCraft release checks.
 	Check for Updates…	Buscar actualizaciones…

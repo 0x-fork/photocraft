@@ -3263,6 +3263,7 @@ curves	Smooth	Glätten
 	Settings from {name}	Einstellungen aus {name}
 	Settings from {name}; {count} not supported: {names}	Einstellungen aus {name}; {count} nicht unterstützt: {names}
 	Could not write {name}: {error}	{name} konnte nicht geschrieben werden: {error}
+	Kept {name}: written by another application	{name} beibehalten: von einer anderen Anwendung geschrieben
 	Shadow Tint	Schattentönung
 # PhotoCraft release checks.
 	Check for Updates…	Nach Updates suchen…

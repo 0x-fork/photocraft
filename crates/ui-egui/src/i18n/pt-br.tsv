@@ -4038,6 +4038,7 @@ layerLabel	No Color	Sem cor
 	Settings from {name}	Configurações de {name}
 	Settings from {name}; {count} not supported: {names}	Configurações de {name}; {count} sem suporte: {names}
 	Could not write {name}: {error}	Não foi possível gravar {name}: {error}
+	Kept {name}: written by another application	{name} mantido: gravado por outro aplicativo
 	Shadow Tint	Matiz das sombras
 # PhotoCraft release checks.
 	Check for Updates…	Verificar atualizações…

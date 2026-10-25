@@ -3863,6 +3863,7 @@ curves	Smooth	Wygładź
 	Settings from {name}	Ustawienia z {name}
 	Settings from {name}; {count} not supported: {names}	Ustawienia z {name}; nieobsługiwane: {count}: {names}
 	Could not write {name}: {error}	Nie można zapisać {name}: {error}
+	Kept {name}: written by another application	Zachowano {name}: zapisany przez inną aplikację
 	Shadow Tint	Tinta cieni
 # PhotoCraft release checks.
 	Check for Updates…	Sprawdź aktualizacje…

@@ -509,11 +509,14 @@ least one level apart. Commit dispatches one `filter.cameraRaw` engine command; 
 keeps the dialog open for correction. Nothing else writes document history.
 
 A raw file opened from a path reads its sidecar (`IMG_0001.xmp` beside `IMG_0001.CR2`, Camera
-Raw's `crs:` settings) into the open-time dialog, and Open writes it back (Preferences › Camera
-Raw Defaults › Write xmp sidecars; never beside a DNG). Open also applies the other Camera Raw
-Defaults (colour space, bit depth, resolution, Sharpen For as a Camera Raw step, Open as Smart
-Object, Apply auto tone), reported as `defaults` in the commit's reply; with "Open in Camera Raw"
-off the sidecar and the defaults apply without the dialog.
+Raw's `crs:` settings) into the open-time dialog, and Open writes changed settings back
+(Preferences › Camera Raw Defaults › Write xmp sidecars). It never writes beside a DNG, over a
+sidecar another application wrote (a notice says it was kept), or for a control or MCP request.
+Open also applies the other Camera Raw Defaults (Sharpen For as part of the Camera Raw step, then
+colour space, bit depth and Open as Smart Object, so the step works on the pixels the dialog
+previewed; Apply auto tone fills the dialog), reported as `defaults` in the commit's reply; the
+resolution is set when the file opens. With "Open in Camera Raw" off the sidecar and the defaults
+apply without the dialog.
 
 **Opening a raw file.** An interactive open (File › Open, Open Recent, drag and drop, the
 command line) of a camera raw developed from its sensor data shows this dialog first, titled

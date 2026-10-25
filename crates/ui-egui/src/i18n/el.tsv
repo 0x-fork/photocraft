@@ -3946,6 +3946,7 @@ curves	Smooth	Εξομάλυνση
 	Settings from {name}	Ρυθμίσεις από {name}
 	Settings from {name}; {count} not supported: {names}	Ρυθμίσεις από {name}· {count} δεν υποστηρίζονται: {names}
 	Could not write {name}: {error}	Αδυναμία εγγραφής του {name}: {error}
+	Kept {name}: written by another application	Το {name} διατηρήθηκε: γράφτηκε από άλλη εφαρμογή
 	Shadow Tint	Χροιά σκιών
 # PhotoCraft release checks.
 	Check for Updates…	Έλεγχος ενημερώσεων…
