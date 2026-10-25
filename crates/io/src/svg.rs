@@ -214,24 +214,31 @@ fn options(fontdb: Arc<usvg::fontdb::Database>) -> usvg::Options<'static> {
         // resvg (which allocates the full intrinsic image before any destination scaling) ever
         // sees them. Formats without a cheap header probe fall through unchanged; their decode
         // path is bounded elsewhere or accepted as-is, matching the previous behavior.
-        if let Some(probed) = embedded_image_dimensions(mime, &data) {
+        let probed = embedded_image_dimensions(mime, &data);
+        if let Some(probed) = probed {
             let (w, h) = probed?;
             let decoded = u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4);
             if decoded > MAX_EMBEDDED_IMAGE_BYTES {
                 return None;
             }
         }
-        // An embedded `image/svg+xml` value can itself be gzip-compressed (SVGZ-in-data-URL).
-        // The default resolver's sub-SVG loader checks for the gzip magic and decompresses
-        // again with no byte limit of its own. Apply our bounded inflate first: if the data is
-        // gzip-compressed, hand the default resolver the already-decompressed (and
-        // size-checked) bytes, which no longer start with the gzip magic, so it parses them
-        // directly instead of decompressing a second time.
-        if (mime == "image/svg+xml" || mime == "text/plain") && data.starts_with(&[0x1f, 0x8b]) {
-            return match inflate(&data) {
-                Ok(xml) if !xml.starts_with(&[0x1f, 0x8b]) => default_resolver("image/svg+xml", std::sync::Arc::new(xml.into_owned()), opts),
-                _ => None,
+        // An embedded SVG (`image/svg+xml`, or `text/plain` that isn't one of the raster
+        // formats probed above) is parsed by the default resolver with none of `parse_with`'s
+        // checks, so they run here. It can itself be gzip-compressed (SVGZ-in-data-URL), and the
+        // default resolver's sub-SVG loader would decompress again with no byte limit of its
+        // own: hand it our bounded inflate's output instead, which no longer starts with the
+        // gzip magic. Nesting deeper than [`MAX_XML_DEPTH`] drops the image rather than
+        // overflowing the parser's stack.
+        if mime == "image/svg+xml" || (mime == "text/plain" && probed.is_none()) {
+            let (mime, xml) = match inflate(&data) {
+                Ok(std::borrow::Cow::Borrowed(_)) => (mime, Arc::clone(&data)),
+                Ok(std::borrow::Cow::Owned(xml)) if !xml.starts_with(&[0x1f, 0x8b]) => ("image/svg+xml", Arc::new(xml)),
+                _ => return None,
             };
+            if nesting_depth(&xml, MAX_XML_DEPTH) > MAX_XML_DEPTH {
+                return None;
+            }
+            return default_resolver(mime, xml, opts);
         }
         default_resolver(mime, data, opts)
     });

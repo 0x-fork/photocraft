@@ -328,6 +328,43 @@ fn gzip_compressed_embedded_svg_decompresses_once_with_a_size_cap() {
     assert!(r.document.layers.iter().all(|l| !matches!(l.content, LayerContent::Raster(_))), "{:?}", r.document.layers);
 }
 
+/// usvg parses an SVG embedded as a `data:` image on its own, past the drawing's depth check:
+/// 20 000 nested groups in it overflowed a 2 MB thread stack, an abort nothing can catch. The
+/// embedded SVG gets the same check now, so the image is dropped and the drawing opens.
+#[test]
+fn deeply_nested_embedded_svg_is_dropped_not_a_stack_overflow() {
+    let deep = nested(20_000);
+    let percent: String = deep.bytes().map(|b| if b.is_ascii_alphanumeric() { char::from(b).to_string() } else { format!("%{b:02X}") }).collect();
+    let urls = [
+        format!("data:image/svg+xml,{percent}"),
+        base64_data_url("image/svg+xml", deep.as_bytes()),
+        base64_data_url("text/plain", deep.as_bytes()),
+        base64_data_url("image/svg+xml", &gzip(deep.as_bytes())),
+        base64_data_url("text/plain", &gzip(deep.as_bytes())),
+    ];
+    let embed = |url: &str| format!("<svg {NS} width=\"8\" height=\"8\"><image width=\"8\" height=\"8\" href=\"{url}\"/></svg>");
+    std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            for url in &urls {
+                let r = open(&embed(url));
+                assert!(r.document.layers.iter().all(|l| !matches!(l.content, LayerContent::Raster(_))), "{}: {:?}", &url[..20], r.document.layers);
+            }
+            // Just inside the limit the embedded drawing still renders (its rect is black).
+            let r = open(&embed(&base64_data_url("image/svg+xml", nested(svg::MAX_XML_DEPTH - 1).as_bytes())));
+            assert!(close(px(&r.document, 4, 4), [0.0, 0.0, 0.0, 1.0]), "{:?}", px(&r.document, 4, 4));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    // A PNG sent as `text/plain` is still an image, not markup to count.
+    let r = open(&format!(
+        "<svg {NS} width=\"8\" height=\"8\"><image width=\"8\" height=\"8\" image-rendering=\"pixelated\" href=\"{}\"/></svg>",
+        png_data_url().replace("image/png", "text/plain")
+    ));
+    assert!(close(px(&r.document, 1, 1), [1.0, 0.0, 0.0, 1.0]), "{:?}", px(&r.document, 1, 1));
+}
+
 /// 8 000 nested groups (70 KB) overflowed the XML parser's recursion on a 2 MB thread stack, an
 /// abort nothing can catch. It is an error now, found before the parser runs; the thread here
 /// has a small stack so a regression aborts the test instead of passing by luck.
