@@ -1598,10 +1598,12 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
 
 /// [`document_to_psd_nested`] with the largest file kept as PSD (lowered by tests).
 fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, ctl: &Interrupt, size_limit: u64) -> (PsdFile, Vec<String>) {
+    // Without `size_limit_psb` the encoded size never changes the version, in every mode.
+    let layerless_limit = opts.size_limit_psb.then_some(size_limit);
     if doc.mode == ColorMode::Multichannel {
-        return crate::multichannel_map::document_to_psd(doc, opts.force_psb, size_limit);
+        return crate::multichannel_map::document_to_psd(doc, opts.force_psb, layerless_limit);
     }
-    if let Some(file) = crate::palette_map::document_to_psd(doc, opts.force_psb, size_limit) {
+    if let Some(file) = crate::palette_map::document_to_psd(doc, opts.force_psb, layerless_limit) {
         return file;
     }
     let fmt = doc.pixel_format();
@@ -2316,6 +2318,11 @@ mod tests {
             assert!(warnings.iter().any(|w| w == "encoded size exceeds 2 GB; written as PSB"), "{psd_mode:?}: {warnings:?}");
             assert_eq!(blocks, vec![(*b"8B64", *b"cinf"), (*b"8B64", *b"pths"), (*b"8B64", *b"FMsk"), (*b"8BIM", *b"Patt")], "{psd_mode:?}: a PSB signs 8B64");
             assert_eq!(big.decode_merged().unwrap(), small.decode_merged().unwrap(), "{psd_mode:?}");
+            // Without `size_limit_psb` no mode is promoted by its size, the layerless ones included.
+            let opts = PsdExportOptions { size_limit_psb: false, ..PsdExportOptions::default() };
+            let (kept, warnings) = document_to_psd_sized(&doc, &opts, 0, &Interrupt::NONE, len + PSD_SAVE_HEADROOM - 1);
+            assert_eq!((kept.written_version(), kept.header.color_mode), (Version::Psd, psd_mode), "{psd_mode:?}: {warnings:?}");
+            assert!(!warnings.iter().any(|w| w.contains("written as PSB")), "{psd_mode:?}: {warnings:?}");
         }
     }
 

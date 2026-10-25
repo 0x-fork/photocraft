@@ -73,8 +73,9 @@ pub(crate) fn import(file: &PsdFile, all: &[u8], doc: &mut Document, names: &[St
 }
 
 /// Writes a Multichannel document as a mode-7 PSD (no layer section; every channel a plane).
-/// A file past `size_limit` bytes is written as PSB (see `psd_export::fit_psd_size`).
-pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: u64) -> (PsdFile, Vec<String>) {
+/// A file past `size_limit` bytes is written as PSB (see `psd_export::fit_psd_size`); `None` keeps
+/// the version whatever the size.
+pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: Option<u64>) -> (PsdFile, Vec<String>) {
     let mut warnings = Vec::new();
     // Photoshop's Multichannel mode is 8 or 16 bits per channel.
     let sample = match doc.depth {
@@ -139,7 +140,7 @@ pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: u64) 
 /// EXIF and every other imported resource `keep` accepts (except the ones that only describe
 /// layers and any already in `resources`), and the document-level tagged blocks. Shared by the
 /// modes that have no layers in Photoshop: Multichannel, Indexed Color and Bitmap. A file past
-/// `size_limit` bytes is written as PSB (see `psd_export::fit_psd_size`).
+/// `size_limit` bytes is written as PSB (see `psd_export::fit_psd_size`); `None` keeps the version.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn layerless_file(
     doc: &Document,
@@ -148,7 +149,7 @@ pub(crate) fn layerless_file(
     color_mode_data: Vec<u8>,
     mut resources: Vec<ImageResource>,
     keep: impl Fn(u16, &[u8]) -> bool,
-    size_limit: u64,
+    size_limit: Option<u64>,
     warnings: &mut Vec<String>,
 ) -> PsdFile {
     resources.extend(crate::psd_export::path_resources(doc, warnings));
@@ -195,7 +196,9 @@ pub(crate) fn layerless_file(
         image_data,
         write_as_psb: false,
     };
-    warnings.extend(crate::psd_export::fit_psd_size(&mut file, size_limit));
+    if let Some(limit) = size_limit {
+        warnings.extend(crate::psd_export::fit_psd_size(&mut file, limit));
+    }
     crate::psd_export::sign_global_blocks(&mut file);
     file
 }

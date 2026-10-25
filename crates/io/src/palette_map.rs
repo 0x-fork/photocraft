@@ -21,8 +21,9 @@ const CHANNEL_RESOURCES: [u16; 4] = [1006, 1045, 1053, crate::channel_map::DISPL
 /// opaque, or a Bitmap document; None for any other document (it is written like the others). A
 /// document with alpha channels or a Quick Mask is written like the others too: the importer does
 /// not read the extra channels of these modes back, so they would be lost.
-/// A file past `size_limit` bytes is written as PSB (see `psd_export::fit_psd_size`).
-pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: u64) -> Option<(PsdFile, Vec<String>)> {
+/// A file past `size_limit` bytes is written as PSB (see `psd_export::fit_psd_size`); `None` keeps
+/// the version whatever the size.
+pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: Option<u64>) -> Option<(PsdFile, Vec<String>)> {
     if !doc.channels.is_empty() || doc.quick_mask.is_some() {
         return None;
     }
@@ -161,7 +162,7 @@ mod tests {
     }
 
     fn round_trip(doc: &Document) -> (PsdFile, Document) {
-        let (file, _) = document_to_psd(doc, false, u64::MAX).unwrap();
+        let (file, _) = document_to_psd(doc, false, None).unwrap();
         let bytes = file.to_bytes().unwrap();
         let file = PsdFile::from_bytes(&bytes).unwrap();
         let back = crate::import("test.psd", &bytes).unwrap().document;
@@ -213,17 +214,17 @@ mod tests {
         assert_eq!(back.color_table, doc.color_table);
         for count in [0, 257] {
             doc.color_table = Some(ColorTable { colors: vec![[0, 0, 0]; count], transparent: None });
-            assert!(document_to_psd(&doc, false, u64::MAX).is_none(), "{count}");
+            assert!(document_to_psd(&doc, false, None).is_none(), "{count}");
         }
         doc.color_table = None;
-        assert!(document_to_psd(&doc, false, u64::MAX).is_none());
+        assert!(document_to_psd(&doc, false, None).is_none());
     }
 
     #[test]
     fn indexed_import_bounds_malformed_count_and_transparency_resources() {
         let mut doc = document(1, 1, SampleType::U8, ColorMode::Indexed, &[0.0, 0.0, 0.0, 1.0]);
         doc.color_table = Some(ColorTable { colors: vec![[0, 0, 0], [255, 255, 255]], transparent: None });
-        let (original, _) = document_to_psd(&doc, false, u64::MAX).unwrap();
+        let (original, _) = document_to_psd(&doc, false, None).unwrap();
         for (count, expected) in [(vec![0, 0], 1), (vec![1, 1], 256), (vec![255, 255], 256), (vec![0], 256)] {
             let mut file = original.clone();
             file.resources.retain(|r| r.id != COLOR_TABLE_COUNT);
