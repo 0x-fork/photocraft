@@ -2704,9 +2704,10 @@ impl eframe::App for PhotocraftApp {
             menu.raw_input(raw_input);
         }
         // While a text field of a floating panel's own window has the keyboard, the dock area
-        // hands it the text keys in this input, and that window pastes.
-        let typing = craft_ui::docking::typing_window(ctx).is_none() && (ctx.text_edit_focused() || self.ui.text_edit.is_some());
-        shortcuts::clipboard_keys(ctx, typing, raw_input);
+        // hands that window the text keys in this input and converts them there.
+        if craft_ui::docking::typing_window(ctx).is_none() {
+            shortcuts::clipboard_keys(ctx, ctx.text_edit_focused() || self.ui.text_edit.is_some(), raw_input);
+        }
         // Windows precision touchpads and some Linux Wayland compositors send pinches
         // as fractional Ctrl + wheel rather than a native Zoom event (#4566).
         // Leave Ctrl+whole-notch mouse scrolling alone, and honour the pinch preference.

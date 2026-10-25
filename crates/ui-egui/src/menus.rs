@@ -735,6 +735,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         "window.panel.group"
         | "window.panel.move"
         | "window.panel.float"
+        | "window.panel.window"
         | "window.panel.dock"
         | "window.panel.close"
         | "window.panel.closeGroup"

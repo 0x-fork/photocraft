@@ -291,6 +291,8 @@ fn shared_layout_keeps_panel_identity_across_themes_and_respects_workspace_lock(
     assert!(app.run("window.panel.float", json!({"panel":"color"})).is_err());
     assert_eq!(app.ui.docking, layout);
     assert!(app.run("window.panel.activate", json!({"panel":"color"})).is_ok());
+    assert!(!crate::menus::is_enabled(&app, "window.panel.window"));
+    assert!(crate::menus::is_enabled(&app, "window.panel.activate"));
 }
 
 /// Explicit offscreen evidence; this creates no native windows.
