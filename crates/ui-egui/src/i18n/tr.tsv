@@ -1974,8 +1974,6 @@
 	Show only crosshair while painting	Boyama sırasında yalnızca artı işaretini göster
 	Show slice numbers	Dilim numaralarını göster
 	Show tooltips	Araç ipuçlarını göster
-	Animation effects	Animasyon efektleri
-	Use system setting	Sistem ayarını kullan
 	Show highlight on rollover	Rollover sırasında vurgulamayı göster
 	Show bounding box when dragging layer	Katmanı sürüklerken sınırlayıcı kutuyu göster
 	System title bar	Sistem başlık çubuğu
@@ -2496,6 +2494,7 @@ cameraRaw	Color	Renk
 	Remove All	Tümünü Kaldır
 	Unlock	Kilidi Aç
 	Enable	Etkinleştir
+	Enable animations	Animasyonları etkinleştir
 	Disable	Devre dışı bırak
 	On	Açık
 	Selected	Seçilen

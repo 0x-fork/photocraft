@@ -83,12 +83,6 @@ choice!(
     LinuxDisplayServer { Auto = "auto", X11 = "x11" } default Auto
 );
 choice!(UiFontSize { Tiny = "tiny", Small = "small", Medium = "medium", Large = "large" } default Small);
-choice!(
-    /// Interface animations: `system` follows the operating system's animation setting (Windows
-    /// "Animation effects", macOS "Reduce motion", the desktop's setting on Linux and the BSDs,
-    /// `prefers-reduced-motion` in a browser) and keeps them on where it cannot be read.
-    AnimationEffects { System = "system", On = "on", Off = "off" } default System
-);
 choice!(LogDestination { Metadata = "metadata", TextFile = "textFile", Both = "both" } default Metadata);
 choice!(LogDetail { SessionsOnly = "sessionsOnly", Concise = "concise", Detailed = "detailed" } default Concise);
 choice!(Ask { Always = "always", Never = "never", Ask = "ask" } default Always);
@@ -292,9 +286,9 @@ pub struct Interface {
     /// objects in a large document stay visible (Photoshop's Clip Thumbnails to Layer Bounds; #4281).
     pub clip_thumbnails_to_layer_bounds: bool,
     pub show_tooltips: bool,
-    /// Menus, popups, dialogs and collapsing sections fade and slide, and scrolling glides to
-    /// its new position. Off, everything changes at once (a reduced-motion mode; #1218, #3273).
-    pub animation_effects: AnimationEffects,
+    /// Menus, popups and collapsing sections fade and slide, and scroll areas glide to a new
+    /// position. Off, everything changes at once (a reduced-motion mode; #1218, #3273).
+    pub enable_animations: bool,
     /// Move tool drags show only the layer's outline and an arrow, leaving its pixels in place
     /// until release. Off (the default), the pixels follow the pointer live inside the outline.
     pub show_bounding_box_when_dragging_layer: bool,
@@ -334,7 +328,7 @@ impl Default for Interface {
             show_menu_colors: true,
             clip_thumbnails_to_layer_bounds: false,
             show_tooltips: true,
-            animation_effects: AnimationEffects::System,
+            enable_animations: true,
             show_bounding_box_when_dragging_layer: false,
             system_title_bar: false,
             show_file_name_in_title: true,
@@ -1202,7 +1196,6 @@ pub fn choices(path: &str) -> Option<&'static [&'static str]> {
         "interface.canvasBorder" => CanvasBorder::NAMES,
         "interface.uiScale" => UiScale::NAMES,
         "interface.uiFontSize" => UiFontSize::NAMES,
-        "interface.animationEffects" => AnimationEffects::NAMES,
         "historyLog.destination" => LogDestination::NAMES,
         "historyLog.detail" => LogDetail::NAMES,
         "fileHandling.imagePreviews" | "fileHandling.maximizePsdCompatibility" => Ask::NAMES,
@@ -1931,14 +1924,6 @@ impl Session {
             interface.insert("appearanceMode".into(), json!(mode));
             // A partially migrated file may already contain a newer theme selection (#5139).
             interface.entry(slot).or_insert_with(|| json!(theme.name()));
-        }
-        // Animation Effects was the Enable Animations checkbox (on by default) before it could
-        // follow the system: a saved "off" stays off.
-        if let Some(interface) = v.get_mut("interface").and_then(Value::as_object_mut)
-            && !interface.contains_key("animationEffects")
-            && interface.get("enableAnimations").and_then(Value::as_bool) == Some(false)
-        {
-            interface.insert("animationEffects".into(), json!(AnimationEffects::Off.name()));
         }
         let color = v.as_object_mut().and_then(|m| m.remove("colorSettings"));
         let presets = v.as_object_mut().and_then(|m| m.remove("presets"));

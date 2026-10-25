@@ -2092,7 +2092,7 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let navigator_wheel = egui::Id::new("pc-navigator-wheel");
     if resp.hovered()
         && let Some(crate::wheel_nav::Wheel::Zoom(factor)) =
-            crate::wheel_nav::read_with(&ctx, true, pinch_zooms, animated_zoom, navigator_wheel, true, !app.prefs_rt.animations_off, touch_gestures)
+            crate::wheel_nav::read_with(&ctx, true, pinch_zooms, animated_zoom, navigator_wheel, true, true, touch_gestures)
     {
         let view = &mut app.ui.views[idx];
         let next = crate::zoom_levels::clamp(view.zoom * factor, view.doc_size);
