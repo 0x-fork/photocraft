@@ -3291,23 +3291,28 @@ fn effect_maps_with_nested_rayon_work_do_not_deadlock() {
     // #276: a tile building a layer's effect maps inside a once-init ran Rayon work; waiting on
     // it, its worker stole another tile of the same layer, which then blocked on the init held
     // further up its own stack. Eight threads (two rarely steal across that wait) and 64 tiles make that stealing likely; the cache is
-    // purged every round so the maps are rebuilt. A watchdog turns a hang into a failure.
+    // purged every round so the maps are rebuilt. A watchdog turns a hang into a failure: it
+    // fails when 120 s pass without a render finishing, however long all 101 renders take.
+    const ROUNDS: usize = 100;
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let Ok(pool) = rayon::ThreadPoolBuilder::new().num_threads(8).build() else { return };
         let d = nested_parallel_fx_doc();
         let first = pool.install(|| render_tiled(&d, d.bounds(), 64));
-        for _ in 0..100 {
+        let _ = tx.send(());
+        for _ in 0..ROUNDS {
             purge_effect_cache();
             let out = pool.install(|| render_tiled(&d, d.bounds(), 64));
             assert!(out.px == first.px, "renders differ between rounds");
+            let _ = tx.send(());
         }
-        let _ = tx.send(());
     });
-    match rx.recv_timeout(std::time::Duration::from_secs(120)) {
-        Ok(()) => {}
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("effect-map rendering deadlocked (#276)"),
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("render thread panicked"),
+    for _ in 0..=ROUNDS {
+        match rx.recv_timeout(std::time::Duration::from_secs(120)) {
+            Ok(()) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("effect-map rendering deadlocked (#276)"),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("render thread panicked"),
+        }
     }
 }
 
