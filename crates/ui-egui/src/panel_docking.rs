@@ -65,6 +65,17 @@ fn area_id() -> egui::Id {
     egui::Id::new("photocraft-panel-docking")
 }
 
+#[cfg(test)]
+fn bodies_id() -> egui::Id {
+    area_id().with("bodies")
+}
+
+/// The body of each panel drawn last frame, the canvas included (screen points).
+#[cfg(test)]
+pub(crate) fn last_bodies(ctx: &egui::Context) -> Vec<(String, egui::Rect)> {
+    ctx.data(|data| data.get_temp::<Vec<(String, egui::Rect)>>(bodies_id())).unwrap_or_default()
+}
+
 /// The panel that holds the document area. It never moves, floats, closes or takes tabs, and
 /// docks and frames open beside it.
 pub(crate) const CANVAS: &str = "canvas";
@@ -175,7 +186,7 @@ fn legacy(app: &PhotocraftApp) -> Layout<String> {
 /// Studio themes float Properties over the canvas's top right corner. `all` includes the groups
 /// that are not shown, with every tab.
 fn legacy_layout(app: &PhotocraftApp, all: bool) -> Layout<String> {
-    let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+    let pro = app.ui.theme.is_pro();
     let mut groups = Vec::new();
     let mut floating = Vec::new();
     for group in app.ui.dock.order().into_iter().filter(|g| all || g.shown(&app.ui.panels)) {
@@ -250,7 +261,7 @@ fn collapsed_members(app: &PhotocraftApp, layout: &Layout<String>) -> std::colle
     for panels in root_groups(layout) {
         let group = panels.first().and_then(|id| PANELS.iter().find(|p| p.0 == id)).map(|p| p.2);
         if let Some(group) = group.filter(|group| app.ui.dock.is_collapsed(*group)) {
-            let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+            let pro = app.ui.theme.is_pro();
             let native: Vec<_> = app.ui.dock.visible_tabs(group, pro).iter().filter_map(|(_, name)| normalize(name)).collect();
             if panels.len() == native.len() && panels.iter().all(|panel| native.contains(&panel.as_str())) {
                 collapsed.extend(panels.iter().cloned());
@@ -284,7 +295,7 @@ fn ensure(app: &PhotocraftApp, workspace: &mut Workspace, panel: &str) -> Result
 fn default_place(app: &PhotocraftApp, layout: &Layout<String>, panel: &str) -> Action<String> {
     let open = Action::Open { panel: panel.to_owned(), anchor: None };
     let Some(group) = PANELS.iter().find(|p| p.0 == panel).map(|p| p.2) else { return open };
-    let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+    let pro = app.ui.theme.is_pro();
     let tabs: Vec<&str> = app.ui.dock.ordered_tabs(group, pro).iter().filter_map(|(_, label)| normalize(label)).collect();
     if let Some(mate) = tabs.iter().find(|id| layout.contains(&id.to_string())) {
         let members = group_members(layout, mate);
@@ -578,12 +589,14 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     style.right_to_left = crate::direction::is_rtl();
     style.new_dock_zones = true;
     let style = style.localized(|key| DOCK_LABELS.iter().find(|(k, _)| *k == key).map(|(_, english)| tl!(english).to_string()));
-    let mut dock = craft_ui::docking::DockArea::new(area).locked(locked);
+    let mut dock = craft_ui::docking::DockArea::new(area).locked(locked).auto_collapse_iconic(app.session.prefs().workspace.auto_collapse_icon_panels);
     if let Some(panel) = &reveal {
         dock = dock.raise_panel(panel.clone());
     }
     let mut commands = Vec::new();
     let strip = style.tab_height;
+    #[cfg(test)]
+    ui.ctx().data_mut(|data| data.insert_temp(bodies_id(), Vec::<(String, egui::Rect)>::new()));
     let output = dock.show_customized(
         ui,
         &layout,
@@ -597,8 +610,10 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 craft_ui::docking::PanelLimits { min: egui::vec2(220.0, 0.0), max: egui::vec2(1_000_000.0, 0.0) }
             } else {
                 // Layers owns its row scroll and footer; leave room for its fixed controls
-                // plus a scrolling row area instead of clipping the footer after a split.
-                let height = if id == "layers" { 220.0 } else { 80.0 };
+                // plus a scrolling row area instead of clipping the footer after a split. The
+                // others go down to the native group's smallest height, tab strip included.
+                let native = PANELS.iter().find(|p| p.0 == id).map_or(80.0, |p| p.2.min_height() - strip);
+                let height = if id == "layers" { 220.0 } else { native };
                 craft_ui::docking::PanelLimits { min: egui::vec2(220.0, height), ..Default::default() }
             }
         },
@@ -616,7 +631,9 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         ui.ctx().data_mut(|data| data.remove::<LegacyDrag>(area.with("legacy-origin")));
     }
-    for action in output.actions {
+    let mut actions = output.actions;
+    pin_group_heights(ui.ctx(), &layout, &mut actions);
+    for action in actions {
         let result = match action {
             // A dock group minimizes as PhotoCraft's collapsed group, which the native dock's
             // collapse also sets.
@@ -634,6 +651,45 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             app.ui.status = error;
         }
     }
+}
+
+/// A divider drag pins the other open groups of its column at the heights they show, so groups
+/// still at their defaults, which give way to the filler, don't shift while one is resized. The
+/// last open group fills the column and stays unpinned.
+fn pin_group_heights(ctx: &egui::Context, layout: &Layout<String>, actions: &mut Vec<Action<String>>) {
+    use craft_ui::docking::{DockArea, Hit};
+    let resized: Vec<String> = actions.iter().filter_map(|a| if let Action::ResizeGroup { panel, .. } = a { Some(panel.clone()) } else { None }).collect();
+    if resized.is_empty() {
+        return;
+    }
+    let hits = DockArea::<String>::hit_rects(ctx, area_id());
+    let mut pins = Vec::new();
+    let mut pending: Vec<&Node<String>> = layout.root.iter().collect();
+    while let Some(node) = pending.pop() {
+        match node {
+            Node::Split { first, second, .. } => pending.extend([first.as_ref(), second.as_ref()]),
+            Node::Dock { columns, .. } => {
+                for column in columns.iter().filter(|c| c.groups.iter().any(|g| g.panels.first().is_some_and(|p| resized.contains(p)))) {
+                    let open: Vec<_> = column.groups.iter().filter(|g| !g.minimized).collect();
+                    for group in open.iter().take(open.len().saturating_sub(1)).filter(|g| g.height.is_none()) {
+                        let Some(first) = group.panels.first().filter(|p| !resized.contains(p)) else { continue };
+                        let top = hits
+                            .iter()
+                            .filter(|(hit, _)| matches!(hit, Hit::Tab(p) | Hit::DragBar(p) if group.panels.contains(p)))
+                            .map(|(_, rect)| rect.top())
+                            .reduce(f32::min);
+                        let bottom =
+                            hits.iter().find(|(hit, _)| *hit == Hit::Divider(craft_ui::docking::Divider::Group(first.clone()))).map(|(_, r)| r.center().y);
+                        if let (Some(top), Some(bottom)) = (top, bottom) {
+                            pins.push(Action::ResizeGroup { panel: first.clone(), height: Some(bottom - top) });
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    actions.splice(0..0, pins);
 }
 
 /// `ui.set {dockWidth}`: the width of the end dock's outer column.
@@ -668,7 +724,7 @@ fn native_dock_width(app: &mut PhotocraftApp, ctx: &egui::Context) {
         return;
     }
     ctx.data_mut(|data| data.remove::<egui::PanelState>(id));
-    let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+    let pro = app.ui.theme.is_pro();
     let range = crate::panels::dock_width_range(ctx.content_rect().width());
     let width = state.size().x;
     if app.ui.docking.is_none() && width.is_finite() && (width - default_width(pro)).abs() >= 1.0 {
@@ -759,9 +815,12 @@ fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: &str) {
     // holding several of the group's panels keeps the selection `sync_visibility` chose.
     let shown = std::mem::replace(group.tab_mut(&mut app.ui.dock_tabs), tab);
     if group.scrolls_itself(tab) {
+        ui.set_min_height(ui.available_height().max(0.0));
         crate::panels::dock_body(app, ui, *group, tab);
     } else {
         crate::panels::offer_color_field_fill(ui, pro, *group, tab);
+        // No scroll fade: it darkens real colours, swatches and previews at the edge (#2726).
+        ui.spacing_mut().scroll.fade.strength = 0.0;
         egui::ScrollArea::vertical()
             .id_salt(("shared-panel-body", id))
             .auto_shrink([false, false])
@@ -772,6 +831,49 @@ fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: &str) {
         *group.tab_mut(&mut app.ui.dock_tabs) = shown;
     } else if let Some(label) = group.tabs(pro).get(selected) {
         let _ = app.run("window.panel.activate", json!({"panel":label}));
+    }
+}
+
+/// Where tests find panels and docking controls as drawn last frame.
+#[cfg(test)]
+pub(crate) mod probe {
+    use super::*;
+    use craft_ui::docking::{DockArea, Hit};
+    use egui::Rect;
+
+    pub(crate) fn hit_rect(ctx: &egui::Context, hit: &Hit<String>) -> Option<Rect> {
+        DockArea::<String>::hit_rects(ctx, area_id()).into_iter().find(|(drawn, _)| drawn == hit).map(|(_, rect)| rect)
+    }
+
+    pub(crate) fn tab_rect(ctx: &egui::Context, panel: &str) -> Option<Rect> {
+        hit_rect(ctx, &Hit::Tab(panel.to_owned()))
+    }
+
+    /// The body of `panel`, when it is its group's selected tab.
+    pub(crate) fn panel_rect(ctx: &egui::Context, panel: &str) -> Option<Rect> {
+        last_bodies(ctx).into_iter().find(|(id, _)| id == panel).map(|(_, rect)| rect)
+    }
+
+    /// The panels of the tab group holding `panel`, in tab order.
+    pub(crate) fn group_of(app: &PhotocraftApp, panel: &str) -> Vec<String> {
+        let layout = app.ui.docking.as_ref().map_or_else(|| legacy(app), |workspace| workspace.layout.clone());
+        group_members(&layout, panel)
+    }
+
+    /// The tab group holding `panel`: its tab strip and its selected panel's body.
+    pub(crate) fn group_rect(app: &PhotocraftApp, ctx: &egui::Context, panel: &str) -> Option<Rect> {
+        let members = group_of(app, panel);
+        let strip = DockArea::<String>::hit_rects(ctx, area_id()).into_iter().filter_map(|(hit, rect)| match hit {
+            Hit::Tab(p) | Hit::DragBar(p) | Hit::Border(p) | Hit::Overflow(p) => members.contains(&p).then_some(rect),
+            _ => None,
+        });
+        let bodies = last_bodies(ctx).into_iter().filter_map(|(id, rect)| members.contains(&id).then_some(rect));
+        strip.chain(bodies).reduce(|a, b| a.union(b))
+    }
+
+    /// [`group_rect`] of the first panel of the native `group` that is laid out.
+    pub(crate) fn native_group_rect(app: &PhotocraftApp, ctx: &egui::Context, group: Group) -> Option<Rect> {
+        PANELS.iter().filter(|p| p.2 == group).find_map(|p| group_rect(app, ctx, p.0))
     }
 }
 
@@ -859,12 +961,7 @@ pub(crate) fn rail_click(app: &mut PhotocraftApp, group: Group) {
     let layout = &workspace.layout;
     let floating = PANELS.iter().filter(|p| p.2 == group).any(|p| floats(layout, p.0));
     let existing = PANELS.iter().find(|p| p.2 == group && layout.contains(&p.0.to_owned())).map(|p| p.0);
-    let panel = existing.or_else(|| {
-        group
-            .tabs(matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium))
-            .get(*group.tab_mut(&mut app.ui.dock_tabs))
-            .and_then(|label| normalize(label))
-    });
+    let panel = existing.or_else(|| group.tabs(app.ui.theme.is_pro()).get(*group.tab_mut(&mut app.ui.dock_tabs)).and_then(|label| normalize(label)));
     if let Some(panel) = panel {
         let result = if existing.is_some() && rail_on(app, group) {
             if floating {
@@ -1090,6 +1187,8 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
 
 impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
     fn body(&mut self, ui: &mut egui::Ui, id: &String) {
+        #[cfg(test)]
+        ui.ctx().data_mut(|data| data.get_temp_mut_or_default::<Vec<(String, egui::Rect)>>(bodies_id()).push((id.clone(), ui.max_rect())));
         if id == CANVAS {
             crate::panels::canvas_panel(self.app, ui);
             return;
@@ -1097,7 +1196,9 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
         // A window too small for the dock squeezes its column below the panels' minimum width,
         // which their layouts do not take.
         if !self.collapsed.contains(id) && ui.available_width() >= 200.0 {
-            egui::Frame::NONE.inner_margin(egui::Margin::same(8)).show(ui, |ui| body(self.app, ui, id));
+            let pro = crate::theme::Tokens::get(ui.ctx()).pro;
+            ui.spacing_mut().item_spacing.y = if pro { 0.0 } else { 6.0 };
+            egui::Frame::NONE.inner_margin(crate::widgets::body_margin(pro)).show(ui, |ui| body(self.app, ui, id));
         }
     }
     fn dock_heights(&self, id: &String) -> Option<DockHeights> {
@@ -1154,7 +1255,7 @@ pub(crate) fn sync_visibility(app: &mut PhotocraftApp) {
         if !valid(layout) {
             return;
         }
-        let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+        let pro = app.ui.theme.is_pro();
         for group in Group::ALL {
             *group.shown_mut(&mut app.ui.panels) = PANELS.iter().filter(|p| p.2 == group).any(|p| layout.contains(&p.0.to_owned()));
             for (index, label) in group.tabs(pro).iter().enumerate() {
