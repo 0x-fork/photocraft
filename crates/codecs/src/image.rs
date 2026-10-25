@@ -200,6 +200,9 @@ pub enum DecodeWarning {
     /// A DPX element's transfer characteristic and colorimetric specification (SMPTE 268M codes,
     /// 255 when undefined). The code values are imported as stored, without a colour transform.
     DpxEncoding { transfer: u8, colorimetric: u8 },
+    /// The file's `count` extra samples (spot or extra alpha channels) did not fit the allocation
+    /// limit next to the image, so only the image was decoded.
+    ExtraSamplesDropped { format: Format, count: u32 },
 }
 
 /// The SMPTE 268M name of a transfer characteristic or colorimetric code.
@@ -249,6 +252,13 @@ impl fmt::Display for DecodeWarning {
                 "DPX transfer characteristic: {} ({transfer}), colorimetric: {} ({colorimetric}); the code values were imported as stored, without a colour transform",
                 dpx_code_name(*transfer),
                 dpx_code_name(*colorimetric)
+            ),
+            DecodeWarning::ExtraSamplesDropped { format, count } => write!(
+                f,
+                "{count} extra {} file channel{} (spot or alpha) did not fit in memory and {} not imported",
+                format.name(),
+                if *count == 1 { "" } else { "s" },
+                if *count == 1 { "was" } else { "were" }
             ),
         }
     }

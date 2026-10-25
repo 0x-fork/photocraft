@@ -218,11 +218,13 @@ fn a_wrong_sized_plane_is_refused_before_a_sample_type_conversion() {
 }
 
 /// Extra samples count against `max_alloc` with the image (their interleaved buffer and the
-/// planes split from it): a budget that holds the RGB image but not sixteen extra planes refuses
-/// the file instead of allocating past it.
+/// planes split from it): a budget that holds the RGB image but not sixteen extra planes opens
+/// the image without them, with a warning, instead of allocating past it.
 #[test]
 fn extra_samples_count_against_the_allocation_limit() {
-    let (w, h) = (64u32, 64u32);
+    // Big enough for several strips (about 1 MB each): one strip of all 19 samples fits the budget
+    // of the image alone, as in real files.
+    let (w, h) = (1024u32, 1024u32);
     let n = (w * h) as usize;
     let mut img = synth(w, h, ChannelLayout::Rgb, SampleType::U8, 1, 0.0);
     img.meta.extra_samples = (0..MAX_EXTRA_SAMPLES).map(|k| ExtraSample { kind: 0, data: vec![k as u8; n] }).collect();
@@ -231,10 +233,51 @@ fn extra_samples_count_against_the_allocation_limit() {
     // RGB is 3 bytes a pixel; the extra samples add 2 x 16 more.
     let image_only = 3 * n as u64;
     let with_extras = (3 + 2 * MAX_EXTRA_SAMPLES as u64) * n as u64;
-    assert!(matches!(with(image_only), Err(CodecError::LimitExceeded(_))), "the image fits, the extra samples don't");
-    assert!(matches!(with(with_extras - 1), Err(CodecError::LimitExceeded(_))));
     let back = with(with_extras).expect("everything fits");
     assert_eq!(back.meta.extra_samples.len(), MAX_EXTRA_SAMPLES);
+    assert!(back.warnings.is_empty());
+    // The image fits, its extra samples don't: it opens as before they were read, with a warning.
+    for max_alloc in [image_only, with_extras - 1] {
+        let only = with(max_alloc).expect("the image alone fits");
+        assert!(only.meta.extra_samples.is_empty());
+        assert_eq!(only.warnings, vec![DecodeWarning::ExtraSamplesDropped { format: Format::Tiff, count: MAX_EXTRA_SAMPLES as u32 }]);
+        assert_eq!(only.data(), back.data());
+    }
+    assert!(matches!(with(image_only - 1), Err(CodecError::LimitExceeded(_))), "the image itself must still fit");
+}
+
+/// The value field of a little-endian classic TIFF's ExtraSamples entry (tag 338, SHORT) holding
+/// two values, so they sit in the entry itself.
+fn extra_samples_values(bytes: &mut [u8]) -> &mut [u8] {
+    assert_eq!(&bytes[..4], b"II*\0");
+    let entry = [0x52, 0x01, 3, 0, 2, 0, 0, 0];
+    let at = bytes.windows(8).position(|w| w == entry).expect("an ExtraSamples entry with two values");
+    &mut bytes[at + 8..at + 12]
+}
+
+/// ExtraSamples values above 2 are reserved (TIFF 6.0, p. 31): they read as 0 (unspecified) and
+/// are written as 0, so a save never carries a reserved value.
+#[test]
+fn reserved_extra_sample_kinds_read_as_unspecified() {
+    let n = 4 * 4;
+    let mut img = synth(4, 4, ChannelLayout::Rgb, SampleType::U8, 1, 0.0);
+    img.meta.extra_samples = vec![ExtraSample { kind: 0, data: vec![7; n] }, ExtraSample { kind: 0, data: vec![9; n] }];
+    let mut bytes = encode(&img, Format::Tiff, &EncodeOptions::default()).unwrap();
+    // A file from another writer with reserved values 3 and 65535.
+    let values = extra_samples_values(&mut bytes);
+    assert_eq!(values, [0, 0, 0, 0]);
+    values.copy_from_slice(&[3, 0, 0xFF, 0xFF]);
+    let back = decode(&bytes).unwrap();
+    assert_eq!(back.meta.extra_samples.iter().map(|e| e.kind).collect::<Vec<_>>(), [0, 0]);
+    assert_eq!(back.layout(), ChannelLayout::Rgb, "a reserved value is no alpha");
+    assert_eq!(back.meta.extra_samples[0].data, vec![7; n]);
+    assert_eq!(back.meta.extra_samples[1].data, vec![9; n]);
+
+    // An image that carries a reserved kind saves it as 0.
+    img.meta.extra_samples[0].kind = 3;
+    img.meta.extra_samples[1].kind = u16::MAX;
+    let mut bytes = encode(&img, Format::Tiff, &EncodeOptions::default()).unwrap();
+    assert_eq!(extra_samples_values(&mut bytes), [0, 0, 0, 0]);
 }
 
 /// Converting an image's sample type converts its extra samples with it, so they keep matching

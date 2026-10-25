@@ -696,7 +696,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecEr
         .ok_or_else(|| CodecError::LimitExceeded("tile size".into()))?;
     let scratch_cap = chunk_bytes.saturating_mul(2).max(64 << 20).min(limits.alloc_usize());
     let extra_at = extra_sample_indices(spp as usize, color, alpha_at, out_layout.has_alpha());
-    let lay = Layout {
+    let mut lay = Layout {
         w: wu,
         src,
         out,
@@ -715,10 +715,15 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecEr
         extra_at,
     };
     // Extra samples share the allocation budget with the image: their interleaved buffer and the
-    // planes split from it are held next to the image, so both count against `max_alloc`.
+    // planes split from it are held next to the image, so both count against `max_alloc`. When
+    // they don't fit, the image still opens (it passed its own check above) without them.
+    let mut extras_dropped = 0;
     if !lay.extra_at.is_empty() {
         let per_pixel = out_layout.channels().saturating_add(lay.extra_at.len().saturating_mul(2)).saturating_mul(out.bytes());
-        limits.check_bytes(w, h, per_pixel as u64)?;
+        if limits.check_bytes(w, h, per_pixel as u64).is_err() {
+            extras_dropped = u32::try_from(lay.extra_at.len()).unwrap_or(u32::MAX);
+            lay.extra_at.clear();
+        }
     }
 
     // The output, allocated once and fallibly.
@@ -740,8 +745,16 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecEr
     }
     let mut img = Image::from_raw(w, h, out_layout, out, data)?;
     if !lay.extra_at.is_empty() {
-        let kind_of = |si: usize| si.checked_sub(color).and_then(|k| extra.get(k)).copied().unwrap_or(0) as u16;
+        // TIFF 6.0 defines ExtraSamples 0, 1 and 2 only; a reserved value reads as unspecified,
+        // so a save never writes it back.
+        let kind_of = |si: usize| match si.checked_sub(color).and_then(|k| extra.get(k)).copied() {
+            Some(v @ 0..=2) => v as u16,
+            _ => 0,
+        };
         img.meta.extra_samples = split_extra_samples(&extra_data, wu, hu, &lay.extra_at, out, kind_of)?;
+    }
+    if extras_dropped > 0 {
+        img.warnings.push(DecodeWarning::ExtraSamplesDropped { format: F, count: extras_dropped });
     }
     if tally.missing > 0 {
         img.warnings.push(DecodeWarning::Truncated { format: F });
@@ -1728,8 +1741,9 @@ fn encode_ready(img: &Image, opts: &EncodeOptions) -> Result<Vec<u8>, CodecError
     if img.layout().has_alpha() {
         kinds.push(2);
     }
+    // TIFF 6.0 reserves ExtraSamples values above 2: those are written as 0 (unspecified).
     for e in &img.meta.extra_samples {
-        kinds.push(e.kind);
+        kinds.push(if e.kind <= 2 { e.kind } else { 0 });
     }
     let tags = TagSet {
         icc: if opts.embed_icc { img.icc.as_deref() } else { None },
