@@ -3194,6 +3194,17 @@ curves	Smooth	Сгладить
 	Sent to {printer}	Отправлено на {printer}
 	set in Print Settings…	задаётся в параметрах печати…
 	ICO is limited to 256 × 256 pixels	ICO ограничен размером 256 × 256 пикселей
+	Calibration	Калибровка
+	Red Primary	Красный основной
+	Green Primary	Зелёный основной
+	Blue Primary	Синий основной
+	Write xmp sidecars	Записывать сопутствующие файлы XMP
+	Set the tone sliders from the image	Установить ползунки тона по изображению
+	Settings from {name}	Настройки из {name}
+	Settings from {name}; {count} not supported: {names}	Настройки из {name}; не поддерживается: {count}: {names}
+	Could not write {name}: {error}	Не удалось записать {name}: {error}
+	Kept {name}: written by another application	{name} сохранён без изменений: записан другим приложением
+	Shadow Tint	Оттенок теней
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Рисует из исходного состояния панели «История»
 	Sets the source for the history brush	Задаёт источник для кисти истории

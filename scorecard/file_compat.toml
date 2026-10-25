@@ -78,9 +78,9 @@ note = "io pdf.rs: Save As / Save a Copy / CLI write one flattened RGB/Gray/CMYK
 [[item]]
 id = "FILE-215-11"
 target = "RAW: lossy DNG, highlight modes, .xmp sidecars, RAW prefs wired, per-camera corpus"
-status = "missing"
+status = "partial"
 issue = 215
-note = "raw sensor.rs:210 lossy DNG unsupported; raw_defaults unread; no xmp"
+note = "2026-10-13: lossy DNG (34892) decodes stored 8-bit samples with padded edge tiles (raw sensor.rs lossy_jpeg, #5112); a raw's sidecar IMG.xmp fills the open-time dialog and Open writes it back (camera_raw_ui.rs read_sidecar/write_sidecar, pref rawDefaults.writeXmpSidecars); every Camera Raw Defaults preference is read (colour space, bit depth, resolution, Sharpen For, Open as Smart Object, Apply auto tone: apply_raw_defaults); Calibration panel (shadow tint, primaries hue/saturation) in the dialog, the filter and the crs: keys. Still missing: highlight recovery modes, the absolute (kelvin) white balance of raw sidecars, a per-camera corpus"
 
 [[item]]
 id = "FILE-215-12"

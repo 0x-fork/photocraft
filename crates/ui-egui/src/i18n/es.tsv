@@ -4201,6 +4201,17 @@ navigator	Zoom	Zoom
 	Sent to {printer}	Enviado a {printer}
 	set in Print Settings…	se establece en Ajustes de impresión…
 	ICO is limited to 256 × 256 pixels	ICO está limitado a 256 × 256 píxeles
+	Calibration	Calibración
+	Red Primary	Primario rojo
+	Green Primary	Primario verde
+	Blue Primary	Primario azul
+	Write xmp sidecars	Escribir archivos XMP auxiliares
+	Set the tone sliders from the image	Ajustar los controles de tono a partir de la imagen
+	Settings from {name}	Ajustes de {name}
+	Settings from {name}; {count} not supported: {names}	Ajustes de {name}; {count} no compatibles: {names}
+	Could not write {name}: {error}	No se pudo escribir {name}: {error}
+	Kept {name}: written by another application	Se conservó {name}: lo escribió otra aplicación
+	Shadow Tint	Tinte de sombras
 # PhotoCraft release checks.
 	Check for Updates…	Buscar actualizaciones…
 	PhotoCraft Updates	Actualizaciones de PhotoCraft

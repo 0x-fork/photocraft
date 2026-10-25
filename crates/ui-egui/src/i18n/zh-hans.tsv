@@ -2890,6 +2890,17 @@ curves	Smooth	平滑
 	Sent to {printer}	已发送到 {printer}
 	set in Print Settings…	在打印设置中设置…
 	ICO is limited to 256 × 256 pixels	ICO 最大为 256 × 256 像素
+	Calibration	校准
+	Red Primary	红原色
+	Green Primary	绿原色
+	Blue Primary	蓝原色
+	Write xmp sidecars	写入 XMP 附属文件
+	Set the tone sliders from the image	根据图像设置色调滑块
+	Settings from {name}	来自 {name} 的设置
+	Settings from {name}; {count} not supported: {names}	来自 {name} 的设置；{count} 项不支持：{names}
+	Could not write {name}: {error}	无法写入 {name}：{error}
+	Kept {name}: written by another application	已保留 {name}：由其他应用程序写入
+	Shadow Tint	阴影色调
 # PhotoCraft release checks.
 	Check for Updates…	检查更新…
 	PhotoCraft Updates	PhotoCraft 更新

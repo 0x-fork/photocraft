@@ -498,14 +498,25 @@ viewports, so the dialog is drawn over the main window and appears in the image.
 RGB/Grayscale layer. `params: {"smartFilter": {"layer": id, "index": i}}` opens it on an existing
 Camera Raw smart filter instead (as double-clicking the filter in the Layers panel does): the
 stored settings over the pixels below that filter, previewed through the filter mask; commit
-then runs `layer.smartFilter.setParams` with every setting. `params.ui` accepts `set` (filter settings), `before`, `scope`, `view`, `commit` and
+then runs `layer.smartFilter.setParams` with every setting. `params.ui` accepts `set` (filter settings), `before`, `scope`, `view`, `auto` (true: the Light
+sliders from the image's histogram, the panel's Auto button), `commit` and
 `cancel`, and while a raw file opens also `demosaic` (below). All parts of one request are validated before any is applied; a rejected request
 leaves the settings, view state, preferences and document unchanged (and closes a dialog it
-opened). Unknown `ui` or settings properties, non-boolean `before` / `commit` / `cancel`, and
+opened). Unknown `ui` or settings properties, non-boolean `before` / `auto` / `commit` / `cancel`, and
 `commit` together with `cancel` are errors. Point curves (`pointCurve`, `pointCurveRed`,
 `pointCurveGreen`, `pointCurveBlue`) are empty or 2–16 finite points in 0–255 with inputs at
 least one level apart. Commit dispatches one `filter.cameraRaw` engine command; a failed commit
 keeps the dialog open for correction. Nothing else writes document history.
+
+A raw file opened from a path reads its sidecar (`IMG_0001.xmp` beside `IMG_0001.CR2`, Camera
+Raw's `crs:` settings) into the open-time dialog, and Open writes changed settings back
+(Preferences › Camera Raw Defaults › Write xmp sidecars). It never writes beside a DNG, over a
+sidecar another application wrote (a notice says it was kept), or for a control or MCP request.
+Open also applies the other Camera Raw Defaults (Sharpen For as part of the Camera Raw step, then
+colour space, bit depth and Open as Smart Object, so the step works on the pixels the dialog
+previewed; Apply auto tone fills the dialog), reported as `defaults` in the commit's reply; the
+resolution is set when the file opens. With "Open in Camera Raw" off the sidecar and the defaults
+apply without the dialog.
 
 **Opening a raw file.** An interactive open (File › Open, Open Recent, drag and drop, the
 command line) of a camera raw developed from its sensor data shows this dialog first, titled

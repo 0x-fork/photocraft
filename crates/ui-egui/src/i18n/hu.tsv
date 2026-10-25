@@ -4134,6 +4134,17 @@ cameraRaw	Yellow	Sárga
 	Color Indicates:	A szín jelzése:
 	Ink Characteristics	Festék jellemzői
 	Solidity:	Fedőképesség:
+	Calibration	Kalibrálás
+	Red Primary	Vörös alapszín
+	Green Primary	Zöld alapszín
+	Blue Primary	Kék alapszín
+	Write xmp sidecars	XMP kísérőfájlok írása
+	Set the tone sliders from the image	Tónuscsúszkák beállítása a kép alapján
+	Settings from {name}	Beállítások innen: {name}
+	Settings from {name}; {count} not supported: {names}	Beállítások innen: {name}; {count} nem támogatott: {names}
+	Could not write {name}: {error}	Nem sikerült írni: {name}: {error}
+	Kept {name}: written by another application	{name} megtartva: egy másik alkalmazás írta
+	Shadow Tint	Árnyék színezet
 	Redrawing	Újrarajzolás
 # Bevel & Emboss shading controls.
 	Highlight Mode	Csúcsfény módja

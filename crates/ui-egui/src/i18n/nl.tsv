@@ -4000,6 +4000,17 @@ curves	Smooth	Vloeiend maken
 	Sent to {printer}	Verzonden naar {printer}
 	set in Print Settings…	instellen in de afdrukinstellingen…
 	ICO is limited to 256 × 256 pixels	ICO is beperkt tot 256 × 256 pixels
+	Calibration	Kalibratie
+	Red Primary	Primair rood
+	Green Primary	Primair groen
+	Blue Primary	Primair blauw
+	Write xmp sidecars	XMP-sidecarbestanden schrijven
+	Set the tone sliders from the image	Toonschuifregelaars instellen op basis van de afbeelding
+	Settings from {name}	Instellingen uit {name}
+	Settings from {name}; {count} not supported: {names}	Instellingen uit {name}; {count} niet ondersteund: {names}
+	Could not write {name}: {error}	Kan {name} niet schrijven: {error}
+	Kept {name}: written by another application	{name} behouden: geschreven door een andere toepassing
+	Shadow Tint	Schaduwtint
 # PhotoCraft release checks.
 	Check for Updates…	Controleren op updates…
 	PhotoCraft Updates	PhotoCraft-updates

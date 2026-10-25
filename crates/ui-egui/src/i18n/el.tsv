@@ -3938,6 +3938,17 @@ curves	Smooth	Εξομάλυνση
 	Sent to {printer}	Στάλθηκε στον {printer}
 	set in Print Settings…	ορίζεται στις ρυθμίσεις εκτύπωσης…
 	ICO is limited to 256 × 256 pixels	Το ICO περιορίζεται σε 256 × 256 εικονοστοιχεία
+	Calibration	Βαθμονόμηση
+	Red Primary	Κόκκινο πρωτεύον
+	Green Primary	Πράσινο πρωτεύον
+	Blue Primary	Μπλε πρωτεύον
+	Write xmp sidecars	Εγγραφή συνοδευτικών αρχείων XMP
+	Set the tone sliders from the image	Ορισμός των ρυθμιστικών τόνων από την εικόνα
+	Settings from {name}	Ρυθμίσεις από {name}
+	Settings from {name}; {count} not supported: {names}	Ρυθμίσεις από {name}· {count} δεν υποστηρίζονται: {names}
+	Could not write {name}: {error}	Αδυναμία εγγραφής του {name}: {error}
+	Kept {name}: written by another application	Το {name} διατηρήθηκε: γράφτηκε από άλλη εφαρμογή
+	Shadow Tint	Χροιά σκιών
 # PhotoCraft release checks.
 	Check for Updates…	Έλεγχος ενημερώσεων…
 	PhotoCraft Updates	Ενημερώσεις PhotoCraft

@@ -3946,6 +3946,17 @@ cameraData	Lens	Lens
 	Color Indicates:	Rengin Gösterdiği:
 	Ink Characteristics	Mürekkep Özellikleri
 	Solidity:	Doluluk:
+	Calibration	Kalibrasyon
+	Red Primary	Kırmızı ana renk
+	Green Primary	Yeşil ana renk
+	Blue Primary	Mavi ana renk
+	Write xmp sidecars	XMP yan dosyalarını yaz
+	Set the tone sliders from the image	Ton kaydırıcılarını görüntüden ayarla
+	Settings from {name}	{name} ayarları
+	Settings from {name}; {count} not supported: {names}	{name} ayarları; {count} desteklenmiyor: {names}
+	Could not write {name}: {error}	{name} yazılamadı: {error}
+	Kept {name}: written by another application	{name} korundu: başka bir uygulama tarafından yazılmış
+	Shadow Tint	Gölge tonu
 	Redrawing	Yeniden çiziliyor
 # Bevel & Emboss shading controls.
 	Highlight Mode	Vurgu Modu
