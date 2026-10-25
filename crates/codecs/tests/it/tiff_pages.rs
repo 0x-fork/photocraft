@@ -176,6 +176,32 @@ fn extra_samples_that_are_not_alpha_are_kept_apart() {
     assert_eq!(img.meta.extra_samples, extra(2, 1));
 }
 
+/// A file may hold more extra samples than the `MAX_EXTRA_SAMPLES` a decode keeps (up to 64
+/// samples a pixel open): the first ones open, and a warning counts those left out, so nothing
+/// is lost without notice.
+#[test]
+fn extra_samples_past_the_cap_are_reported() {
+    let (w, h) = (3usize, 2usize);
+    const EXTRAS: usize = MAX_EXTRA_SAMPLES + 4;
+    let spp = 3 + EXTRAS;
+    let px: Vec<u8> = (0..w * h * spp).map(|i| (i % spp) as u8).collect();
+    let d = strips(w as u32, h as u32, 8, spp as u16, 2, h as u32, &px).tag(338, SHORT, &[0; EXTRAS]);
+    let img = decode_ok(&build(true, false, &[d], &[0]).bytes);
+    assert_eq!(img.layout(), ChannelLayout::Rgb);
+    assert_eq!(img.meta.extra_samples.len(), MAX_EXTRA_SAMPLES);
+    assert_eq!(img.meta.extra_samples.last().map(|e| e.data[0]), Some((3 + MAX_EXTRA_SAMPLES - 1) as u8));
+    assert_eq!(img.warnings, vec![DecodeWarning::ExtraSamplesOverLimit { format: Format::Tiff, count: 4 }]);
+    let text = img.warnings[0].to_string();
+    assert!(text.contains("4 extra TIFF file channels") && text.contains("past the first 16"), "{text}");
+    // At the cap exactly, nothing is left out.
+    let spp = 3 + MAX_EXTRA_SAMPLES;
+    let px: Vec<u8> = (0..w * h * spp).map(|i| (i % spp) as u8).collect();
+    let d = strips(w as u32, h as u32, 8, spp as u16, 2, h as u32, &px).tag(338, SHORT, &[0; MAX_EXTRA_SAMPLES]);
+    let img = decode_ok(&build(true, false, &[d], &[0]).bytes);
+    assert_eq!(img.meta.extra_samples.len(), MAX_EXTRA_SAMPLES);
+    assert!(img.warnings.is_empty(), "{:?}", img.warnings);
+}
+
 #[test]
 fn alpha_after_an_unspecified_extra_sample_is_kept() {
     // #1349: TIFF 6.0 lets alpha be any extra sample; ExtraSamples [0, 2] puts it second.

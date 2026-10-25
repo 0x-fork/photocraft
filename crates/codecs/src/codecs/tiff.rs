@@ -695,7 +695,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecEr
         .and_then(|s| s.checked_mul(src.bytes()))
         .ok_or_else(|| CodecError::LimitExceeded("tile size".into()))?;
     let scratch_cap = chunk_bytes.saturating_mul(2).max(64 << 20).min(limits.alloc_usize());
-    let extra_at = extra_sample_indices(spp as usize, color, alpha_at, out_layout.has_alpha());
+    let (extra_at, extras_over_limit) = extra_sample_indices(spp as usize, color, alpha_at, out_layout.has_alpha());
     let mut lay = Layout {
         w: wu,
         src,
@@ -753,6 +753,10 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecEr
         };
         img.meta.extra_samples = split_extra_samples(&extra_data, wu, hu, &lay.extra_at, out, kind_of)?;
     }
+    if extras_over_limit > 0 {
+        let count = u32::try_from(extras_over_limit).unwrap_or(u32::MAX);
+        img.warnings.push(DecodeWarning::ExtraSamplesOverLimit { format: F, count });
+    }
     if extras_dropped > 0 {
         img.warnings.push(DecodeWarning::ExtraSamplesDropped { format: F, count: extras_dropped });
     }
@@ -792,8 +796,8 @@ fn convert_ab(data: &mut [u8], channels: usize, sample: SampleType, signed: bool
 }
 
 /// File sample indices that are not a colour channel and not the one alpha sample, capped at
-/// [`crate::MAX_EXTRA_SAMPLES`].
-fn extra_sample_indices(spp: usize, color: usize, alpha_at: Option<usize>, has_alpha: bool) -> Vec<usize> {
+/// [`crate::MAX_EXTRA_SAMPLES`], and how many past the cap were left out.
+fn extra_sample_indices(spp: usize, color: usize, alpha_at: Option<usize>, has_alpha: bool) -> (Vec<usize>, usize) {
     let mut used = vec![false; spp];
     for i in 0..color.min(spp) {
         if let Some(slot) = used.get_mut(i) {
@@ -806,7 +810,10 @@ fn extra_sample_indices(spp: usize, color: usize, alpha_at: Option<usize>, has_a
             *slot = true;
         }
     }
-    used.into_iter().enumerate().filter(|(_, on)| !*on).map(|(i, _)| i).take(crate::MAX_EXTRA_SAMPLES).collect()
+    let mut all: Vec<usize> = used.into_iter().enumerate().filter(|(_, on)| !*on).map(|(i, _)| i).collect();
+    let over = all.len().saturating_sub(crate::MAX_EXTRA_SAMPLES);
+    all.truncate(crate::MAX_EXTRA_SAMPLES);
+    (all, over)
 }
 
 /// Interleaved extra samples (`extra_at.len()` per pixel) → one plane per sample. Each plane is
