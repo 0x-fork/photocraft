@@ -17,7 +17,7 @@ concurrency:
 jobs:
   sonarcloud:
     # Pin the coverage-font fix while craft-common-actions #88 awaits human review.
-    uses: storytold/craft-common-actions/.github/workflows/sonarcloud.yml@68edd37a041a664ea3eef757a2e8feda775da255
+    uses: storytold/craft-common-actions/.github/workflows/sonarcloud.yml@37915418af7cdff3559df9b2dd3513cb58bee214
     with:
       timeout-minutes: 120
       fonts-ref: b076417b5880bd4154bd22f00695b1d28c6bea83
