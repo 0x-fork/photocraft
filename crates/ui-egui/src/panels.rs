@@ -1025,12 +1025,23 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             crate::brush_picker::settings_toggle(app, ui);
                             widgets::vline(ui, 22.0);
                         }
-                        if tool == Tool::CloneStamp {
+                        if matches!(tool, Tool::CloneStamp | Tool::PatternStamp | Tool::HistoryBrush | Tool::Healing) {
                             let before = app.session.tools.brush.clone();
                             let mut brush = before.clone();
-                            let width = if t.pro { 62.0 } else { 66.0 };
-                            percent_field(ui, tl!("Opacity"), &mut brush.opacity, 1.0..=100.0, width);
-                            percent_field(ui, tl!("Flow"), &mut brush.flow, 1.0..=100.0, width);
+                            // Mode is the tool's own brush's, kept per tool like its size.
+                            if let Some(modes) = crate::blend_keys::tool_modes(tool) {
+                                opt_label(ui, tl!("Mode"));
+                                if let Some(Some(m)) =
+                                    tool_mode_dropdown(ui, "retouch-mode", &modes, Some(crate::blend_keys::brush_tool_mode(tool, brush.mode)))
+                                {
+                                    brush.mode = m;
+                                }
+                            }
+                            if tool == Tool::CloneStamp {
+                                let width = if t.pro { 62.0 } else { 66.0 };
+                                percent_field(ui, tl!("Opacity"), &mut brush.opacity, 1.0..=100.0, width);
+                                percent_field(ui, tl!("Flow"), &mut brush.flow, 1.0..=100.0, width);
+                            }
                             crate::brush_panel::commit_gesture(app, ui.ctx(), &before, &brush);
                             widgets::vline(ui, 22.0);
                         }
@@ -1291,6 +1302,17 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                 let mut src = u8::from(app.ui.tool_options.bucket_fill_pattern);
                                 if widgets::dropdown(ui, "bucket-src", &mut src, &[(0u8, tl!("Foreground")), (1, tl!("Pattern"))], 100.0) {
                                     app.ui.tool_options.bucket_fill_pattern = src == 1;
+                                }
+                                opt_label(ui, tl!("Mode"));
+                                if let Some(modes) = crate::blend_keys::tool_modes(tool) {
+                                    let o = &mut app.ui.tool_options;
+                                    let current = if o.bucket_clear { None } else { Some(o.bucket_blend_mode) };
+                                    if let Some(m) = tool_mode_dropdown(ui, "bucket-mode", &modes, current) {
+                                        o.bucket_clear = m.is_none();
+                                        if let Some(m) = m {
+                                            o.bucket_blend_mode = m;
+                                        }
+                                    }
                                 }
                                 opt_label(ui, tl!("Opacity"));
                                 widgets::value_field(ui, &mut app.ui.tool_options.fill_opacity, 1.0..=100.0, "%", 62.0);
@@ -4362,6 +4384,15 @@ fn brush_tip(p: &egui::Painter, c: egui::Pos2, rad: f32, hardness: f32, color: C
         let a = if hardness >= 0.99 { 1.0 } else { (1.0 - f).powf(1.5) };
         p.circle_filled(c, rr, color.gamma_multiply(a));
     }
+}
+
+/// A painting tool's Mode dropdown over `modes` (`None` is Clear); the wheel over it steps the
+/// mode. Returns the mode picked this frame.
+fn tool_mode_dropdown(ui: &mut egui::Ui, id: &str, modes: &[Option<BlendMode>], current: Option<BlendMode>) -> Option<Option<BlendMode>> {
+    let opts: Vec<(Option<BlendMode>, &str)> = modes.iter().map(|m| (*m, m.map_or("Clear", BlendMode::label))).collect();
+    let mut mode = current;
+    let chosen = widgets::dropdown_wheel_hovered(ui, id, &mut mode, &opts, 96.0).0;
+    chosen.last().copied()
 }
 
 /// The Brush's or Pencil's Mode dropdown: the blend modes, with Photoshop's painting-only Clear

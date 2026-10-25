@@ -1,8 +1,8 @@
 //! Blend mode keys, as in Photoshop. ⇧+ and ⇧− step through the modes (#3102), and ⇧⌥ plus a
-//! letter picks one (⇧⌥M Multiply, ⇧⌥S Screen…). With a painting tool that has a mode of its own
-//! they set that tool's mode and never the layer's: the Brush's or Pencil's (which also offer
-//! Clear), the Gradient's; the other painting tools are left alone until their options bar has a
-//! Mode. With any other tool (Move, the selection tools…) they set every selected layer's mode.
+//! letter picks one (⇧⌥M Multiply, ⇧⌥S Screen…). With a painting tool that has a Mode of its own
+//! (`tool_modes`: Brush, Pencil, Paint Bucket, Gradient, the stamps, History Brush, Healing) they
+//! set that tool's mode within its menu and never the layer's. With a tool that has no blend mode
+//! (Move, the selection tools, the Erasers…) they set every selected layer's mode.
 //! The step list wraps at either end. Each press is one call of an engine command
 //! (`tools.setBrush`, `layer.setProps` with every target layer), so it is one undo step.
 
@@ -114,43 +114,95 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
+/// Photoshop's Healing Brush modes, less Replace (not implemented yet).
+pub const HEALING_MODES: [BlendMode; 7] =
+    [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen, BlendMode::Darken, BlendMode::Lighten, BlendMode::Color, BlendMode::Luminosity];
+
+/// The mode a brush-based tool paints with: its brush's, or Normal for a Healing Brush whose brush
+/// holds a mode its short menu lacks (the Brush's Overlay remembered from before it had a menu, a
+/// preset with tool settings, `tools.setBrush`). The stroke, the dropdown and the keys share it.
+pub fn brush_tool_mode(tool: Tool, mode: BlendMode) -> BlendMode {
+    if tool == Tool::Healing && !HEALING_MODES.contains(&mode) { BlendMode::Normal } else { mode }
+}
+
+/// A painting tool's options-bar Mode menu in order, `None` being Clear (after Dissolve, on the
+/// tools Photoshop offers it on). `None` for a tool without a blend mode control.
+pub fn tool_modes(tool: Tool) -> Option<Vec<Option<BlendMode>>> {
+    let layer = || BlendMode::LAYER_MODES.iter().copied().map(Some).collect::<Vec<_>>();
+    Some(match tool {
+        Tool::Brush | Tool::Pencil | Tool::PaintBucket => {
+            let mut modes = layer();
+            let at = modes.iter().position(|m| *m == Some(BlendMode::Dissolve)).map_or(modes.len(), |i| i + 1);
+            modes.insert(at, None);
+            modes
+        }
+        Tool::Gradient | Tool::CloneStamp | Tool::PatternStamp | Tool::HistoryBrush => layer(),
+        Tool::Healing => HEALING_MODES.iter().copied().map(Some).collect(),
+        _ => return None,
+    })
+}
+
 /// Where the active tool's blend mode keys go.
 enum Target {
-    /// The Brush's or Pencil's mode, Clear included.
-    Paint,
-    Gradient,
-    /// A painting tool whose mode has no options-bar control yet (or the Eraser, which has none):
-    /// the keys do nothing, and never reach the layer.
+    /// The tool's own Mode, one of these.
+    Tool(Vec<Option<BlendMode>>),
+    /// A painting tool with a blend mode in Photoshop but no Mode control here yet: the keys do
+    /// nothing, and never reach the layer.
     Nothing,
     Layers,
 }
 
 fn target(tool: Tool) -> Target {
+    if let Some(modes) = tool_modes(tool) {
+        return Target::Tool(modes);
+    }
     match tool {
-        Tool::Brush | Tool::Pencil => Target::Paint,
-        Tool::Gradient => Target::Gradient,
-        t if t.is_brushlike() || t == Tool::MagicEraser || t == Tool::PaintBucket => Target::Nothing,
+        Tool::SpotHealing | Tool::ColorReplacement | Tool::Blur | Tool::Sharpen | Tool::Smudge => Target::Nothing,
+        // Photoshop's ⇧⌥S/M/H pick the Dodge and Burn Range and ⇧⌥D/S the Sponge's mode: never
+        // the layer's.
+        Tool::Dodge | Tool::Burn | Tool::Sponge => Target::Nothing,
+        // No blend mode of their own (the Erasers, the Mixer Brush…): the layer's, as in Photoshop.
         _ => Target::Layers,
     }
 }
 
-/// The Brush's or Pencil's mode list: the layer modes with Clear (`None`) after Dissolve, as in
-/// its options-bar dropdown.
-fn paint_modes() -> Vec<Option<BlendMode>> {
-    let mut modes: Vec<Option<BlendMode>> = BlendMode::LAYER_MODES.iter().copied().map(Some).collect();
-    let at = modes.iter().position(|m| *m == Some(BlendMode::Dissolve)).map_or(modes.len(), |i| i + 1);
-    modes.insert(at, None);
-    modes
+/// The active tool's mode, `None` being Clear. A brush-based tool's lives in its own brush.
+pub fn tool_mode(app: &mut PhotocraftApp) -> Option<BlendMode> {
+    let o = &app.ui.tool_options;
+    match app.ui.tool {
+        Tool::Brush if o.brush_clear => None,
+        Tool::Pencil if o.pencil_clear => None,
+        Tool::PaintBucket if o.bucket_clear => None,
+        Tool::PaintBucket => Some(o.bucket_blend_mode),
+        Tool::Gradient => Some(o.gradient_blend_mode),
+        _ => {
+            crate::paint_mouse::sync_tool_brush(app);
+            Some(brush_tool_mode(app.ui.tool, app.session.tools.brush.mode))
+        }
+    }
 }
 
-/// The Brush's or Pencil's Clear flag.
-fn clear_flag(app: &mut PhotocraftApp) -> &mut bool {
-    if app.ui.tool == Tool::Pencil { &mut app.ui.tool_options.pencil_clear } else { &mut app.ui.tool_options.brush_clear }
-}
-
-/// Sets the Brush's or Pencil's mode; `None` is Clear.
-fn set_paint_mode(app: &mut PhotocraftApp, mode: Option<BlendMode>) {
-    *clear_flag(app) = mode.is_none();
+/// Sets the active tool's mode; `None` is Clear.
+fn set_tool_mode(app: &mut PhotocraftApp, mode: Option<BlendMode>) {
+    match app.ui.tool {
+        Tool::Gradient => {
+            if let Some(m) = mode {
+                set_gradient_mode(app, m);
+            }
+            return;
+        }
+        Tool::PaintBucket => {
+            app.ui.tool_options.bucket_clear = mode.is_none();
+            if let Some(m) = mode {
+                app.ui.tool_options.bucket_blend_mode = m;
+            }
+            return;
+        }
+        Tool::Brush => app.ui.tool_options.brush_clear = mode.is_none(),
+        Tool::Pencil => app.ui.tool_options.pencil_clear = mode.is_none(),
+        _ => {}
+    }
+    crate::paint_mouse::sync_tool_brush(app);
     if let Some(m) = mode
         && let Ok(m) = serde_json::to_value(m)
     {
@@ -185,15 +237,10 @@ fn set_layers_mode(app: &mut PhotocraftApp, mode: BlendMode) {
 /// layer's.
 pub fn press(app: &mut PhotocraftApp, step: i32) {
     match target(app.ui.tool) {
-        Target::Paint => {
-            let current = if *clear_flag(app) { None } else { Some(app.session.tools.brush.mode) };
-            if let Some(mode) = stepped(&paint_modes(), current, step) {
-                set_paint_mode(app, mode);
-            }
-        }
-        Target::Gradient => {
-            if let Some(mode) = stepped(&BlendMode::LAYER_MODES, app.ui.tool_options.gradient_blend_mode, step) {
-                set_gradient_mode(app, mode);
+        Target::Tool(modes) => {
+            let current = tool_mode(app);
+            if let Some(mode) = stepped(&modes, current, step) {
+                set_tool_mode(app, mode);
             }
         }
         Target::Nothing => {}
@@ -212,14 +259,21 @@ pub fn press(app: &mut PhotocraftApp, step: i32) {
     }
 }
 
-/// One ⇧⌥ letter press. A mode the target doesn't have (Clear or Behind for layers, Pass Through
-/// for a painting tool) does nothing.
+/// One ⇧⌥ letter press. A mode the target's menu doesn't have (Clear or Behind for layers, Pass
+/// Through for a painting tool, Overlay for the Healing Brush) does nothing.
 pub fn pick_mode(app: &mut PhotocraftApp, pick: Pick) {
-    match (target(app.ui.tool), pick) {
-        (Target::Paint, Pick::Mode(m)) if m != BlendMode::PassThrough => set_paint_mode(app, Some(m)),
-        (Target::Paint, Pick::Clear) => set_paint_mode(app, None),
-        (Target::Gradient, Pick::Mode(m)) if m != BlendMode::PassThrough => set_gradient_mode(app, m),
-        (Target::Layers, Pick::Mode(m)) => set_layers_mode(app, m),
+    let want = match pick {
+        Pick::Mode(m) => Some(m),
+        Pick::Clear => None,
+        Pick::Behind => return,
+    };
+    match target(app.ui.tool) {
+        Target::Tool(modes) if modes.contains(&want) => set_tool_mode(app, want),
+        Target::Layers => {
+            if let Some(m) = want {
+                set_layers_mode(app, m);
+            }
+        }
         _ => {}
     }
 }
@@ -455,20 +509,20 @@ mod tests {
         assert_eq!(layer_blend(&a), BlendMode::Normal);
     }
 
-    /// The Gradient takes the letters; a painting tool without a Mode control yet (Clone Stamp)
-    /// ignores them rather than changing the layer.
+    /// The Gradient takes the letters; Smudge, which has a blend mode in Photoshop but no Mode
+    /// control here yet, ignores them rather than changing the layer.
     #[test]
-    fn gradient_takes_the_letters_and_clone_stamp_ignores_them() {
+    fn gradient_takes_the_letters_and_smudge_ignores_them() {
         let ctx = egui::Context::default();
         let mut a = app(Tool::Gradient);
         alt_shift(&mut a, &ctx, Key::O, Key::O);
         assert_eq!(a.ui.tool_options.gradient_blend_mode, BlendMode::Overlay);
         alt_shift(&mut a, &ctx, Key::R, Key::R);
-        assert_eq!(a.ui.tool_options.gradient_blend_mode, BlendMode::Overlay);
-        a.ui.tool = Tool::CloneStamp;
+        assert_eq!(a.ui.tool_options.gradient_blend_mode, BlendMode::Overlay, "no Clear for the Gradient");
+        a.ui.tool = Tool::Smudge;
         alt_shift(&mut a, &ctx, Key::M, Key::M);
         assert_eq!(layer_blend(&a), BlendMode::Normal);
-        assert_eq!(a.ui.tool, Tool::CloneStamp);
+        assert_eq!(a.ui.tool, Tool::Smudge);
         let mut none = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         pick_mode(&mut none, Pick::Mode(BlendMode::Multiply));
     }
@@ -543,5 +597,108 @@ mod tests {
         assert_eq!((layer_blend(&a), opacity(&a)), (BlendMode::Difference, l_opacity));
         assert_eq!(a.session.active().unwrap().history.past_len(), undo);
         assert!(a.distort.perspective.is_some());
+    }
+
+    /// The stamps and the History Brush keep their mode in their own brush: the keys set it there,
+    /// never the layer's, and another tool's brush keeps its own.
+    #[test]
+    fn clone_stamp_pattern_stamp_and_history_brush_take_the_keys_into_their_own_brush() {
+        let ctx = egui::Context::default();
+        let mut a = app(Tool::Brush);
+        alt_shift(&mut a, &ctx, Key::M, Key::M);
+        for (tool, key, mode) in
+            [(Tool::CloneStamp, Key::S, BlendMode::Screen), (Tool::PatternStamp, Key::O, BlendMode::Overlay), (Tool::HistoryBrush, Key::K, BlendMode::Darken)]
+        {
+            a.ui.tool = tool;
+            assert_eq!(tool_mode(&mut a), Some(BlendMode::Normal), "{tool:?} starts in Normal");
+            alt_shift(&mut a, &ctx, key, key);
+            assert_eq!(tool_mode(&mut a), Some(mode), "{tool:?}");
+            alt_shift(&mut a, &ctx, Key::R, Key::R);
+            assert_eq!(tool_mode(&mut a), Some(mode), "{tool:?} has no Clear");
+            key_press(&mut a, &ctx, 1);
+            assert_ne!(tool_mode(&mut a), Some(mode), "{tool:?} steps");
+            assert_eq!(layer_blend(&a), BlendMode::Normal, "{tool:?} leaves the layer alone");
+        }
+        a.ui.tool = Tool::Brush;
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Multiply), "the Brush keeps its own mode");
+    }
+
+    fn key_press(a: &mut PhotocraftApp, ctx: &egui::Context, step: i32) {
+        key(a, ctx, if step > 0 { Key::Plus } else { Key::Minus }, egui::Modifiers::SHIFT);
+    }
+
+    /// The Healing Brush's menu is short: letters outside it do nothing, and ⇧+ steps within it.
+    #[test]
+    fn healing_brush_takes_only_its_own_modes() {
+        let ctx = egui::Context::default();
+        let mut a = app(Tool::Healing);
+        alt_shift(&mut a, &ctx, Key::O, Key::O);
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Normal), "Overlay isn't a Healing mode");
+        alt_shift(&mut a, &ctx, Key::Y, Key::Y);
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Luminosity));
+        key_press(&mut a, &ctx, 1);
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Normal), "wraps within the Healing list");
+        key_press(&mut a, &ctx, 1);
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Multiply));
+        assert_eq!(layer_blend(&a), BlendMode::Normal);
+    }
+
+    /// A Healing Brush whose brush holds Overlay (outside its menu) counts as Normal for the keys,
+    /// as for its stroke: ⇧+ steps on to Multiply.
+    #[test]
+    fn healing_brush_with_a_mode_outside_its_menu_steps_from_normal() {
+        let ctx = egui::Context::default();
+        let mut a = app(Tool::Healing);
+        crate::paint_mouse::sync_tool_brush(&mut a);
+        a.session.tools.brush.mode = BlendMode::Overlay;
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Normal));
+        key_press(&mut a, &ctx, 1);
+        assert_eq!(tool_mode(&mut a), Some(BlendMode::Multiply));
+    }
+
+    /// The Paint Bucket has its own Mode, Clear included.
+    #[test]
+    fn paint_bucket_takes_the_keys_with_clear() {
+        let ctx = egui::Context::default();
+        let mut a = app(Tool::PaintBucket);
+        alt_shift(&mut a, &ctx, Key::M, Key::M);
+        assert_eq!(a.ui.tool_options.bucket_blend_mode, BlendMode::Multiply);
+        alt_shift(&mut a, &ctx, Key::R, Key::R);
+        assert!(a.ui.tool_options.bucket_clear);
+        key_press(&mut a, &ctx, 1);
+        assert!(!a.ui.tool_options.bucket_clear);
+        assert_eq!(a.ui.tool_options.bucket_blend_mode, BlendMode::Darken, "Clear is followed by Darken");
+        assert_eq!(layer_blend(&a), BlendMode::Normal);
+    }
+
+    /// Tools without a blend mode of their own (the Erasers, the Mixer Brush) pass the keys to the
+    /// selected layers, as Photoshop does.
+    #[test]
+    fn tools_without_a_blend_mode_set_the_layer() {
+        let ctx = egui::Context::default();
+        for (tool, key, mode) in
+            [(Tool::Eraser, Key::M, BlendMode::Multiply), (Tool::MagicEraser, Key::S, BlendMode::Screen), (Tool::MixerBrush, Key::E, BlendMode::Difference)]
+        {
+            let mut a = app(tool);
+            alt_shift(&mut a, &ctx, key, key);
+            assert_eq!(layer_blend(&a), mode, "{tool:?}");
+            assert_eq!(a.ui.tool, tool);
+        }
+    }
+
+    /// Dodge, Burn and Sponge use ⇧⌥S/M/H and ⇧⌥D/S for their own Range and mode in Photoshop, so
+    /// neither the letters nor ⇧+ change the layer's blend mode.
+    #[test]
+    fn dodge_burn_and_sponge_leave_the_layer_alone() {
+        let ctx = egui::Context::default();
+        for tool in [Tool::Dodge, Tool::Burn, Tool::Sponge] {
+            let mut a = app(tool);
+            for k in [Key::S, Key::M, Key::H, Key::D] {
+                alt_shift(&mut a, &ctx, k, k);
+            }
+            key_press(&mut a, &ctx, 1);
+            assert_eq!(layer_blend(&a), BlendMode::Normal, "{tool:?}");
+            assert_eq!(a.ui.tool, tool);
+        }
     }
 }

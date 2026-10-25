@@ -1,6 +1,6 @@
 # Brush and painting parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-16 · **Change:** minor (named, stateful Brush Settings locks and visible keyboard focus; independent Brush Pose tilt-axis overrides; Transfer Wetness/Mix tool applicability; dragged preset tip preview; Hue Jitter amount track; Brush Settings minimum fields follow their Control; checkbox-only rows and non-destructive Smoothing switch; shaped-tip cursor follows the view; Color Replacement is a live toolbar tool; no brush-feel estimate changed; 2026-10-11: Pattern Stamp and Background Eraser draw live, TOOL-213-7) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-22 · **Change:** minor (Mode for Clone Stamp, Pattern Stamp, History Brush, Healing and Paint Bucket; named, stateful Brush Settings locks and visible keyboard focus; independent Brush Pose tilt-axis overrides; Transfer Wetness/Mix tool applicability; dragged preset tip preview; Hue Jitter amount track; Brush Settings minimum fields follow their Control; checkbox-only rows and non-destructive Smoothing switch; shaped-tip cursor follows the view; Color Replacement is a live toolbar tool; no brush-feel estimate changed; 2026-10-11: Pattern Stamp and Background Eraser draw live, TOOL-213-7) · **Target:** Adobe Photoshop 2026
 
 Painting is where Photoshop users notice differences first, so it gets its own checklist: the
 brush engine (`crates/paint/src/brush.rs`), the Brush Settings UI
@@ -94,10 +94,10 @@ tablets against Photoshop side by side.
 |---|---|---|
 | Brush, Pencil (aliased, Auto Erase), Eraser (Brush/Pencil/Block) | done | Pencil 1 px quality #2139 |
 | Mixer Brush (Wet, Load, Mix, Flow, Sample All Layers, Current Brush Load with Load Brush and Clean Brush, automatic Load and Clean) | partial | No live result while dragging, no Alt-click loading (#2247) |
-| Clone Stamp (opacity, flow, aligned, sample, overlay) | partial | Clone Source W/H link and Alt target cursor (TOOL-213-8) |
-| Pattern Stamp (aligned, impressionist) | done | |
-| History Brush | done | Art History Brush missing |
-| Spot Healing, Healing | partial | grain not matched on flat colour (#2104), "horrible in general" (#1092), stops responding after switching (#1751) |
+| Clone Stamp (mode, opacity, flow, aligned, sample, overlay) | partial | Clone Source W/H link and Alt target cursor (TOOL-213-8) |
+| Pattern Stamp (mode, aligned, impressionist) | done | |
+| History Brush (mode) | done | Art History Brush missing |
+| Spot Healing, Healing (Healing mode: Normal, Multiply, Screen, Darken, Lighten, Color, Luminosity) | partial | Healing's Replace mode and Spot Healing's Mode missing; grain not matched on flat colour (#2104), "horrible in general" (#1092), stops responding after switching (#1751) |
 | Blur, Sharpen, Smudge (premultiplied, Sample All Layers, spacing) | done | BUG-207-2/3, #2171 |
 | Dodge, Burn, Sponge | done | |
 | Background Eraser, Magic Eraser | done | |
@@ -129,4 +129,5 @@ tablets against Photoshop side by side.
 | 2026-10-13 | minor | Hue Jitter uses the same themed amount slider as other jitter controls (#3825, partial). No brush-feel estimate changed. |
 | 2026-10-13 | minor | Transfer Wetness/Mix controls follow the active tool and retain their settings while disabled (#3825, partial). No brush-feel estimate changed. |
 | 2026-10-14 | minor | The 12 existing Brush Settings section locks expose translated names and locked state to AccessKit and show themed keyboard focus (#3477 workflow); icons, hit targets and command behavior retained. No brush-feel estimate changed. |
+| 2026-10-14 | minor | Options-bar Mode for Clone Stamp, Pattern Stamp, History Brush and Healing (kept in each tool's brush) and Paint Bucket (with Clear); each tool's first brush starts in Normal. No brush-feel estimate changed. |
 | 2026-10-13 | minor | Dragging a brush preset shows its cached tip thumbnail and name in the Brushes panel and preset picker (#4225, partial). No brush-feel estimate changed. |

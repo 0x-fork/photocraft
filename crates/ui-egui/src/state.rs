@@ -650,6 +650,10 @@ pub struct ToolOptions {
     pub fill_opacity: f32,
     /// Paint Bucket fill source: false = Foreground colour, true = Pattern (Patterns panel selection).
     pub bucket_fill_pattern: bool,
+    /// Paint Bucket › Mode (any layer mode; Clear is `bucket_clear`).
+    pub bucket_blend_mode: photocraft_color::BlendMode,
+    /// Paint Bucket › Mode: Clear, which erases the filled area (see `brush_clear`).
+    pub bucket_clear: bool,
     /// Type tool: family, style name, size (pt), anti-aliasing and paragraph alignment.
     pub type_font: String,
     pub type_style: String,
@@ -967,6 +971,8 @@ impl Default for ToolOptions {
             gradient_blend_mode: photocraft_color::BlendMode::Normal,
             fill_opacity: 100.0,
             bucket_fill_pattern: false,
+            bucket_blend_mode: photocraft_color::BlendMode::Normal,
+            bucket_clear: false,
             type_font: "Inter".into(),
             type_style: "Regular".into(),
             type_size: 48.0,
