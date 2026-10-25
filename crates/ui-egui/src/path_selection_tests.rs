@@ -447,3 +447,51 @@ fn loading_a_path_after_hiding_extras_restores_outline() {
     assert_eq!(selection(&h), Some([10, 10, 50, 40]));
     assert!(h.state().ui.view.shows(h.state().ui.view.show.selection_edges));
 }
+
+/// #6079 review: in an arranged view, the frame a click into another tile activates its document
+/// still draws the old active document's overlays. The Work Path Make Selection hid there must not
+/// flash up in that frame.
+#[test]
+fn a_hidden_work_path_stays_hidden_when_another_tile_is_clicked() {
+    // Path outlines (accent lines) in the right tile in the frame a click into the left tile makes.
+    let right_outlines_on_switch = |hide: bool| {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        for _ in 0..2 {
+            app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+        }
+        app.sync_views();
+        app.ui.view.arrange = "tileAllVertically".into();
+        app.ui.tool = Tool::Pen;
+        app.run("path.set", json!({"name": "work", "path": rect_path(40.0, 30.0, 100.0, 80.0)})).unwrap();
+        crate::vector_ui::path_to_selection(&mut app, json!({})).unwrap();
+        app.run("select.deselect", json!({})).unwrap();
+        assert!(!crate::vector_ui::work_path_shown(&app), "Make Selection hid the second document's Work Path");
+        if !hide {
+            app.ui.hidden_work_path = None;
+        }
+        let mut h = Harness::builder().with_size(vec2(1000.0, 600.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    return;
+                }
+                egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(4);
+        let area = h.state().last_canvas_rect;
+        let at = egui::pos2(area.left() + area.width() / 4.0, area.center().y);
+        h.event(Event::PointerMoved(at));
+        h.event(Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+        assert_eq!(h.state().session.active_index(), Some(0), "the click activated the left document");
+        let accent = crate::theme::Tokens::get(&h.ctx).accent;
+        let outlines = h.output().shapes.iter().filter(|s| {
+            matches!(&s.shape, egui::Shape::Path(p) if p.stroke.color == egui::epaint::ColorMode::Solid(accent) && p.visual_bounding_rect().min.x > area.center().x)
+        });
+        outlines.count()
+    };
+    assert!(right_outlines_on_switch(false) > 0, "a shown Work Path is drawn in that frame");
+    assert_eq!(right_outlines_on_switch(true), 0, "the hidden one isn't");
+}

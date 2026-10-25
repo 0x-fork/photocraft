@@ -612,6 +612,10 @@ fn resume_at(app: &PhotocraftApp, x: f64, y: f64, tol: f64) -> Option<PenPath> {
     let st = app.session.active()?;
     let doc = st.doc.id.0;
     let name = app.ui.selected_path.clone().filter(|n| path_exists(&st.doc, n)).unwrap_or_else(|| "work".into());
+    // A Work Path hidden by Make Selection isn't carried on: a new path replaces it (#6079).
+    if name == "work" && !work_path_shown(app) {
+        return None;
+    }
     let near = |k: &photocraft_doc::Knot| (k.anchor.x - x).hypot(k.anchor.y - y) < tol;
     doc_path(&st.doc, &name)?.subpaths.iter().enumerate().filter(|(_, s)| !s.closed).find_map(|(i, s)| {
         let reversed = if s.knots.last().is_some_and(near) {
@@ -905,11 +909,19 @@ pub(crate) fn deselect_loaded_path(app: &mut PhotocraftApp, name: &str) {
 /// ends the hide; a saved path or a layer's path doesn't show it) or it changes (a new one drawn, Make Work Path,
 /// `path.set`…) (#6079).
 pub(crate) fn work_path_shown(app: &PhotocraftApp) -> bool {
-    if app.ui.selected_path.as_deref() == Some("work") {
+    app.session.active().is_none_or(|st| work_path_shown_in(app, &st.doc))
+}
+
+/// [`work_path_shown`] for `doc`, which the canvas may draw while another document is already
+/// active (the frame a click into another arranged tile activates it). The Paths panel's
+/// selection belongs to the active document only.
+pub(crate) fn work_path_shown_in(app: &PhotocraftApp, doc: &Document) -> bool {
+    let active = app.session.active().is_some_and(|st| st.doc.id == doc.id);
+    if active && app.ui.selected_path.as_deref() == Some("work") {
         return true;
     }
-    let Some((doc, hidden)) = &app.ui.hidden_work_path else { return true };
-    app.session.active().is_none_or(|st| st.doc.id.0 != *doc || st.doc.work_path.as_ref() != Some(hidden))
+    let Some((id, hidden)) = &app.ui.hidden_work_path else { return true };
+    doc.id.0 != *id || doc.work_path.as_ref() != Some(hidden)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1234,7 +1246,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         // a path tool is active, as in Photoshop: a Work Path left unselected (one a PSD arrived
         // with, or after Ctrl-click Load as Selection) would otherwise cover the marching ants (#6551).
         let anchors = shows_anchors(tool);
-        if let Some(wp) = doc.work_path.as_ref().filter(|_| work_path_shown(app))
+        if let Some(wp) = doc.work_path.as_ref().filter(|_| work_path_shown_in(app, doc))
             && (anchors || app.ui.selected_path.as_deref() == Some("work"))
         {
             draw_path(wp, anchors);
