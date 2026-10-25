@@ -5049,6 +5049,7 @@ dependencies = [
  "roxmltree 0.21.1",
  "serde_json",
  "thiserror 2.0.21",
+ "tiff",
  "zune-core 0.5.3",
  "zune-jpegxl",
 ]
