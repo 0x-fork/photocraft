@@ -1479,6 +1479,9 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Ar
     if let Some(shown) = crate::type_font_preview::display_doc(app, idx) {
         return shown;
     }
+    // Vanishing Point's strokes over the document as it is now (the Layers panel may have
+    // changed it since the options bar synced them this frame).
+    crate::vp_ui::sync_preview(app);
     // Puppet / Perspective Warp previews hide the layer they draw on a mesh.
     if let Some(shown) = crate::distort_ui::display_doc(app, idx) {
         return shown;
@@ -2029,6 +2032,13 @@ pub(crate) fn damage_since(app: &PhotocraftApp, idx: usize, seen: (u64, u64), no
     if seen.0 == now.0
         && let Some(st) = app.session.documents().get(idx)
         && let Some(r) = crate::patch_preview::damage(app, st.doc.id, now.0, seen.1 ^ display_key, now.1)
+    {
+        return Some(if r.is_empty() { r } else { r.inflate(effect_reach(&st.doc.layers)) });
+    }
+    // Between Vanishing Point stamp previews (and the document): the areas the strokes painted.
+    if seen.0 == now.0
+        && let Some(st) = app.session.documents().get(idx)
+        && let Some(r) = crate::vp_ui::damage(app, st.doc.id, now.0, seen.1 ^ display_key, now.1)
     {
         return Some(if r.is_empty() { r } else { r.inflate(effect_reach(&st.doc.layers)) });
     }
