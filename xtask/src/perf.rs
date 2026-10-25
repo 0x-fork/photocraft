@@ -223,7 +223,8 @@ impl Stats {
     }
 
     pub fn to_json(&self) -> Value {
-        let mut v = json!({"n": self.n, "p50_ms": self.p50, "p95_ms": self.p95, "max_ms": self.max, "peak_rss_bytes": self.peak_rss, "gpu_bytes": self.gpu_bytes});
+        let mut v =
+            json!({"n": self.n, "p50_ms": self.p50, "p95_ms": self.p95, "max_ms": self.max, "peak_rss_bytes": self.peak_rss, "gpu_bytes": self.gpu_bytes});
         if let (Some(m), Some(o)) = (self.p50_max, v.as_object_mut()) {
             o.insert("p50_max_ms".into(), json!(m));
         }
@@ -812,7 +813,16 @@ struct Opts {
 }
 
 fn parse_opts(rest: &[&str]) -> Result<Opts, String> {
-    let mut o = Opts { quick: false, update_baseline: false, threshold: None, benches: Vec::new(), skip_build: false, reuse: false, from: Vec::new(), allow_contended: false };
+    let mut o = Opts {
+        quick: false,
+        update_baseline: false,
+        threshold: None,
+        benches: Vec::new(),
+        skip_build: false,
+        reuse: false,
+        from: Vec::new(),
+        allow_contended: false,
+    };
     let mut it = rest.iter();
     while let Some(a) = it.next() {
         match *a {
@@ -1075,7 +1085,11 @@ fn baseline_from_files(root: &Path, budgets: &Budgets, old: Option<&Value>, o: &
     let list = |v: &[String]| if v.is_empty() { "  none".to_string() } else { v.iter().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n") };
     println!("Budgets that could be enforced (within {} of the budget in every run):\n{}", budgets.settings.enforce_margin, list(&could));
     println!("Enforced budgets that went over in some run (flaky):\n{}", list(&flaky));
-    let rules = BaselineRules { min_runs: budgets.settings.baseline_min_runs, max_load_per_core: budgets.settings.max_load_per_core, allow_contended: o.allow_contended };
+    let rules = BaselineRules {
+        min_runs: budgets.settings.baseline_min_runs,
+        max_load_per_core: budgets.settings.max_load_per_core,
+        allow_contended: o.allow_contended,
+    };
     let nb = baseline_from_runs(old, &runs, &rules)?;
     write_baseline(root, &nb)?;
     println!("updated {BASELINE} from {} runs (machine class {})", runs.len(), nb.get("machine_class").and_then(Value::as_str).unwrap_or("?"));
@@ -1308,7 +1322,8 @@ not_measurable = "needs a frame harness"
 
     /// A saved run of class `c` with one p50 (and p95) per scenario.
     fn run_of(date: &str, load: f64, rows: &[(&str, f64)]) -> Value {
-        let sc: serde_json::Map<String, Value> = rows.iter().map(|(k, v)| (k.to_string(), json!({"n": 5, "p50_ms": v, "p95_ms": v * 1.5, "max_ms": v * 2.0}))).collect();
+        let sc: serde_json::Map<String, Value> =
+            rows.iter().map(|(k, v)| (k.to_string(), json!({"n": 5, "p50_ms": v, "p95_ms": v * 1.5, "max_ms": v * 2.0}))).collect();
         json!({"mode": "full", "date": date, "commit": format!("c-{date}"), "dirty": false, "machine": {"class": "c", "cores": 3}, "load_avg_start": [load, load, load], "scenarios": sc})
     }
 
@@ -1342,8 +1357,10 @@ not_measurable = "needs a frame harness"
 
     #[test]
     fn baseline_from_runs_takes_median_and_noise_ceiling() {
-        let runs: Vec<Value> =
-            [(1, 2174.0, 30.5), (2, 2868.0, 45.3), (3, 2000.0, 28.0), (4, 2500.0, 31.0), (5, 2300.0, 40.0)].iter().map(|(d, a, b)| run_of(&format!("2026-10-2{d}"), 1.0, &[("P44", *a), ("P46", *b)])).collect();
+        let runs: Vec<Value> = [(1, 2174.0, 30.5), (2, 2868.0, 45.3), (3, 2000.0, 28.0), (4, 2500.0, 31.0), (5, 2300.0, 40.0)]
+            .iter()
+            .map(|(d, a, b)| run_of(&format!("2026-10-2{d}"), 1.0, &[("P44", *a), ("P46", *b)]))
+            .collect();
         let b = baseline_from_runs(None, &runs, &rules(5, false)).unwrap();
         let m = &b["modes"]["full"];
         assert_eq!(m["runs"], json!(5));
