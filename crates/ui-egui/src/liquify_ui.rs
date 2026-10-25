@@ -1801,6 +1801,8 @@ mod tests {
         let still = to_doc(d, area, at);
         assert!((still[0] - under[0]).abs() < 1e-3 && (still[1] - under[1]).abs() < 1e-3, "the point under the pointer stays: {under:?} → {still:?}");
 
+        // Animated Zoom off: a notch is one instant step, so one frame shows the whole ×1.1.
+        app.session.prefs.edit(|p| p.general.animated_zoom = false);
         let notch = ctx.options(|o| o.input_options.line_scroll_speed);
         let wheel = egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Line,
