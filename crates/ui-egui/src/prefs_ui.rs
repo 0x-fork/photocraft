@@ -1840,6 +1840,17 @@ fn memory_usage_row(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
     ui.add_space(8.0);
 }
 
+/// Settings read only when the app starts, which say "Applies at next launch." under their row.
+fn read_at_launch(path: &str) -> bool {
+    match path {
+        // Only Windows and Linux draw their own title bar.
+        "interface.systemTitleBar" => cfg!(all(not(target_arch = "wasm32"), not(target_os = "macos"))),
+        // The desktop app decides on the control server before its window opens.
+        "integrations.allowAgentControl" | "integrations.controlPort" => cfg!(not(target_arch = "wasm32")),
+        _ => false,
+    }
+}
+
 /// One grid row per setting in `keys` (already filtered by `field_visible`).
 fn field_rows(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, keys: Vec<String>, lang: crate::i18n::Lang) {
     let t = Tokens::get(ui.ctx());
@@ -1852,7 +1863,7 @@ fn field_rows(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, ke
             Value::Bool(b) => {
                 ui.label("");
                 let mut b = *b;
-                if path == "interface.systemTitleBar" && cfg!(all(not(target_arch = "wasm32"), not(target_os = "macos"))) {
+                if read_at_launch(&path) {
                     ui.vertical(|ui| {
                         crate::widgets::checkbox(ui, &mut b, &label);
                         ui.label(RichText::new(tl!("Applies at next launch.")).color(t.text_dim));
@@ -1906,6 +1917,12 @@ fn field_rows(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, ke
                     let mut x = n.as_i64().unwrap_or(0);
                     ui.add(egui::DragValue::new(&mut x).range(lo as i64..=hi as i64).custom_parser(crate::widgets::parse_num));
                     obj.insert(k, json!(x));
+                    // A row of its own, so the label stays level with its field.
+                    if read_at_launch(&path) {
+                        ui.end_row();
+                        ui.label("");
+                        ui.label(RichText::new(tl!("Applies at next launch.")).color(t.text_dim));
+                    }
                 } else {
                     let mut x = n.as_f64().unwrap_or(0.0);
                     ui.add(egui::DragValue::new(&mut x).range(lo..=hi).speed(0.1).max_decimals(3).custom_parser(crate::widgets::parse_num));
@@ -4089,10 +4106,12 @@ mod tests {
         let values = prefs::Preferences::default().to_json();
         assert!(has_visible_fields(&values, "general"));
         assert!(has_visible_fields(&values, "fileHandling"));
-        // Every setting of these sections is still unimplemented.
-        for section in ["integrations", "scratchDisks"] {
-            assert!(!has_visible_fields(&values, section), "{section}");
-        }
+        // Every setting of this section is still unimplemented.
+        assert!(!has_visible_fields(&values, "scratchDisks"), "scratchDisks");
+        // Allow Agent Control and Control Port are read at launch (apps/photocraft main.rs).
+        assert!(has_visible_fields(&values, "integrations"));
+        assert!(!prefs::is_hidden("integrations.allowAgentControl"));
+        assert!(!prefs::is_hidden("integrations.controlPort"));
         // "Fill new type layers with placeholder text" and "Use Escape to Commit" are live; other Type rows stay hidden.
         assert!(has_visible_fields(&values, "type"));
         assert!(!prefs::is_hidden("type.fillNewTypeLayersWithPlaceholder"));
@@ -4335,6 +4354,20 @@ mod tests {
         );
         h.run_steps(4);
         assert!(h.query_by_label("Applies at next launch.").is_none());
+    }
+
+    /// #4097: Allow Agent Control and Control Port are read when the app starts, and say so.
+    #[test]
+    fn integrations_explain_next_launch() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let obj = json!({"allowAgentControl": true, "controlPort": 0}).as_object().unwrap().clone();
+        let mut h = Harness::new_ui_state(
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "integrations", obj, &[], crate::i18n::Lang::from_pref("en"), None, ""),
+            obj,
+        );
+        h.run_steps(4);
+        h.get_by_label("Allow agent control");
+        assert_eq!(h.query_all_by_label("Applies at next launch.").count(), 2, "one notice under each row");
     }
 
     #[test]

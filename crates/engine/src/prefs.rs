@@ -1134,8 +1134,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "rawDefaults.sharpenFor",
     "rawDefaults.openAsSmartObject",
     "rawDefaults.applyAutoTone",
-    // Agent access is governed by the launch flags (`--control`, the automation roots), not
-    // by these yet.
 ];
 
 /// Is the preference at `path` (`"section.key"`) hidden from the Preferences dialog?
