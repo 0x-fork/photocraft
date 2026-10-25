@@ -57,10 +57,4 @@ fn main() {
         );
         s.undo();
     }
-
-    // One click with the largest brush: every dab reads a rotated patch of its own size.
-    let t = Instant::now();
-    s.execute("paint.artHistoryBrush", json!({"points": [[3000, 2000]], "size": 1000, "style": "looseCurl", "state": 0})).unwrap();
-    let ms = t.elapsed().as_secs_f64() * 1000.0;
-    println!("artHistoryBrush  single click  size 1000  style looseCurl  {ms:.3} ms");
 }

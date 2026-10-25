@@ -136,8 +136,7 @@ pub fn spacing_px(size: f32, area: f32, style: Style) -> Option<f32> {
     if s.is_finite() && s > 0.0 { Some(s) } else { None }
 }
 
-/// Margin the engine reads around a stroke's dabs (more than the rotated reads, which stay
-/// inside each dab's bounds, need).
+/// Reach of a dab around its stroke point: half the dab plus its scatter, plus a margin.
 pub fn halo_radius(size: f32, style: Style) -> Option<i32> {
     if !size.is_finite() || size <= 0.0 {
         return None;
@@ -569,7 +568,10 @@ fn dab_intersects(dab: &Dab, tile: (i32, i32, i32, i32)) -> bool {
     x0 < tile.2 && x1 > tile.0 && y0 < tile.3 && y1 > tile.1
 }
 
-/// Mean `|src − dest|` over the dab's covered pixels (working-space peak is 1). `None` if nothing is covered.
+/// Mean difference between `src` and `dest` over the dab's covered pixels (working-space peak is
+/// 1, so a tolerance of 50% is `0.5`). Per pixel it is the larger of the mean colour change and the
+/// alpha change: an opaque pixel's unchanged alpha must not water a colour change down, and the
+/// Eraser keeps the colour and lowers only the alpha. `None` if nothing is covered.
 fn dab_mean_diff(p: &StampParams<'_>, dab: &Dab) -> Option<f32> {
     let (x0, y0, x1, y1) = dab_bounds(dab)?;
     let mut sampled = vec![0.0f32; p.ch];
@@ -590,9 +592,6 @@ fn dab_mean_diff(p: &StampParams<'_>, dab: &Dab) -> Option<f32> {
             if nch == 0 {
                 continue;
             }
-            // The larger of the mean colour change and the alpha change: averaging an opaque
-            // pixel's unchanged alpha in would dilute every colour change, and the Eraser keeps
-            // the colour and lowers only the alpha.
             let (mut colour, mut colours, mut alpha) = (0.0f32, 0u32, 0.0f32);
             for i in 0..nch {
                 let Some((&s, &d)) = sampled.get(i).zip(dst.get(i)) else { continue };
@@ -816,74 +815,6 @@ mod tests {
         }
     }
 
-    /// Tolerance compares colour: an opaque pixel's unchanged alpha must not water the difference
-    /// down (a 0.3 change on every colour channel is 0.3, not 0.225, against tolerance 0.25).
-    #[test]
-    fn tolerance_compares_colour_channels_only() {
-        let (w, h, ch) = (48usize, 48usize, 4);
-        let src = fill(w, h, ch, |_, _, c| if c == 3 { 1.0 } else { 0.6 });
-        let mut dest = fill(w, h, ch, |_, _, c| if c == 3 { 1.0 } else { 0.3 });
-        let dab = Dab { x: 24.0, y: 24.0, theta: 0.0, radius: 8.0, pressure: 1.0 };
-        let mut p = StampParams {
-            dest: &mut dest,
-            dest_w: w,
-            dest_h: h,
-            dest_origin: (0, 0),
-            src: &src,
-            src_w: w,
-            src_h: h,
-            src_origin: (0, 0),
-            ch,
-            dabs: std::slice::from_ref(&dab),
-            hardness: 1.0,
-            opacity: 1.0,
-            flow: 1.0,
-            tolerance: 0.25,
-            tile: 0,
-            selection: None,
-            lock_transparent: false,
-            alpha: Some(3),
-        };
-        assert!(stamp(&mut p).unwrap() > 0, "a 0.3 colour change is over tolerance 0.25");
-    }
-
-    /// The Eraser keeps the colour and lowers only the alpha: an erased patch differs from the
-    /// history state and is painted back with a tolerance above 0.
-    #[test]
-    fn tolerance_sees_an_erased_patch() {
-        let (w, h, ch) = (48usize, 48usize, 4);
-        let src = fill(w, h, ch, |_, _, c| if c == 0 || c == 3 { 1.0 } else { 0.0 });
-        let mut dest = fill(w, h, ch, |_, _, c| match c {
-            0 => 1.0,
-            3 => 0.6,
-            _ => 0.0,
-        });
-        let dab = Dab { x: 24.0, y: 24.0, theta: 0.0, radius: 8.0, pressure: 1.0 };
-        let mut p = StampParams {
-            dest: &mut dest,
-            dest_w: w,
-            dest_h: h,
-            dest_origin: (0, 0),
-            src: &src,
-            src_w: w,
-            src_h: h,
-            src_origin: (0, 0),
-            ch,
-            dabs: std::slice::from_ref(&dab),
-            hardness: 1.0,
-            opacity: 1.0,
-            flow: 1.0,
-            tolerance: 0.25,
-            tile: 0,
-            selection: None,
-            lock_transparent: false,
-            alpha: Some(3),
-        };
-        assert!(stamp(&mut p).unwrap() > 0, "alpha 1 -> 0.6 is over tolerance 0.25");
-        let i = (24 * w + 24) * ch;
-        assert!((dest[i + 3] - 1.0).abs() < 1.0e-5, "alpha restored, got {}", dest[i + 3]);
-    }
-
     #[test]
     fn halo_covers_rotated_read_reach() {
         let size = 40.0;
@@ -960,6 +891,76 @@ mod tests {
         assert!((dest[i] - 0.9).abs() < 1.0e-5, "{}", dest[i]);
     }
 
+    #[test]
+    fn tolerance_ignores_unchanged_alpha() {
+        // Colour moved by 0.3 and alpha did not: the 0.25 threshold must not see a 0.225 average.
+        let (w, h, ch) = (48usize, 48usize, 4);
+        let src = fill(w, h, ch, |_, _, c| if c == 3 { 1.0 } else { 0.6 });
+        let dest0 = fill(w, h, ch, |_, _, c| if c == 3 { 1.0 } else { 0.3 });
+        let dab = Dab { x: 24.0, y: 24.0, theta: 0.0, radius: 8.0, pressure: 1.0 };
+        for (tolerance, paints) in [(0.25, true), (0.35, false)] {
+            let mut dest = dest0.clone();
+            let mut p = StampParams {
+                dest: &mut dest,
+                dest_w: w,
+                dest_h: h,
+                dest_origin: (0, 0),
+                src: &src,
+                src_w: w,
+                src_h: h,
+                src_origin: (0, 0),
+                ch,
+                dabs: std::slice::from_ref(&dab),
+                hardness: 1.0,
+                opacity: 1.0,
+                flow: 1.0,
+                tolerance,
+                tile: 0,
+                selection: None,
+                lock_transparent: false,
+                alpha: Some(3),
+            };
+            let n = stamp(&mut p).unwrap();
+            assert_eq!(n > 0, paints, "tolerance {tolerance}");
+        }
+    }
+
+    /// The Eraser keeps the colour and lowers only the alpha: an erased patch differs from the
+    /// history state and is painted back with a tolerance above 0.
+    #[test]
+    fn tolerance_sees_an_erased_patch() {
+        let (w, h, ch) = (48usize, 48usize, 4);
+        let src = fill(w, h, ch, |_, _, c| if c == 0 || c == 3 { 1.0 } else { 0.0 });
+        let mut dest = fill(w, h, ch, |_, _, c| match c {
+            0 => 1.0,
+            3 => 0.6,
+            _ => 0.0,
+        });
+        let dab = Dab { x: 24.0, y: 24.0, theta: 0.0, radius: 8.0, pressure: 1.0 };
+        let mut p = StampParams {
+            dest: &mut dest,
+            dest_w: w,
+            dest_h: h,
+            dest_origin: (0, 0),
+            src: &src,
+            src_w: w,
+            src_h: h,
+            src_origin: (0, 0),
+            ch,
+            dabs: std::slice::from_ref(&dab),
+            hardness: 1.0,
+            opacity: 1.0,
+            flow: 1.0,
+            tolerance: 0.25,
+            tile: 0,
+            selection: None,
+            lock_transparent: false,
+            alpha: Some(3),
+        };
+        assert!(stamp(&mut p).unwrap() > 0, "alpha 1 -> 0.6 is over tolerance 0.25");
+        let i = (24 * w + 24) * ch;
+        assert!((dest[i + 3] - 1.0).abs() < 1.0e-5, "alpha restored, got {}", dest[i + 3]);
+    }
     #[test]
     fn empty_or_mismatched_buffers_error() {
         let mut dest = vec![0.0f32; 16];

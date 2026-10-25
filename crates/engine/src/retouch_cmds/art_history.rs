@@ -5,7 +5,6 @@ use photocraft_color::BlendMode;
 use photocraft_geom::Rect;
 use photocraft_paint::MAX_BRUSH_SIZE;
 use photocraft_paint::retouch::{Region, alpha_index};
-use photocraft_raster::{from_rgba_into, to_rgba};
 use serde_json::{Value, json};
 
 use super::*;
@@ -125,14 +124,9 @@ fn stamp_region(
     sel: Option<&[f32]>,
     lock: bool,
     alpha: Option<usize>,
-    blend: BlendMode,
-    fmt: photocraft_color::PixelFormat,
 ) -> Result<u32> {
     if dest.ch != src.ch {
         return Err(err("source and destination do not match"));
-    }
-    if blend != BlendMode::Normal {
-        return stamp_blended(dest, src, dabs, hardness, opacity, flow, tolerance, sel, lock, alpha, blend, fmt);
     }
     let dest_w = dest.width();
     let dest_h = dest.height();
@@ -169,86 +163,6 @@ fn stamp_region(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn stamp_blended(
-    dest: &mut Region,
-    src: &Region,
-    dabs: &[Dab],
-    hardness: f32,
-    opacity: f32,
-    flow: f32,
-    tolerance: f32,
-    sel: Option<&[f32]>,
-    lock: bool,
-    alpha: Option<usize>,
-    blend: BlendMode,
-    fmt: photocraft_color::PixelFormat,
-) -> Result<u32> {
-    let mut dummy = dest.clone();
-    let dest_w = dummy.width();
-    let dest_h = dummy.height();
-    let dest_origin = (dummy.rect.x0, dummy.rect.y0);
-    let src_w = src.width();
-    let src_h = src.height();
-    let src_origin = (src.rect.x0, src.rect.y0);
-    let ch = dummy.ch;
-    let mut p = StampParams {
-        dest: &mut dummy.data,
-        dest_w,
-        dest_h,
-        dest_origin,
-        src: &src.data,
-        src_w,
-        src_h,
-        src_origin,
-        ch,
-        dabs,
-        hardness,
-        opacity,
-        flow,
-        tolerance,
-        // One tile is the whole buffer.
-        tile: 0,
-        selection: sel,
-        lock_transparent: lock,
-        alpha,
-    };
-    match art_history::stamp(&mut p) {
-        Ok(0) => return Ok(0),
-        Ok(_) => {}
-        Err(StampError::Empty) => return Err(err("no stroke points")),
-        Err(StampError::Mismatched) => return Err(err("source and destination do not match")),
-        Err(StampError::TooLarge) => return Err(err("stroke too large")),
-    }
-    let n = dest.ch;
-    let mut written = 0u32;
-    for y in dest.rect.y0..dest.rect.y1 {
-        for x in dest.rect.x0..dest.rect.x1 {
-            let i = dest.index(x, y) * n;
-            let (Some(before), Some(after)) = (dest.data.get(i..i + n), dummy.data.get(i..i + n)) else { continue };
-            if before == after {
-                continue;
-            }
-            let d = to_rgba(&fmt, before);
-            let s = to_rgba(&fmt, after);
-            let mut o = photocraft_color::blend::composite(blend, d, s, 1.0);
-            if lock {
-                o[3] = d[3];
-            }
-            let mut enc = [0.0f32; 8];
-            let m = from_rgba_into(&fmt, o, &mut enc);
-            if m != n {
-                return Err(err("source and destination do not match"));
-            }
-            if let Some(slot) = dest.data.get_mut(i..i + n) {
-                slot.copy_from_slice(&enc[..n]);
-            }
-            written = written.saturating_add(1);
-        }
-    }
-    Ok(written)
-}
-
 /// Run `paint.artHistoryBrush`.
 pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let _ = object(p)?;
@@ -270,9 +184,14 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let opacity = ranged(p, "opacity", 100.0, 0.0, 100.0)? / 100.0;
     let flow = ranged(p, "flow", 100.0, 0.0, 100.0)? / 100.0;
     let area = ranged(p, "area", 50.0, 0.0, 100.0)?;
+    // Percent of the channel range; 0 (paint everywhere) is the default, as in Photoshop.
     let tolerance = ranged(p, "tolerance", 0.0, 0.0, 100.0)? / 100.0;
     let style = style_of(p)?;
-    let mode = blend_param(p, CMD)?;
+    // The stamp mixes the source in by coverage, so only Normal is right; other modes need a
+    // stroke buffer (blending each dab with the already-mixed result rings every dab edge).
+    if blend_param(p, CMD)? != BlendMode::Normal {
+        return Err(err("only the Normal mode is supported"));
+    }
     let (stroke, id) = parse_brush(s, p, CMD)?;
     let _ = stroke;
     // The same source as the History Brush: the `state` or `snapshot` passed, else the History
@@ -287,14 +206,18 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
     if dabs.is_empty() {
         return Err(err("no stroke points"));
     }
-    let halo = art_history::halo_radius(size, style).ok_or_else(|| err("stroke too large"))?;
     let bounds = union_bounds(&dabs)?;
-    let outer = bounds.inflate(halo);
+    // The stamp reads each dab's bounds plus one pixel for bilinear sampling,
+    // so only that margin counts against the coverage limit.
+    let outer = bounds.inflate(1);
     let area_px = (outer.width() as u64).saturating_mul(outer.height() as u64);
     if outer.is_empty() || area_px > MAX_COVERAGE {
         return Err(err("stroke too large"));
     }
 
+    // Nothing written (every dab under the tolerance, outside the selection or on locked
+    // transparency): a no-op stroke, with no history step.
+    let mut nothing_written = false;
     let dmg = run_stroke(s, "Art History Brush", id, p, |_, surf, sel, lock| {
         let fmt = surf.format();
         let src = if src_surface.format() == fmt { src_surface.clone() } else { src_surface.convert(fmt) };
@@ -307,15 +230,18 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(err("source and destination do not match"));
         }
         let sel_mask = selection_mask(sel, outer);
-        let n = stamp_region(&mut dest, &src_reg, &dabs, hardness, opacity, flow, tolerance, sel_mask.as_deref(), lock, alpha_index(&fmt), mode, fmt)?;
-        // Nothing written (every dab within the tolerance, or outside the selection or lock)
-        // must not leave an empty History step.
+        let n = stamp_region(&mut dest, &src_reg, &dabs, hardness, opacity, flow, tolerance, sel_mask.as_deref(), lock, alpha_index(&fmt))?;
         if n == 0 {
-            return Err(err("nothing to paint: the stroke changes no pixel (tolerance, selection or locked transparency)"));
+            nothing_written = true;
+            return Err(err("the stroke changed no pixel"));
         }
         dest.write(surf);
         Ok(bounds)
-    })?;
+    });
+    let dmg = match dmg {
+        Err(_) if nothing_written => return Ok(json!({ "damage": Value::Null })),
+        r => r?,
+    };
     Ok(json!({ "damage": damage_json(dmg) }))
 }
 
@@ -393,6 +319,41 @@ mod tests {
     }
 
     #[test]
+    fn default_tolerance_paints_a_moderate_history_edit() {
+        let mut s = session(48, 32, 8, "rgb");
+        paint_layer(&mut s, |_, _| [0.5, 0.5, 0.5, 1.0]);
+        paint_layer(&mut s, |_, _| [0.6, 0.6, 0.6, 1.0]);
+        let steps = s.active().unwrap().history.past_len();
+        let p = json!({"points": [[8, 16], [40, 16]], "size": 12, "hardness": 100, "style": "tightMedium", "state": 1});
+        s.execute("paint.artHistoryBrush", p).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+        assert!(rgba(&s, 24, 16)[0] < 0.55, "{:?}", rgba(&s, 24, 16));
+    }
+
+    #[test]
+    fn stroke_under_the_tolerance_records_no_step() {
+        let mut s = session(48, 32, 8, "rgb");
+        paint_layer(&mut s, |_, _| [0.5, 0.5, 0.5, 1.0]);
+        paint_layer(&mut s, |_, _| [0.6, 0.6, 0.6, 1.0]);
+        let steps = s.active().unwrap().history.past_len();
+        let r = stroke(&mut s, json!({"state": 1, "tolerance": 50})).unwrap();
+        assert!(r["damage"].is_null(), "{r}");
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
+        assert!((rgba(&s, 24, 16)[0] - 0.6).abs() < 0.01);
+    }
+
+    #[test]
+    fn large_brush_click_is_not_too_large() {
+        let mut s = session(2600, 2600, 8, "rgb");
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("edit.fill", json!({"color": "#00ff00"})).unwrap();
+        for (style, size) in [("looseCurl", 2000), ("tightMedium", 2400)] {
+            let r = stroke(&mut s, json!({"state": 1, "points": [[1300, 1300]], "size": size, "style": style}));
+            assert!(r.is_ok(), "{style} size {size}: {r:?}");
+        }
+    }
+
+    #[test]
     fn state_one_uses_that_snapshot() {
         let mut s = session(40, 24, 8, "rgb");
         s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
@@ -400,32 +361,6 @@ mod tests {
         stroke(&mut s, json!({"state": 1, "points": [[4, 12], [20, 12]], "size": 10})).unwrap();
         let p = rgba(&s, 10, 12);
         assert!(p[0] > 0.9 && p[1] < 0.2, "state 1 is red, got {p:?}");
-    }
-
-    /// Photoshop's default Tolerance is 0: with no `tolerance` an ordinary edit is painted back.
-    #[test]
-    fn default_params_paint_an_ordinary_edit() {
-        let mut s = session(40, 24, 8, "rgb");
-        s.execute("edit.fill", json!({"color": "#c03030"})).unwrap();
-        s.execute("edit.fill", json!({"color": "#d04848"})).unwrap();
-        let steps = s.active().unwrap().history.past_len();
-        s.execute("paint.artHistoryBrush", json!({"points": [[4, 12], [30, 12]], "size": 10, "hardness": 100, "state": 1})).unwrap();
-        assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
-        let p = rgba(&s, 12, 12);
-        assert!((p[0] - 0xc0 as f32 / 255.0).abs() < 0.02, "painted back to #c03030, got {p:?}");
-    }
-
-    /// A stroke whose every dab is within the tolerance writes nothing, so it must not leave an
-    /// empty History step.
-    #[test]
-    fn a_stroke_within_the_tolerance_adds_no_step() {
-        let mut s = session(40, 24, 8, "rgb");
-        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
-        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
-        let steps = s.active().unwrap().history.past_len();
-        assert!(stroke(&mut s, json!({"state": 1, "tolerance": 100})).is_err());
-        assert_eq!(s.active().unwrap().history.past_len(), steps);
-        assert!(rgba(&s, 20, 16)[2] > 0.9, "still blue");
     }
 
     /// With no `state`, the brush paints from the History panel's source, like the History Brush.
@@ -450,6 +385,49 @@ mod tests {
         let e = stroke(&mut s, json!({"state": 1})).unwrap_err().to_string();
         assert!(e.contains("canvas size"), "{e}");
         assert_eq!(s.active().unwrap().history.past_len(), steps);
+    }
+
+    /// A stroke that writes nothing (wholly outside the selection, or on transparent pixels
+    /// with Lock Transparency) does nothing, as with the tolerance: no error, no History step.
+    #[test]
+    fn a_stroke_that_writes_nothing_is_a_quiet_no_op() {
+        let mut s = session(48, 32, 8, "rgb");
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        s.execute("select.rect", json!({"x": 0, "y": 0, "width": 4, "height": 4})).unwrap();
+        let steps = s.active().unwrap().history.past_len();
+        let r = stroke(&mut s, json!({"state": 1})).unwrap();
+        assert!(r["damage"].is_null(), "{r}");
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
+        assert!(rgba(&s, 24, 16)[2] > 0.9, "still blue");
+
+        let mut s = session(48, 32, 8, "rgb");
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.edit("lock", |doc, active| {
+            doc.layer_mut(active.unwrap()).unwrap().locks.transparency = true;
+            Ok(())
+        })
+        .unwrap();
+        let steps = s.active().unwrap().history.past_len();
+        // Row 1: the new, transparent layer.
+        let r = stroke(&mut s, json!({"state": 1})).unwrap();
+        assert!(r["damage"].is_null(), "{r}");
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
+    }
+
+    #[test]
+    fn only_the_normal_mode_paints() {
+        let mut s = session(48, 32, 8, "rgb");
+        paint_layer(&mut s, |_, _| [1.0, 1.0, 1.0, 1.0]);
+        paint_layer(&mut s, |_, _| [0.5, 0.5, 0.5, 1.0]);
+        let steps = s.active().unwrap().history.past_len();
+        // Multiply by a white source would leave the grey as it is, but blending each dab with the
+        // already-mixed result darkened every dab edge: refused until a stroke buffer exists.
+        assert!(stroke(&mut s, json!({"state": 1, "mode": "multiply"})).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
+        assert!((rgba(&s, 24, 16)[0] - 0.5).abs() < 0.01);
+        stroke(&mut s, json!({"state": 1, "mode": "normal"})).unwrap();
+        assert!(rgba(&s, 24, 16)[0] > 0.9, "{:?}", rgba(&s, 24, 16));
     }
 
     #[test]
