@@ -477,6 +477,14 @@ pub(crate) fn ahd_scratch(w: u64, h: u64) -> u64 {
     s.saturating_mul(rows.saturating_mul(58).saturating_add(8))
 }
 
+/// Bands one scratch serves: the bands are split into one group per worker (at most `jobs`), so
+/// the scratch is allocated and zeroed once per worker however many workers there are. More
+/// groups than workers would allocate a fresh scratch for every band on a many-core machine.
+fn ahd_bands_per_group(bands: usize, jobs: usize) -> usize {
+    let groups = par::workers().min(jobs.max(1)).clamp(1, bands.max(1));
+    bands.div_ceil(groups).max(1)
+}
+
 pub(crate) fn ahd_bands(h: usize) -> usize {
     h.div_ceil(AHD_BAND)
 }
@@ -524,9 +532,7 @@ fn ahd(p: &Padded, phase: [u8; 4], to_xyz: &Mat3, out: &mut [f32], jobs: usize) 
     let m: [[f32; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| to_xyz[i][j] as f32 / white[i]));
     let labf = LabF::new();
     let bands = ahd_bands(h);
-    // A few groups per worker for balance; each group allocates its scratch once.
-    let groups = (par::workers().min(jobs.max(1)) * 4).clamp(1, bands.max(1));
-    let per_group = bands.div_ceil(groups).max(1);
+    let per_group = ahd_bands_per_group(bands, jobs);
     par::chunks_mut_limited(out, per_group * AHD_BAND * w * 3, jobs, |group, gchunk| {
         let mut sc = AhdScratch::for_image(h, s);
         for (j, chunk) in gchunk.chunks_mut(AHD_BAND * w * 3).enumerate() {
@@ -868,8 +874,7 @@ mod tests {
         let cfa: Vec<f32> = (0..w * h).map(|i| ((i * 7919 + i / w * 104729) % 1013) as f32 / 1000.0 - 0.006).collect();
         let p = Padded::from_plane(&cfa, w, h);
         for jobs in [1, 2] {
-            let groups = (par::workers().min(jobs) * 4).clamp(1, ahd_bands(h));
-            assert!(ahd_bands(h).div_ceil(groups) >= 2, "jobs {jobs}: each scratch must serve several bands");
+            assert!(ahd_bands_per_group(ahd_bands(h), jobs) >= 2, "jobs {jobs}: each scratch must serve several bands");
             for phase in [[0, 1, 1, 2], [2, 1, 1, 0], [1, 0, 2, 1], [1, 2, 0, 1]] {
                 let mut want = vec![0.0f32; w * h * 3];
                 ahd_ref(&p, phase, &m, &mut want, jobs);
@@ -878,6 +883,31 @@ mod tests {
                 assert!(want.iter().zip(&got).all(|(a, b)| a.to_bits() == b.to_bits()), "{w}x{h} {phase:?} jobs {jobs}");
             }
         }
+    }
+
+    /// A 4-worker pool splits 35 bands into groups of 9 (the last of 8), so groups after the first
+    /// start at band `group * 9` and every scratch is reused for several bands: a wrong band index
+    /// or a stale scratch cell would change pixels. The group size does not depend on the machine.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn ahd_groups_of_several_bands_match_reference() {
+        let m = [[0.41, 0.36, 0.18], [0.21, 0.72, 0.07], [0.02, 0.12, 0.95]];
+        let (w, h) = (37, 1100);
+        let cfa: Vec<f32> = (0..w * h).map(|i| ((i * 7919 + i / w * 104729) % 1013) as f32 / 1000.0 - 0.006).collect();
+        let p = Padded::from_plane(&cfa, w, h);
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        pool.install(|| {
+            assert_eq!(par::workers(), 4);
+            assert_eq!(ahd_bands_per_group(ahd_bands(h), 4), 9);
+            // One worker per group, never more groups than workers, however many bands there are.
+            assert_eq!(ahd_bands_per_group(126, 1000), 32);
+            for phase in [[0, 1, 1, 2], [1, 2, 0, 1]] {
+                let mut want = vec![0.0f32; w * h * 3];
+                ahd_ref(&p, phase, &m, &mut want, 4);
+                let got = demosaic(&p, phase, Demosaic::Ahd, &m, 4);
+                assert!(want.iter().zip(&got).all(|(a, b)| a.to_bits() == b.to_bits()), "{phase:?}");
+            }
+        });
     }
 
     /// Mosaics an RGB image with the given phase.
