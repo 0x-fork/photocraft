@@ -480,7 +480,9 @@ fn run(app: &mut PhotocraftApp, command: DockCommand<String>) -> Result<Value, S
     let space = FloatSpace::new(FLOAT_AREA);
     let rtl = crate::direction::is_rtl();
     let closed = match &command {
-        DockCommand::Dock { panel, anchor: None, side: None, zone: None, .. } if dock_back(&mut workspace, &returns, panel)? => Vec::new(),
+        DockCommand::Dock { panel, anchor: None, side: None, zone: None, group: false, column: false, .. } if dock_back(&mut workspace, &returns, panel)? => {
+            Vec::new()
+        }
         DockCommand::Float { panel, x, y, width, height, group: false, column: false } => {
             if let Ok(location) = workspace.layout.location(panel)
                 && location.floating.is_none()

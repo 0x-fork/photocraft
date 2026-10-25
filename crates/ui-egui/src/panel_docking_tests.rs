@@ -54,6 +54,17 @@ fn panel_commands_group_split_reorder_float_and_restore_without_duplicate_owners
 }
 
 #[test]
+fn docking_a_floating_group_docks_all_of_its_panels() {
+    let mut app = app();
+    app.run("window.panel.float", json!({"panel":"paths"})).unwrap();
+    app.run("window.panel.move", json!({"panel":"history", "anchor":"paths"})).unwrap();
+    assert!(lay(&app).floating.iter().any(|w| w.contains("paths") && w.contains("history")));
+    app.run("window.panel.dock", json!({"panel":"paths", "group": true})).unwrap();
+    assert!(lay(&app).floating.iter().all(|w| !w.contains("paths") && !w.contains("history")), "{:?}", lay(&app).floating);
+    assert!(lay(&app).contains(&"paths".into()) && lay(&app).contains(&"history".into()));
+}
+
+#[test]
 fn floating_panel_rail_toggle_closes_the_float_window() {
     let mut app = app();
     app.run("window.panel.float", json!({"panel":"properties","x":50,"y":70,"width":330,"height":410})).unwrap();
