@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.95"
 
 [workspace.dependencies]
-craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "d24e4bcce3b420f25b7bca2b2d786cbcc8631f96", features = ["serde"] }
+craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "5bbe9f6254de3bb9f9707ae0740ab0db8170afd5", features = ["serde"] }
 # internal
 photocraft-geom = { path = "crates/geom" }
 photocraft-color = { path = "crates/color" }
@@ -39,9 +39,9 @@ photocraft-tablet = { path = "crates/tablet" }
 photocraft-ipp = { path = "crates/ipp" }
 
 # external
-craft-print = { git = "https://github.com/storytold/craft-libs", rev = "d24e4bcce3b420f25b7bca2b2d786cbcc8631f96" }
-craft-docpath = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "d24e4bcce3b420f25b7bca2b2d786cbcc8631f96" }
-craft-jpeg = { git = "https://github.com/storytold/craft-libs", rev = "d24e4bcce3b420f25b7bca2b2d786cbcc8631f96" }
+craft-print = { git = "https://github.com/storytold/craft-libs", rev = "5bbe9f6254de3bb9f9707ae0740ab0db8170afd5" }
+craft-docpath = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "5bbe9f6254de3bb9f9707ae0740ab0db8170afd5" }
+craft-jpeg = { git = "https://github.com/storytold/craft-libs", rev = "5bbe9f6254de3bb9f9707ae0740ab0db8170afd5" }
 thiserror = "2"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
