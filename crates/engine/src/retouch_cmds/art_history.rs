@@ -313,7 +313,9 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let halo = art_history::halo_radius(size, style).ok_or_else(|| err("stroke too large"))?;
     let bounds = union_bounds(&dabs)?;
-    let outer = bounds.inflate(halo);
+    // The stamp reads each dab's bounds plus one pixel for bilinear sampling,
+    // so only that margin counts against the coverage limit, not the halo.
+    let outer = bounds.inflate(1);
     let area_px = (outer.width() as u64).saturating_mul(outer.height() as u64);
     if outer.is_empty() || area_px > MAX_COVERAGE {
         return Err(err("stroke too large"));
@@ -446,6 +448,17 @@ mod tests {
         assert!(r["damage"].is_null(), "{r}");
         assert_eq!(s.active().unwrap().history.past_len(), steps);
         assert!((rgba(&s, 24, 16)[0] - 0.6).abs() < 0.01);
+    }
+
+    #[test]
+    fn large_brush_click_is_not_too_large() {
+        let mut s = session(2600, 2600, 8, "rgb");
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("edit.fill", json!({"color": "#00ff00"})).unwrap();
+        for (style, size) in [("looseCurl", 2000), ("tightMedium", 2400)] {
+            let r = stroke(&mut s, json!({"state": 1, "points": [[1300, 1300]], "size": size, "style": style}));
+            assert!(r.is_ok(), "{style} size {size}: {r:?}");
+        }
     }
 
     #[test]
