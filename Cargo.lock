@@ -5065,9 +5065,11 @@ dependencies = [
 name = "photocraft-paint"
 version = "0.15.1"
 dependencies = [
+ "photocraft-cms",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
+ "rayon",
  "serde",
  "serde_json",
 ]
