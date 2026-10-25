@@ -5976,8 +5976,8 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     if crate::cam_transform::pointer(app, ev, mods) {
         return;
     }
-    // View › Snap / Snap To and smart guides (snap_ui.rs).
-    if app.ui.tool == Tool::MixerBrush && mods.alt && !mods.ctrl && app.drag.is_none() && !armed && app.brush_resize.is_none() {
+    // The tool in use, so a held temporary tool (⌘ = Move) with ⌥ doesn't load paint.
+    if app.active_tool() == Tool::MixerBrush && mods.alt && !mods.ctrl && app.drag.is_none() && !armed && app.brush_resize.is_none() {
         if let ToolEvent::Down { x, y, pressure } = ev {
             let pen = app.stylus.sample().unwrap_or_default();
             let p = json!({"points":[[x,y,pressure,pen.tilt_x,pen.tilt_y,pen.rotation]],"target":paint_target(app)});
@@ -5988,6 +5988,7 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
         }
         return;
     }
+    // View › Snap / Snap To and smart guides (snap_ui.rs).
     let raw = ev;
     // The Move tool's marquee selecting layers takes its moves and release unsnapped (move_box.rs).
     if crate::move_box::pointer(app, raw) {
@@ -6350,15 +6351,19 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
             }
             app.live_stroke = if strokes_live(tool) { begin_live_stroke(app) } else { None };
             if tool == Tool::MixerBrush && app.live_stroke.is_none() {
-                // The first dab itself is invalid. Do not queue an unexpected release edit.
-                if let Some(d) = app.drag.as_ref() {
-                    let p = stroke_params(app, d, &app.stylus.stroke_points(&d.points));
-                    if let Err(e) = photocraft_engine::brush_cmds::mixer_live::LiveMixer::begin(&app.session, &p) {
+                use photocraft_engine::brush_cmds::mixer_live::LiveMixer;
+                let p = app.drag.as_ref().map(|d| stroke_params(app, d, &app.stylus.stroke_points(&d.points)));
+                // A tip above the preview size keeps the drag: `finish_gesture` renders it on release.
+                // Otherwise the first dab itself is invalid. Do not queue an unexpected release edit.
+                if let Some(p) = p
+                    && !LiveMixer::defers_to_release(&app.session, &p).is_ok_and(|deferred| deferred)
+                {
+                    if let Err(e) = LiveMixer::begin(&app.session, &p) {
                         app.ui.status = e.to_string();
                         app.ui.status_error = true;
                     }
+                    app.drag = None;
                 }
-                app.drag = None;
             } else if tool == Tool::MixerBrush {
                 feed_live_stroke(app);
             }
@@ -6735,6 +6740,7 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
                 }
             }
         } else {
+            // No preview (a tip above its size): render the whole stroke now.
             let p = stroke_params(app, &d, &app.stylus.stroke_points(&d.points));
             let _ = app.run("paint.mixerBrush", p);
         }
@@ -8998,6 +9004,56 @@ mod tests {
         assert!(app.session.journal.iter().any(|(id, _)| id == "paint.mixerBrush"));
         let st = app.session.active().unwrap();
         assert!(st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().rgba(60, 30)[3] > 0.0);
+    }
+
+    /// A tip above the live preview's 1024 px paints on release, as main and Photoshop paint it
+    /// up to 5000 px; a stroke that can't paint at all is still refused on press.
+
+    #[test]
+
+    fn mixer_drag_above_the_preview_size_paints_on_release() {
+        for locked in [false, true] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width":120,"height":60,"background":"#00ff00"})).unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+            if locked {
+                app.run("layer.lockLayers", json!({"pixels": true})).unwrap();
+            }
+            app.run("tools.setColors", json!({"foreground":"#ff0000"})).unwrap();
+            app.run("tools.setBrush", json!({"brush":{"size":2000,"hardness":1.0,"pressureSize":false,"mixer":{"wet":0.0,"mix":0.0}}})).unwrap();
+            app.ui.tool = Tool::MixerBrush;
+            let steps = app.session.active().unwrap().history.past_len();
+            let m = egui::Modifiers::NONE;
+            tool_event(&mut app, ToolEvent::Down { x: 20.0, y: 30.0, pressure: 1.0 }, m);
+            assert!(app.live_stroke.is_none(), "no live preview above 1024 px");
+            assert_eq!(app.drag.is_some(), !locked, "a valid 2000 px stroke is kept for release");
+            assert_eq!(app.ui.status_error, locked, "{}", app.ui.status);
+            tool_event(&mut app, ToolEvent::Move { x: 50.0, y: 30.0, pressure: 1.0 }, m);
+            tool_event(&mut app, ToolEvent::Up { x: 50.0, y: 30.0 }, m);
+            let st = app.session.active().unwrap();
+            assert_eq!(st.history.past_len(), steps + usize::from(!locked));
+            let pixel = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().rgba(60, 30);
+            assert_eq!(pixel[0] > 0.9 && pixel[3] > 0.9, !locked, "{pixel:?}");
+        }
+    }
+
+    /// ⌥ with a held temporary tool (macOS ⌘ = Move) is that tool's, not a Mixer Brush paint load.
+
+    #[test]
+
+    fn mixer_alt_with_a_held_temporary_tool_does_not_load_paint() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width":120,"height":60,"background":"#00ff00"})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.ui.tool = Tool::MixerBrush;
+        app.tool_override = Some(Tool::Move);
+        let alt = egui::Modifiers { alt: true, ..Default::default() };
+        tool_event(&mut app, ToolEvent::Down { x: 30.0, y: 30.0, pressure: 1.0 }, alt);
+        tool_event(&mut app, ToolEvent::Up { x: 30.0, y: 30.0 }, alt);
+        assert!(app.session.tools.mixer.spatial.is_none(), "the held Move tool doesn't sample");
+        app.tool_override = None;
+        tool_event(&mut app, ToolEvent::Down { x: 30.0, y: 30.0, pressure: 1.0 }, alt);
+        assert!(app.session.tools.mixer.spatial.is_some(), "⌥ with the Mixer Brush itself samples");
     }
 
     #[test]

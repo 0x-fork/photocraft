@@ -1182,7 +1182,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "paint.mixerBrush",
             "Mixer Brush",
-            r##"{"points":[…] (max 65536 samples; long segments are interpolated),"brush":{…}?,"preset":name?,"size":0.5..5000 px?,"wet":0..100=brush.mixer.wet,"load":0..100=brush.mixer.load,"mix":0..100=brush.mixer.mix,"flow":0..100=brush.mixer.flow,"color":"#rrggbb"?=foreground,"sampleAllLayers":bool=brush.mixer.sampleAllLayers,"cleanAfterStroke":bool=brush.mixer.cleanAfterStroke,"loadAfterStroke":bool=brush.mixer.loadAfterStroke,"seed":u64?,"mixerState":{reservoir,amount,pickup,spatial,color} (optional captured replay state; spatial is null or 4096 RGBA colors)}"##,
+            r##"{"points":[…] (long segments are interpolated),"brush":{…}?,"preset":name?,"size":0.5..5000 px?,"wet":0..100=brush.mixer.wet,"load":0..100=brush.mixer.load,"mix":0..100=brush.mixer.mix,"flow":0..100=brush.mixer.flow,"color":"#rrggbb"?=foreground,"sampleAllLayers":bool=brush.mixer.sampleAllLayers,"cleanAfterStroke":bool=brush.mixer.cleanAfterStroke,"loadAfterStroke":bool=brush.mixer.loadAfterStroke,"seed":u64?,"mixerState":{reservoir,amount,pickup,spatial,color} (optional captured replay state; spatial is null or 4096 RGBA colors)}"##,
             has_paintable,
             mixer_brush,
             true

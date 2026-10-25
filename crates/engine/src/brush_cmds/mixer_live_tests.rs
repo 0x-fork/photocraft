@@ -335,9 +335,9 @@ fn mixer_command_outgrows_the_preview_tile_budget_without_losing_the_stroke() {
     // Spacing deliberately leaves gaps; inspect the final tile's stroke region instead
     // of assuming the exact release pixel is a dab center.
     let end = Rect::new(600, 7776, 672, 7840);
-    assert!(target(&s).read_region(end).chunks_exact(4).any(|px| px[3] > 0.0));
+    assert!(target(&s).read_region(end).as_chunks::<4>().0.iter().any(|px| px[3] > 0.0));
     s.execute("edit.undo", json!({})).unwrap();
-    assert!(target(&s).read_region(end).chunks_exact(4).all(|px| px[3] == 0.0));
+    assert!(target(&s).read_region(end).as_chunks::<4>().0.iter().all(|px| px[3] == 0.0));
 }
 
 /// An empty sample reports an error while retaining the previous paint load and document.
@@ -418,5 +418,27 @@ fn mixer_large_brushes_replay_after_the_preview_budget() {
         assert!(target(&s).rgba(96, 48)[0] > 0.9);
         s.execute("edit.undo", json!({})).unwrap();
         assert_eq!(*s.active().unwrap().doc, *before);
+    }
+}
+
+/// Long strokes past the live preview's sample and dab budgets still render on command replay
+/// (Stroke Path with Simulate Pressure sends up to 200,000 samples), as main painted them.
+
+#[test]
+
+fn mixer_command_paints_strokes_beyond_the_preview_sample_and_dab_budgets() {
+    // 70,000 samples a pixel apart (above 65,536), or 2,000 samples 170 px apart (about 340,000 dabs).
+    for (count, step, budget) in [(70_000, 1, "65536"), (2_000, 170, "250000 dabs")] {
+        let mut s = fixture(PixelFormat::RGBA8);
+        // Zig-zagging along one row, one dab per pixel.
+        let points: Vec<_> = (0..count).map(|i: i32| [f64::from(10 + (i * step % 340 - 170).abs()), 48.0]).collect();
+        let p = json!({"points":points,"size":2,"brush":{"spacing":0.5,"hardness":1.0,"pressureSize":false,"smoothing":{"amount":0.0}},
+            "seed":7,"sampleAllLayers":false,"wet":0,"mix":0,"load":100,"color":"#ff0000"});
+        let err = LiveMixer::begin(&s, &p).err().expect("bounded preview");
+        assert!(err.to_string().contains(budget), "{err}");
+        let steps = s.active().unwrap().history.past_len();
+        s.execute("paint.mixerBrush", p).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+        assert!(target(&s).rgba(100, 48)[0] > 0.9);
     }
 }

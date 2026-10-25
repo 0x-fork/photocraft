@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 const CMD: &str = "paint.mixerBrush";
 const MAX_TILES: usize = 256;
+/// The largest tip the live preview renders; larger valid tips render on release.
+const PREVIEW_SIZE: f32 = 1024.0;
 const TILE: i32 = 256;
 
 /// Accept bounded finite channels, including HDR values, without admitting unsafe arithmetic inputs.
@@ -51,9 +53,9 @@ struct Core {
 
 impl Core {
     /// Apply a batch against evolving working pixels and return its damage bounds.
-    /// The dab limit always applies; footprint and tile budgets apply only to live previews.
+    /// Dab, footprint and tile budgets apply only to live previews; the release replays without them.
     fn apply(&mut self, dabs: &[Dab]) -> Result<Rect> {
-        if self.count.saturating_add(dabs.len()) > 250_000 {
+        if self.preview_limits && self.count.saturating_add(dabs.len()) > 250_000 {
             return Err(bad(CMD, "stroke exceeds 250000 dabs; start another stroke"));
         }
         let mut damage = Rect::EMPTY;
@@ -141,16 +143,26 @@ impl LiveMixer {
 
     /// Share initialization between live previews and command replay while keeping their tile budgets distinct.
     fn begin_with_limits(s: &Session, p: &Value, preview_limits: bool) -> Result<Self> {
+        let (mut live, points) = Self::prepare(s, p, preview_limits)?;
+        live.push(&points)?;
+        Ok(live)
+    }
+
+    /// Whether a stroke the live preview refuses only for its tip size still paints on release.
+    /// `Err` when the stroke can't be painted at all (locked layer, bad params...).
+    pub fn defers_to_release(s: &Session, p: &Value) -> Result<bool> {
+        let (live, _) = Self::prepare(s, p, false)?;
+        Ok(live.core.ctx.brush.size > PREVIEW_SIZE)
+    }
+
+    /// Validate the params and capture the document and paint load, without rendering a dab.
+    fn prepare(s: &Session, p: &Value, preview_limits: bool) -> Result<(Self, Vec<StrokePoint>)> {
         has_paintable(s).map_err(EngineError::Other)?;
-        if p.get("points").and_then(Value::as_array).is_some_and(|v| v.len() > 65_536) {
+        if preview_limits && p.get("points").and_then(Value::as_array).is_some_and(|v| v.len() > 65_536) {
             return Err(bad(CMD, "stroke exceeds 65536 recorded input samples"));
         }
         let points = parse_points(p, CMD)?;
         let brush = resolve_brush(s, p, CMD)?;
-        // Reject unsupported sizes before allocating a dense brush footprint.
-        if preview_limits && brush.size > 1024.0 {
-            return Err(bad(CMD, "live Mixer Brush preview size exceeds 1024 pixels; the stroke will render on release"));
-        }
         let bm = &brush.mixer;
         let settings = MixerSettings {
             wet: pct(p, "wet", bm.wet * 100.0),
@@ -207,7 +219,12 @@ impl LiveMixer {
             last: None,
             bounds: Rect::EMPTY,
         };
-        let mut live = Self {
+        // Checked last, so a tip that is too big is the only reason left (`defers_to_release`),
+        // and before `push` allocates a dense brush footprint.
+        if preview_limits && core.ctx.brush.size > PREVIEW_SIZE {
+            return Err(bad(CMD, "the live Mixer Brush preview is limited to 1024 px tips"));
+        }
+        let live = Self {
             doc: core.doc.clone(),
             seed: brush.seed,
             core,
@@ -218,8 +235,7 @@ impl LiveMixer {
             points: Vec::new(),
             original_state: s.tools.mixer.clone(),
         };
-        live.push(&points)?;
-        Ok(live)
+        Ok((live, points))
     }
 
     /// Return all damaged pixels, including the provisional smoothing tail currently shown by the preview.
@@ -235,7 +251,7 @@ impl LiveMixer {
     /// dab / smoothing tail is displayed but never fed into the next accepted input.
     pub fn push(&mut self, points: &[StrokePoint]) -> Result<Rect> {
         check_coords(points, CMD)?;
-        if self.points.len().saturating_add(points.len()) > 65_536 {
+        if self.core.preview_limits && self.points.len().saturating_add(points.len()) > 65_536 {
             return Err(bad(CMD, "stroke exceeds 65536 recorded input samples"));
         }
         let cmyk = self.cmyk.clone();
