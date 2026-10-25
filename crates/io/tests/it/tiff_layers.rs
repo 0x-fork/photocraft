@@ -202,6 +202,47 @@ fn transparency_is_straight_in_the_composite() {
     assert_docs_eq(&d, &back);
 }
 
+/// Photoshop (27.11) saves a layered TIFF with Save Transparency as a composite with a
+/// transparency sample, a positive layer count and an `MTrn` block first in the layer data
+/// (the specification's key is `Mtrn`; `nrTM` in an `II` file). That sample is the merged
+/// transparency: it opens as no alpha channel, and a PSD save doesn't write it twice.
+#[test]
+fn photoshop_mtrn_marks_the_merged_transparency_of_a_layered_tiff() {
+    use photocraft_psd::{PsdFile, TaggedBlock};
+    for depth in [SampleType::U8, SampleType::U16] {
+        let mut d = Document::new("t", photocraft_geom::Size::new(8, 6), ColorMode::Rgb, depth);
+        let fmt = d.pixel_format();
+        d.layers.push(raster("shape", fmt, photocraft_geom::Rect::new(1, 1, 5, 4), 3, true));
+        let r = tiff(&d, true);
+        let mut img = photocraft_codecs::decode(&r.bytes).expect("decode");
+        assert!(img.layout().has_alpha(), "{depth:?}: the composite has a transparency sample");
+        let (isd, _) = ImageSourceData::from_bytes(&tags(&r.bytes).1.expect("layer data")).expect("parse");
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            let case = format!("{depth:?} {order:?}");
+            // Photoshop's form of the same layer data.
+            let mut ps = isd.clone();
+            ps.layer_info.as_mut().expect("layers").merged_alpha = false;
+            ps.global_blocks.insert(0, TaggedBlock::new(*b"MTrn", Vec::new()));
+            let layers = ps.to_bytes(order).expect("layer data").0;
+            if order == ByteOrder::Little {
+                assert!(layers.windows(12).any(|w| w == b"MIB8nrTM\0\0\0\0"), "{case}: stored as Photoshop stores it");
+            }
+            img.meta.photoshop_layers = Some(layers);
+            let bytes = photocraft_codecs::encode(&img, photocraft_codecs::Format::Tiff, &photocraft_codecs::EncodeOptions::default()).expect("encode");
+
+            let opened = import("x.tif", &bytes).expect("import").document;
+            let names: Vec<&str> = opened.channels.iter().map(|c| c.name.as_str()).collect();
+            assert!(names.is_empty(), "{case}: no alpha channel from the merged transparency: {names:?}");
+            // The marker is kept for the next save.
+            let mut want = d.clone();
+            want.metadata.psd_global_blocks = vec![(*b"8BIM", *b"MTrn", std::sync::Arc::new(Vec::new()))];
+            assert_docs_eq(&want, &opened);
+            let psd = PsdFile::from_bytes(&export(&opened, "x.psd", &ExportOptions::default()).expect("PSD save").bytes).expect("parse");
+            assert_eq!(psd.header.channels, 4, "{case}: colour + merged transparency");
+        }
+    }
+}
+
 #[test]
 fn big_documents_use_the_psb_signature() {
     // Forcing PSB stands in for a > 30000 px document.

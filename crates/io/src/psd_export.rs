@@ -1907,7 +1907,13 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         if !ex.records.is_empty() && matches!(&key, b"Lr16" | b"Lr32" | b"Layr") {
             continue;
         }
-        global_blocks.push(global_block(block_signature(sig, key, version), key, &data));
+        let block = global_block(block_signature(sig, key, version), key, &data);
+        // A kept merged-transparency marker describes the opened file's composite. Over an opaque
+        // one it would make the first alpha channel read back as the transparency, and vanish.
+        if !has_alpha && block.is_merged_transparency_marker() {
+            continue;
+        }
+        global_blocks.push(block);
     }
     if let Some(txt2) = txt2 {
         let mut tb = TaggedBlock::new(*b"Txt2", txt2.clone());
@@ -1948,10 +1954,10 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     resources.push(version_info_resource(real_merged));
 
     let has_layers = !ex.records.is_empty();
-    // Photoshop writes a merged-transparency marker (`Mtrn`, `Mt16`, `Mt32`) before the layer
-    // block, and won't open a file whose `Lr32` comes first (#5068): the layer block goes right
-    // after the last kept marker, else first.
-    let index = global_blocks.iter().rposition(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32")).map_or(0, |i| i + 1);
+    // Photoshop writes a merged-transparency marker (`Mtrn`, `Mt16`, `Mt32`; `MTrn` in a TIFF)
+    // before the layer block, and won't open a file whose `Lr32` comes first (#5068): the layer
+    // block goes right after the last kept marker, else first.
+    let index = global_blocks.iter().rposition(TaggedBlock::is_merged_transparency_marker).map_or(0, |i| i + 1);
     let placement = match (has_layers, sample) {
         (true, SampleType::U16) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr16", padding: None },
         (true, SampleType::F32) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr32", padding: None },
@@ -2085,7 +2091,12 @@ mod tests {
     /// `transparentbg.psd` re-saved both ways). The layer block follows a kept marker.
     #[test]
     fn layer_block_follows_a_kept_merged_transparency_marker() {
-        for (depth, key, marker) in [(SampleType::F32, *b"Lr32", *b"Mt32"), (SampleType::U16, *b"Lr16", *b"Mt16"), (SampleType::F32, *b"Lr32", *b"Mtrn")] {
+        for (depth, key, marker) in [
+            (SampleType::F32, *b"Lr32", *b"Mt32"),
+            (SampleType::U16, *b"Lr16", *b"Mt16"),
+            (SampleType::F32, *b"Lr32", *b"Mtrn"),
+            (SampleType::F32, *b"Lr32", *b"MTrn"),
+        ] {
             let mut doc = Document::new("t", photocraft_geom::Size::new(8, 6), ColorMode::Rgb, depth);
             let mut s = Surface::new(doc.pixel_format());
             s.fill_rect(photocraft_geom::Rect::new(1, 1, 5, 4), &[0.5, 0.2, 0.9, 1.0]);
@@ -2103,6 +2114,28 @@ mod tests {
         doc.metadata.psd_global_blocks = vec![(*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new()))];
         let saved = PsdFile::from_bytes(&document_to_psd(&doc).to_bytes().unwrap()).unwrap();
         assert!(matches!(saved.layer_info_placement, LayerInfoPlacement::GlobalBlock { index: 0, .. }));
+    }
+
+    /// A merged-transparency marker kept from the opened file describes that file's composite.
+    /// Saved with an opaque composite, it would make the first alpha channel read back as the
+    /// merged transparency, and the channel would be gone: the save drops it.
+    #[test]
+    fn an_opaque_save_drops_a_kept_merged_transparency_marker() {
+        for (depth, marker) in [(SampleType::U8, *b"MTrn"), (SampleType::U8, *b"Mtrn"), (SampleType::U16, *b"Mt16"), (SampleType::F32, *b"Mt32")] {
+            let case = format!("{depth:?} {}", String::from_utf8_lossy(&marker));
+            let mut doc = Document::new("t", photocraft_geom::Size::new(8, 6), ColorMode::Rgb, depth);
+            let mut s = Surface::new(doc.pixel_format());
+            s.fill_rect(photocraft_geom::Rect::new(0, 0, 8, 6), &[0.5, 0.2, 0.9, 1.0]);
+            doc.layers.push(Layer::new("Layer 1", LayerContent::Raster(s)));
+            doc.channels.push(photocraft_doc::AlphaChannel::new("Alpha 1", Surface::new(PixelFormat::GRAY8)));
+            doc.metadata.psd_global_blocks = vec![(*b"8BIM", marker, std::sync::Arc::new(Vec::new()))];
+            let file = document_to_psd(&doc);
+            assert!(!file.global_blocks.iter().any(TaggedBlock::is_merged_transparency_marker), "{case}");
+            assert!(!file.merged_has_alpha(), "{case}");
+            let back = crate::import("a.psd", &file.to_bytes().unwrap()).unwrap().document;
+            let names: Vec<&str> = back.channels.iter().map(|c| c.name.as_str()).collect();
+            assert_eq!(names, ["Alpha 1"], "{case}");
+        }
     }
 
     #[test]
