@@ -690,8 +690,9 @@ split paths return an error without changing the workspace.
 The `docking` object in `ui.state` and in saved workspaces is craft-ui's `Workspace`:
 `version` (2), `layout`, `hidden` (each closed panel with its return place), `saved` and
 `locked`. `dockingReturns` holds where each floating panel docks back, and
-`dockingCollapsed` the panels of collapsed custom groups. Workspaces saved before the version
-field (a bare `docking` layout with `dockingHidden`) load unchanged.
+`dockingCollapsed` the panels of collapsed custom groups. Any other saved `docking` value,
+such as a bare layout with `dockingHidden`, loads as the default layout, built from the
+saved `panels`, `dockTabs` and `dock`.
 
 The existing `ui.set` panel visibility, `dockTabs` selection and `dockWidth` controls
 remain available after customization. Width keeps its 250–520 point clamp. Named

@@ -909,43 +909,49 @@ fn the_dock_can_be_as_wide_as_the_window_allows() {
     }
 }
 
-/// A workspace file written by main before workspaces had a version: a bare `docking` layout
-/// with one-group floating windows, `dockingHidden` (closed panels and a floated panel's dock
-/// place) and `dockingCollapsed`.
+/// A workspace file written by main: a bare `docking` layout with `dockingHidden` and
+/// `dockingCollapsed` beside the native keys. It loads as the default built from the native
+/// keys, and the first change saves a versioned workspace.
 #[test]
-fn main_workspace_file_keeps_its_arrangement_and_saves_as_a_workspace() {
+fn main_workspace_file_loads_as_the_default_and_saves_as_a_workspace() {
     let saved: Value = serde_json::from_str(include_str!("../tests/fixtures/main-docking-workspace.json")).unwrap();
     let mut app = app();
     app.ui.theme = crate::theme::ThemeKind::ProMedium;
     crate::dock::apply(&mut app, &saved);
-    let workspace = app.ui.docking.clone().expect("the custom layout loads");
-    assert_eq!(workspace.version, 1);
+    assert!(app.ui.docking.is_none() && app.ui.docking_returns.is_empty() && app.ui.docking_collapsed.is_empty());
+    let workspace = legacy_workspace(&app);
     let layout = &workspace.layout;
-    assert_eq!(root_groups(layout), [vec!["swatches"], vec!["color", "gradients", "patterns"], vec!["history", "actions"], vec!["layers", "channels"]]);
-    assert!(panel_active(layout, "actions") && panel_active(layout, "color"));
-    let window = layout.floating.first().unwrap();
-    assert_eq!((window.rect, group_members(layout, "adjustments")), ([420.0, 150.0, 320.0, 440.0], vec!["properties".into(), "adjustments".into()]));
-    let hidden: Vec<_> = workspace.hidden.iter().map(|(panel, at)| (panel.as_str(), at.anchor.as_deref())).collect();
-    assert_eq!(hidden, [("layerComps", Some("actions")), ("paths", Some("channels"))]);
-    assert_eq!(app.ui.docking_returns.get("properties").and_then(|at| at.anchor.as_deref()), Some("layers"));
-    assert!(collapsed_members(&app, layout).contains("history"));
+    assert_eq!(
+        root_groups(layout),
+        [vec!["color", "swatches", "gradients", "patterns"], vec!["properties", "adjustments"], vec!["history", "actions"], vec!["layers", "channels"]]
+    );
+    assert!(in_dock_column(layout, "layers") && panel_active(layout, "actions"));
+    for (panel, _, _) in PANELS {
+        let panel = panel.to_string();
+        assert!(layout.contains(&panel) || workspace.hidden.iter().any(|(id, _)| *id == panel), "{panel} is shown or can be reopened");
+    }
 
+    app.run("window.panel.float", json!({"panel":"properties"})).unwrap();
     let written = crate::dock::snapshot(&app);
     assert!(written.get("dockingHidden").is_none());
     assert_eq!(written["docking"]["version"], 2);
-    assert_eq!(written["docking"]["layout"]["floating"][0]["panels"], json!(["properties", "adjustments"]));
     let mut reloaded = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
     crate::dock::apply(&mut reloaded, &written);
-    let again = reloaded.ui.docking.as_ref().unwrap();
-    assert_eq!((&again.layout, &again.hidden), (&workspace.layout, &workspace.hidden));
-    assert_eq!((&reloaded.ui.docking_returns, &reloaded.ui.docking_collapsed), (&app.ui.docking_returns, &app.ui.docking_collapsed));
+    let again = reloaded.ui.docking.as_ref().expect("the workspace loads as saved");
+    let now = app.ui.docking.as_ref().unwrap();
+    assert_eq!((&again.layout, &again.hidden), (&now.layout, &now.hidden));
+    assert_eq!(reloaded.ui.docking_returns, app.ui.docking_returns);
+}
 
-    app.session.prefs.edit(|prefs| prefs.workspace_locked = true);
-    assert!(app.run("window.panel.move", json!({"panel":"swatches","anchor":"layers"})).is_err(), "Lock Workspace still applies");
-    app.session.prefs.edit(|prefs| prefs.workspace_locked = false);
-    app.run("window.panel.activate", json!({"panel":"paths"})).unwrap();
-    assert_eq!(group_members(lay(&app), "paths"), ["layers", "channels", "paths"]);
-    app.run("window.panel.dock", json!({"panel":"properties"})).unwrap();
-    let location = lay(&app).location(&"properties".to_string()).unwrap();
-    assert_eq!((location.floating, location.anchor.as_deref()), (None, Some("layers")), "a floated panel docks back where it was");
+/// The width a user gave the native dock, kept in egui's memory, sizes the default column once.
+#[test]
+fn the_native_dock_width_sizes_the_default_column() {
+    let mut h = harness(app(), vec2(1280.0, 800.0));
+    let state = egui::PanelState { outer_rect: egui::Rect::from_min_size(egui::pos2(900.0, 0.0), vec2(380.0, 700.0)) };
+    h.ctx.data_mut(|data| data.insert_persisted(egui::Id::new("dock"), state));
+    h.run_steps(2);
+    let Some(Node::Split { second, .. }) = &lay(h.state()).root else { panic!("expected the canvas split") };
+    let Node::Dock { columns, .. } = second.as_ref() else { panic!("expected the dock") };
+    assert_eq!(columns[0].width, 380.0);
+    assert!(h.ctx.data_mut(|data| data.get_persisted::<egui::PanelState>(egui::Id::new("dock"))).is_none(), "taken once");
 }

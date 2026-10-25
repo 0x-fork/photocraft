@@ -154,29 +154,14 @@ pub(crate) fn valid_workspace(workspace: &Workspace) -> bool {
         && workspace.hidden.iter().all(|(id, at)| registered(id) && at.anchor.as_deref().is_none_or(registered))
 }
 
-/// Read a saved `docking` value: a workspace, or a bare layout written before workspaces, whose
-/// hidden panels are in `dockingHidden` (panel to return place). There, entries for panels the
-/// layout shows are where a floated panel docks back.
+/// Read a saved `docking` workspace and where its floating panels dock back. Anything else,
+/// such as the bare layouts written before workspaces, gives `None`: the native dock's default.
 pub(crate) fn load(saved: &Value) -> Option<(Workspace, Returns)> {
-    let docking = saved.get("docking").filter(|v| !v.is_null())?;
-    let bare = docking.get("layout").is_none();
-    let mut workspace: Workspace = if bare {
-        Workspace { version: 1, ..Workspace::new(serde_json::from_value(docking.clone()).ok()?) }
-    } else {
-        serde_json::from_value(docking.clone()).ok()?
-    };
+    let docking = saved.get("docking").filter(|v| v.get("layout").is_some())?;
+    let mut workspace: Workspace = serde_json::from_value(docking.clone()).ok()?;
     workspace.layout = beside_canvas(workspace.layout);
     workspace.saved = workspace.saved.map(beside_canvas);
     let mut returns: Returns = saved.get("dockingReturns").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
-    if bare && let Some(hidden) = saved.get("dockingHidden").and_then(|v| serde_json::from_value::<Returns>(v.clone()).ok()) {
-        for (panel, at) in hidden {
-            if workspace.layout.contains(&panel) {
-                returns.insert(panel, at);
-            } else {
-                workspace.hidden.push((panel, at));
-            }
-        }
-    }
     returns.retain(|panel, at| registered(panel) && at.floating.is_none() && floats(&workspace.layout, panel));
     valid_workspace(&workspace).then_some((workspace, returns))
 }
@@ -567,6 +552,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let range = crate::panels::dock_width_range(ui.ctx().content_rect().width());
         set_dock_width(app, width.clamp(*range.start(), *range.end()));
     }
+    native_dock_width(app, ui.ctx());
     let layout = match &app.ui.docking {
         Some(workspace) => workspace.layout.clone(),
         None => legacy(app),
@@ -669,6 +655,24 @@ fn set_dock_width(app: &mut PhotocraftApp, width: f32) {
         workspace.locked = app.session.prefs().workspace_locked;
         let returns = app.ui.docking_returns.clone();
         commit(app, workspace, returns);
+    }
+}
+
+/// The width the user dragged the native dock to is in egui's remembered memory under the native
+/// dock's panel id. The default layout's column takes it once, after the canvas has been laid
+/// out so the Studio Properties card keeps its place.
+fn native_dock_width(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let id = egui::Id::new("dock");
+    let Some(state) = ctx.data_mut(|data| data.get_persisted::<egui::PanelState>(id)) else { return };
+    if app.ui.docking.is_none() && !app.last_canvas_rect.is_positive() {
+        return;
+    }
+    ctx.data_mut(|data| data.remove::<egui::PanelState>(id));
+    let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+    let range = crate::panels::dock_width_range(ctx.content_rect().width());
+    let width = state.size().x;
+    if app.ui.docking.is_none() && width.is_finite() && (width - default_width(pro)).abs() >= 1.0 {
+        set_dock_width(app, width.clamp(*range.start(), *range.end()));
     }
 }
 
