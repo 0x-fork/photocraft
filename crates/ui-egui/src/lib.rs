@@ -114,6 +114,7 @@ pub mod gpu_status;
 pub mod gradient_ui;
 pub mod guide_layout_ui;
 pub mod guide_select;
+pub mod histogram_panel;
 pub mod history_menu_ui;
 pub mod hold_keys;
 pub mod i18n;
@@ -191,7 +192,6 @@ pub mod rasterize_prompt;
 pub mod replace_prompt;
 pub mod retouch_ui;
 mod rgb_histogram;
-pub mod histogram_panel;
 pub mod rotate_view;
 pub mod rulers;
 pub mod screen_picker;
@@ -682,7 +682,6 @@ pub struct Services {
     /// Without one, eframe closes the window and the app ends with it.
     pub quit: Option<QuitFn>,
 }
-
 
 /// The Info panel's cached sample: pixel x, y, document revision and Eyedropper Sample Size.
 type InfoSampleKey = (i32, i32, u64, u32);

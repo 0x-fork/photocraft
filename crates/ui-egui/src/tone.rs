@@ -166,12 +166,15 @@ fn exact_limit() -> u64 {
 pub fn cache_level(doc: &Document, max_level: u32) -> u32 {
     let longest = doc.size.width.max(doc.size.height);
     let k = longest / 768;
-    let auto = if k >= 2 && doc.size.area() > exact_limit() && photocraft_compose::proxy::proxy_faithful(doc) {
-        k.next_power_of_two().ilog2() + 1
-    } else {
-        1
-    };
+    let auto = if k >= 2 && doc.size.area() > exact_limit() && photocraft_compose::proxy::proxy_faithful(doc) { k.next_power_of_two().ilog2() + 1 } else { 1 };
     auto.min(max_level.clamp(1, MAX_CACHE_LEVEL))
+}
+
+/// How many times smaller the proxy counted at `level` (> 1) is: about 768 pixels on the longest
+/// side (as at the automatic level), or 2^(level-1) when Cache Levels caps the level below that.
+fn proxy_factor(doc: &Document, level: u32) -> u32 {
+    let k = doc.size.width.max(doc.size.height) / 768;
+    k.min(1 << (level.clamp(1, MAX_CACHE_LEVEL) - 1)).max(1)
 }
 
 /// Bins of the composited image below (`BelowLayer`), up to (`UpTo`) or of one layer alone
@@ -202,7 +205,7 @@ fn composite_bins(doc: &Document, source: HistSource, space: ToneSpace, max_leve
         HistSource::Channel { .. } => {}
     }
     let level = cache_level(&d, max_level);
-    let d = if level > 1 { photocraft_compose::proxy::proxy_document(&d, 1 << (level - 1)) } else { d };
+    let d = if level > 1 { photocraft_compose::proxy::proxy_document(&d, proxy_factor(&d, level)) } else { d };
     let _ = photocraft_compose::render_bands(&d, d.bounds(), 0, |band| -> Result<(), ()> {
         #[cfg(not(target_arch = "wasm32"))]
         let part = {

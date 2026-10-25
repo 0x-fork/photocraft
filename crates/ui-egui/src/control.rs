@@ -587,7 +587,10 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 // null) and Uncached Refresh.
                 let histogram_panel = merged_object(&app.ui.histogram_panel, p.get("histogramPanel"), "histogramPanel")?;
                 let histogram_range = match p.get("histogramRange") {
-                    Some(v) => Some(serde_json::from_value::<Option<[u8; 2]>>(v.clone()).map_err(|_| "histogramRange must be [from, to] levels 0..255, or null".to_string())?),
+                    Some(v) => Some(
+                        serde_json::from_value::<Option<[u8; 2]>>(v.clone())
+                            .map_err(|_| "histogramRange must be [from, to] levels 0..255, or null".to_string())?,
+                    ),
                     None => None,
                 };
                 let histogram_refresh = bool_field(p, "histogramRefresh")?;

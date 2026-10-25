@@ -12,7 +12,8 @@ fn app_with(params: Value) -> PhotocraftApp {
 fn frame(app: &mut PhotocraftApp) {
     let ctx = egui::Context::default();
     ctx.begin_pass(Default::default());
-    let mut ui = egui::Ui::new(ctx.clone(), egui::Id::new("hist-test"), egui::UiBuilder::new().max_rect(Rect::from_min_size(egui::Pos2::ZERO, vec2(300.0, 900.0))));
+    let mut ui =
+        egui::Ui::new(ctx.clone(), egui::Id::new("hist-test"), egui::UiBuilder::new().max_rect(Rect::from_min_size(egui::Pos2::ZERO, vec2(300.0, 900.0))));
     show(app, &mut ui);
     ctx.end_pass().textures_delta.clear();
 }
@@ -278,17 +279,26 @@ fn overlaid_colors_mix_where_channels_overlap() {
 fn ui_set_drives_the_panel() {
     let mut app = app_with(json!({"width": 16, "height": 16}));
     let ctx = egui::Context::default();
-    let r = ui_set(&mut app, &ctx, json!({"histogramPanel": {"view": "compact", "channel": "luminosity"}, "histogramRange": [10, 20], "histogramRefresh": true}));
+    let r = ui_set(
+        &mut app,
+        &ctx,
+        json!({"histogramPanel": {"view": "allChannels", "channel": "luminosity"}, "histogramRange": [10, 20], "histogramRefresh": true}),
+    );
     assert_eq!(r["ok"], true, "{r}");
-    assert_eq!(app.ui.histogram_panel.view, HistView::Compact);
+    assert_eq!(app.ui.histogram_panel.view, HistView::AllChannels);
     assert_eq!(app.ui.histogram_panel.channel, HistChannel::Luminosity);
     assert_eq!(app.ui.histogram_range, Some([10, 20]));
     assert!(app.hist_uncached.is_some());
-    for bad in [json!({"histogramPanel": {"view": "tiny"}}), json!({"histogramPanel": {"nope": 1}}), json!({"histogramRange": [0, 300]}), json!({"histogramRefresh": "yes"})] {
+    for bad in [
+        json!({"histogramPanel": {"view": "tiny"}}),
+        json!({"histogramPanel": {"nope": 1}}),
+        json!({"histogramRange": [0, 300]}),
+        json!({"histogramRefresh": "yes"}),
+    ] {
         let r = ui_set(&mut app, &ctx, bad.clone());
         assert_eq!(r["ok"], false, "{bad}: {r}");
     }
-    assert_eq!(app.ui.histogram_panel.view, HistView::Compact, "a rejected call changes nothing");
+    assert_eq!(app.ui.histogram_panel.view, HistView::AllChannels, "a rejected call changes nothing");
 }
 
 /// The Colors overlay follows the same outline as a single channel: straight lines between bin
@@ -313,4 +323,94 @@ fn colors_overlay_is_a_continuous_outline_not_steps() {
             assert!(v.pos.y >= r.top() - 1e-3 && v.pos.y <= r.bottom() + 1e-3);
         }
     }
+}
+
+/// A white Background under a black layer, with the Background selected: the entire image is
+/// black, the selected layer white.
+fn black_over_white_background_selected() -> PhotocraftApp {
+    let mut app = app_with(json!({"width": 32, "height": 32}));
+    app.run("layer.new.layer", json!({})).unwrap();
+    app.run("edit.fill", json!({"color": "#000000"})).unwrap();
+    let background = app.session.active().unwrap().doc.layers[0].id;
+    app.run("layer.select", json!({"layer": background.0})).unwrap();
+    app
+}
+
+/// Preferences › Cache Levels 1 counts at level 1 like an Uncached Refresh, but only the refresh
+/// was asked for: edits in a row still wait out the 250 ms throttle.
+#[test]
+fn cache_levels_one_still_throttles_recounts_and_an_uncached_refresh_does_not() {
+    let mut app = app_with(json!({"width": 64, "height": 48}));
+    app.run("prefs.set", json!({"path": "performance.cacheLevels", "value": 1})).unwrap();
+    settle(&mut app);
+    // The count just landed, so the next edit falls inside the throttle.
+    app.doc_hist.as_mut().unwrap().at = 0.0;
+    app.run("edit.fill", json!({"color": "#000000"})).unwrap();
+    frame(&mut app);
+    assert!(app.hist_job.is_none(), "an edit within 250 ms of the last count waits");
+    uncached_refresh(&mut app);
+    frame(&mut app);
+    assert!(app.hist_job.is_some(), "an Uncached Refresh counts at once");
+}
+
+/// The Levels, Curves and Threshold dialogs count uncapped: their proxy is as small as before
+/// Cache Levels (about 768 pixels on the longest side), and only a cap halves by powers of two.
+#[test]
+fn uncapped_counts_keep_their_proxy_and_a_cap_reduces_by_powers_of_two() {
+    let big = app_with(json!({"width": 6000, "height": 3000}));
+    let doc = &big.session.active().unwrap().doc;
+    let pixels = |h: &Histograms| h[0].iter().map(|&c| u64::from(c)).sum::<u64>();
+    // 6000 / 768 = 7: a 7x proxy, 858 x 429 (rounded up), not an 8x one.
+    let auto = tone::compute_histograms(doc, tone::IMAGE, ToneSpace::Rgb);
+    assert_eq!(pixels(&auto), 858 * 429);
+    let capped = tone::compute_histograms_at(doc, tone::IMAGE, ToneSpace::Rgb, 3);
+    assert_eq!(capped.level, 3);
+    assert_eq!(pixels(&capped), 1500 * 750, "level 3 is a 4x proxy");
+}
+
+/// Photoshop opens the panel in Compact View, which shows no Source menu and represents the
+/// entire image whatever Source the Expanded View was left at.
+#[test]
+fn compact_view_is_the_default_and_counts_the_entire_image() {
+    assert_eq!(HistogramPanelState::default().view, HistView::Compact);
+    let mut app = black_over_white_background_selected();
+    app.ui.histogram_panel = HistogramPanelState { source: HistSourceChoice::SelectedLayer, ..Default::default() };
+    settle(&mut app);
+    let i = inspect(&app);
+    assert_eq!(i["source"], "entireImage");
+    assert_eq!(i["stats"]["median"], 0, "the black layer over the Background, not the Background alone");
+    app.ui.histogram_panel.view = HistView::Expanded;
+    settle(&mut app);
+    assert_eq!(inspect(&app)["source"], "selectedLayer");
+    assert_eq!(inspect_stats(&app)["median"], 255, "Expanded View counts the chosen Source");
+}
+
+/// `current` says whether the shown histogram is the one the panel wants: a Source change makes
+/// it stale until the recount lands, though the document's revision didn't move.
+#[test]
+fn inspect_current_follows_the_source_not_only_the_revision() {
+    let mut app = black_over_white_background_selected();
+    app.ui.histogram_panel.view = HistView::Expanded;
+    settle(&mut app);
+    assert_eq!(inspect(&app)["current"], true);
+    let ctx = egui::Context::default();
+    let r = ui_set(&mut app, &ctx, json!({"histogramPanel": {"source": "selectedLayer"}}));
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(inspect(&app)["current"], false, "the entire image's histogram is not the selected layer's");
+    settle(&mut app);
+    assert_eq!(inspect(&app)["current"], true);
+    assert_eq!(inspect_stats(&app)["median"], 255);
+}
+
+/// `preview` reports only the active document's preview, not one left from another document.
+#[test]
+fn inspect_preview_is_the_active_documents() {
+    let mut app = app_with(json!({"width": 16, "height": 16}));
+    settle(&mut app);
+    let mut other = app.doc_hist.clone().unwrap();
+    other.key.preview = 1;
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    assert_ne!(app.session.active().unwrap().doc.id, other.key.doc);
+    app.doc_hist_preview = Some(other);
+    assert_eq!(inspect(&app)["preview"], false);
 }

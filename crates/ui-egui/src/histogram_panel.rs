@@ -27,10 +27,10 @@ const OPTIONS_PREF: &str = "histogramPanel";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HistView {
-    /// The histogram alone.
+    /// The histogram alone, of the entire image (Photoshop's default view).
+    #[default]
     Compact,
     /// The histogram with the channel and source selectors, refresh and statistics.
-    #[default]
     Expanded,
     /// Expanded, plus one histogram per colour channel (no alpha, spot or mask channels).
     AllChannels,
@@ -88,7 +88,13 @@ pub struct HistogramPanelState {
 
 impl Default for HistogramPanelState {
     fn default() -> Self {
-        Self { view: HistView::Expanded, channel: HistChannel::Composite, show_channels_in_color: false, show_statistics: true, source: HistSourceChoice::EntireImage }
+        Self {
+            view: HistView::Compact,
+            channel: HistChannel::Composite,
+            show_channels_in_color: false,
+            show_statistics: true,
+            source: HistSourceChoice::EntireImage,
+        }
     }
 }
 
@@ -118,7 +124,15 @@ pub fn channel_options(mode: ColorMode) -> Vec<(HistChannel, &'static str)> {
     use HistChannel::*;
     match tone_space(mode) {
         _ if gray(mode) => vec![(Composite, "Gray")],
-        ToneSpace::Cmyk => vec![(Composite, "CMYK"), (Cyan, "Cyan"), (Magenta, "Magenta"), (Yellow, "Yellow"), (Black, "Black"), (Luminosity, "Luminosity"), (Colors, "Colors")],
+        ToneSpace::Cmyk => vec![
+            (Composite, "CMYK"),
+            (Cyan, "Cyan"),
+            (Magenta, "Magenta"),
+            (Yellow, "Yellow"),
+            (Black, "Black"),
+            (Luminosity, "Luminosity"),
+            (Colors, "Colors"),
+        ],
         ToneSpace::Lab => vec![(Composite, "Lightness"), (A, "a"), (B, "b"), (Luminosity, "Luminosity")],
         ToneSpace::Rgb => vec![(Composite, "RGB"), (Red, "Red"), (Green, "Green"), (Blue, "Blue"), (Luminosity, "Luminosity"), (Colors, "Colors")],
     }
@@ -326,6 +340,21 @@ fn max_cache_level(app: &PhotocraftApp) -> u32 {
     app.session.prefs().performance.cache_levels.clamp(1, tone::MAX_CACHE_LEVEL)
 }
 
+/// The source the panel counts: Compact View shows no Source menu and represents the entire image.
+fn source_choice(opts: &HistogramPanelState) -> HistSourceChoice {
+    if opts.view == HistView::Compact { HistSourceChoice::EntireImage } else { opts.source }
+}
+
+/// The key of the document's histogram the panel wants now, with the space and source it counts.
+fn committed_key(app: &PhotocraftApp) -> Option<(HistKey, ToneSpace, HistSource)> {
+    let st = app.session.active()?;
+    let (doc, revision) = (st.doc.id, st.revision);
+    let space = tone_space(st.doc.mode);
+    let (_, source) = resolve_source(st, source_choice(&app.ui.histogram_panel));
+    let max_level = if app.hist_uncached == Some((doc, revision)) { 1 } else { max_cache_level(app) };
+    Some((HistKey { doc, revision, source: tone::tag(source, space), preview: 0, max_level }, space, source))
+}
+
 /// The document an open adjustment previews on the canvas (an Image › Adjustments dialog through
 /// its preview layer, or an adjustment layer's Properties drag) and its display key.
 fn adjustment_preview(app: &mut PhotocraftApp) -> Option<(Arc<Document>, u64)> {
@@ -349,14 +378,7 @@ struct Want {
 
 fn want(app: &mut PhotocraftApp) -> Option<Want> {
     let preview = adjustment_preview(app);
-    let max = max_cache_level(app);
-    let choice = app.ui.histogram_panel.source;
-    let st = app.session.active()?;
-    let (doc, revision) = (st.doc.id, st.revision);
-    let space = tone_space(st.doc.mode);
-    let (_, source) = resolve_source(st, choice);
-    let max_level = if app.hist_uncached == Some((doc, revision)) { 1 } else { max };
-    let committed = HistKey { doc, revision, source: tone::tag(source, space), preview: 0, max_level };
+    let (committed, space, source) = committed_key(app)?;
     let preview = preview.map(|(d, k)| (d, HistKey { preview: k | 1, ..committed }));
     Some(Want { committed, preview, space, source })
 }
@@ -411,8 +433,9 @@ pub fn update(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let now = ctx.input(|i| i.time) * 1000.0;
     let due = |e: &Option<PanelHist>| e.as_ref().is_none_or(|e| e.key.doc != want.committed.doc || now - e.at > 250.0);
     let stale = |e: &Option<PanelHist>, k: &HistKey| e.as_ref().is_none_or(|e| e.key != *k);
-    // An Uncached Refresh is asked for, so it doesn't wait out the throttle.
-    let forced = want.committed.max_level == 1;
+    // An Uncached Refresh is asked for, so it doesn't wait out the throttle (Cache Levels 1 alone
+    // counts at level 1 too, and still waits).
+    let forced = app.hist_uncached == Some((want.committed.doc, want.committed.revision));
     let job = if stale(&app.doc_hist, &want.committed) {
         (forced || due(&app.doc_hist)).then(|| (app.session.active().map(|st| st.doc.clone()), want.committed))
     } else if let Some((doc, key)) = &want.preview
@@ -498,14 +521,7 @@ fn shown(app: &mut PhotocraftApp) -> Option<Shown> {
             layers,
             adjustment,
         },
-        (None, Some(c)) => Shown {
-            hist: c.hist.clone(),
-            original: None,
-            stale: c.key != want.committed || want.preview.is_some(),
-            mode,
-            layers,
-            adjustment,
-        },
+        (None, Some(c)) => Shown { hist: c.hist.clone(), original: None, stale: c.key != want.committed || want.preview.is_some(), mode, layers, adjustment },
         (None, None) => return None,
     })
 }
@@ -521,7 +537,11 @@ type Layer<'a> = (&'a [u32; 256], Color32);
 fn mix(covering: impl Iterator<Item = Color32>, multiply: bool) -> Color32 {
     if multiply {
         covering.fold(Color32::WHITE, |a, b| {
-            Color32::from_rgb((u16::from(a.r()) * u16::from(b.r()) / 255) as u8, (u16::from(a.g()) * u16::from(b.g()) / 255) as u8, (u16::from(a.b()) * u16::from(b.b()) / 255) as u8)
+            Color32::from_rgb(
+                (u16::from(a.r()) * u16::from(b.r()) / 255) as u8,
+                (u16::from(a.g()) * u16::from(b.g()) / 255) as u8,
+                (u16::from(a.b()) * u16::from(b.b()) / 255) as u8,
+            )
         })
     } else {
         covering.fold(Color32::BLACK, |a, b| Color32::from_rgb(a.r().saturating_add(b.r()), a.g().saturating_add(b.g()), a.b().saturating_add(b.b())))
@@ -540,7 +560,8 @@ fn draw_overlaid(p: &egui::Painter, r: Rect, layers: &[Layer<'_>], multiply: boo
 fn overlaid_mesh(r: Rect, layers: &[Layer<'_>], multiply: bool) -> egui::Mesh {
     let top = layers.iter().map(|(h, _)| tone::histogram_scale_top(h)).fold(1.0f32, f32::max);
     // Outline points: the left baseline, the 256 bin centres, the right baseline (heights 0..1).
-    let xs: Vec<f32> = std::iter::once(r.left()).chain((0..256).map(|i| r.left() + (i as f32 + 0.5) / 256.0 * r.width())).chain(std::iter::once(r.right())).collect();
+    let xs: Vec<f32> =
+        std::iter::once(r.left()).chain((0..256).map(|i| r.left() + (i as f32 + 0.5) / 256.0 * r.width())).chain(std::iter::once(r.right())).collect();
     let height = |h: &[u32; 256], i: usize| if i == 0 || i > 256 { 0.0 } else { (h.get(i - 1).copied().unwrap_or(0) as f32 / top).min(1.0) };
     let mut mesh = egui::Mesh::default();
     let y = |v: f32| r.bottom() - v * r.height();
@@ -630,15 +651,6 @@ fn graph(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &Shown, channel: HistCha
     // The original histogram outlined over the adjusted one while an adjustment previews.
     if let Some(o) = &s.original {
         outline(&p, r, bins(o, s.mode, if channel == HistChannel::Colors { HistChannel::Composite } else { channel }), t.text);
-    }
-    // Shadow and highlight clipping: lit corner marks while pixels sit at 0 or 255.
-    if let Some(st) = stats(bins(&s.hist, s.mode, if channel == HistChannel::Colors { HistChannel::Composite } else { channel }), None) {
-        for (on, x, dir) in [(st.clipped[0] > 0.1, r.left() + 1.0, 1.0), (st.clipped[1] > 0.1, r.right() - 1.0, -1.0)] {
-            if on {
-                let y = r.bottom() - 1.0;
-                p.add(egui::Shape::convex_polygon(vec![pos2(x, y), pos2(x + dir * 7.0, y), pos2(x, y - 7.0)], t.warning, egui::Stroke::NONE));
-            }
-        }
     }
     // The Color Samplers' levels.
     let mark_channel = if channel == HistChannel::Colors { HistChannel::Composite } else { channel };
@@ -831,8 +843,10 @@ pub fn inspect(app: &PhotocraftApp) -> Value {
     let Some(st) = app.session.active() else { return json!({"options": opts}) };
     let mode = st.doc.mode;
     let channel = resolve_channel(mode, opts.channel);
-    let (source, _) = resolve_source(st, opts.source);
-    let entry = app.doc_hist_preview.as_ref().or(app.doc_hist.as_ref()).filter(|e| e.key.doc == st.doc.id);
+    let (source, _) = resolve_source(st, source_choice(&opts));
+    let preview = app.doc_hist_preview.as_ref().filter(|e| e.key.doc == st.doc.id);
+    let entry = preview.or(app.doc_hist.as_ref()).filter(|e| e.key.doc == st.doc.id);
+    let committed = committed_key(app).map(|(k, _, _)| k);
     let ch = if channel == HistChannel::Colors { HistChannel::Composite } else { channel };
     json!({
         "options": opts,
@@ -841,9 +855,9 @@ pub fn inspect(app: &PhotocraftApp) -> Value {
         "source": source,
         "sourceShown": st.doc.layer_count() > 1 && opts.view != HistView::Compact,
         "range": app.ui.histogram_range,
-        "preview": app.doc_hist_preview.is_some(),
+        "preview": preview.is_some(),
         "revision": entry.map(|e| e.key.revision),
-        "current": entry.is_some_and(|e| e.key.revision == st.revision),
+        "current": entry.zip(committed).is_some_and(|(e, k)| e.key == HistKey { preview: e.key.preview, ..k }),
         "cacheLevel": entry.map(|e| e.hist.level.max(1)),
         "maxCacheLevel": max_cache_level(app),
         "stats": entry.and_then(|e| stats(bins(&e.hist, mode, ch), app.ui.histogram_range)),

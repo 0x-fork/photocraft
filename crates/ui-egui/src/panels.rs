@@ -1866,9 +1866,7 @@ pub(crate) fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, group: crate
 /// The active document's pixel under the pointer, if the pointer is over the image.
 pub(crate) fn hover_pixel(app: &PhotocraftApp) -> Option<(i32, i32)> {
     let size = app.session.active()?.doc.size;
-    app.hover_doc
-        .map(|p| (p[0].floor() as i32, p[1].floor() as i32))
-        .filter(|(x, y)| *x >= 0 && *y >= 0 && *x < size.width as i32 && *y < size.height as i32)
+    app.hover_doc.map(|p| (p[0].floor() as i32, p[1].floor() as i32)).filter(|(x, y)| *x >= 0 && *y >= 0 && *x < size.width as i32 && *y < size.height as i32)
 }
 
 /// The colour the Info panel reads at document pixel `(x, y)`, straight RGBA 0..1: averaged over
