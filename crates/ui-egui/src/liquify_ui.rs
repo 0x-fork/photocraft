@@ -59,7 +59,7 @@ pub enum BackdropMode {
 }
 
 impl BackdropMode {
-    const ALL: [(BackdropMode, &'static str); 3] = [(BackdropMode::InFront, "inFront"), (BackdropMode::Behind, "behind"), (BackdropMode::Blend, "blend")];
+    const ALL: [(BackdropMode, &str); 3] = [(BackdropMode::InFront, "inFront"), (BackdropMode::Behind, "behind"), (BackdropMode::Blend, "blend")];
 
     fn key(self) -> &'static str {
         Self::ALL.iter().find(|(m, _)| *m == self).map_or("inFront", |(_, k)| k)
