@@ -1059,3 +1059,26 @@ fn workspace_layouts_leave_the_layers_panel_options_alone() {
     assert_ne!(app.ui.layers_panel_options.thumbnail_size, crate::state::LayerThumbnailSize::Large);
     assert_eq!(app.session.prefs().dialogs.get("ui.layersPanelOptions").cloned(), stored);
 }
+
+#[test]
+fn a_panel_window_the_os_moves_is_saved_once_it_keeps_still() {
+    let (mut app, _, _) = app_with_layers();
+    app.session.prefs.edit(|p| p.workspace.remember_workspace_changes = true);
+    app.run("window.panel.float", json!({"panel": "info"})).unwrap();
+    let ctx = egui::Context::default();
+    let frame = |app: &mut PhotocraftApp| ctx.run_ui(Default::default(), |ui| persist(app, ui.ctx())).textures_delta.clear();
+    let place = |app: &mut PhotocraftApp, x: f32| {
+        let window = app.ui.docking.as_mut().unwrap().layout.floating.iter_mut().find(|w| w.contains("info")).unwrap();
+        window.native = Some([x, 100.0, 300.0, 200.0]);
+    };
+    frame(&mut app);
+    let saved = app.session.prefs().panel_layout.clone();
+    for x in 500..520 {
+        place(&mut app, x as f32);
+        frame(&mut app);
+        assert_eq!(app.session.prefs().panel_layout, saved, "not saved while the window moves");
+    }
+    frame(&mut app);
+    let native = app.session.prefs().panel_layout["docking"]["layout"]["floating"][0]["native"].clone();
+    assert_eq!(native, json!([519.0, 100.0, 300.0, 200.0]), "saved once it keeps still");
+}

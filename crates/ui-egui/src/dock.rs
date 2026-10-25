@@ -825,15 +825,34 @@ pub(crate) fn snapshot(app: &PhotocraftApp) -> Value {
 }
 
 /// Remember the layout in the preferences once the user lets go of the mouse (Workspace ›
-/// Remember Workspace Changes). Cheap: a small JSON compare per frame.
+/// Remember Workspace Changes), and once panel windows the OS moves or resizes keep still. Cheap:
+/// a small JSON compare per frame.
 pub fn persist(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if !app.session.prefs().workspace.remember_workspace_changes || ctx.input(|i| i.pointer.any_down()) {
+        return;
+    }
+    if native_moved(app, ctx) {
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
         return;
     }
     let now = snapshot(app);
     if app.session.prefs().panel_layout != now {
         app.session.prefs.edit(|p| p.panel_layout = now);
     }
+}
+
+/// A floating panel's own window has another place than last frame. A move or resize by its OS
+/// title bar or edges changes the place each frame with no button down in any of the app's
+/// windows.
+fn native_moved(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
+    let places: Vec<(u64, [f32; 4])> =
+        app.ui.docking.iter().flat_map(|workspace| workspace.layout.floating.iter().filter_map(|window| Some((window.id, window.native?)))).collect();
+    let id = egui::Id::new("dock-native-places");
+    ctx.data_mut(|data| {
+        let moved = data.get_temp::<Vec<(u64, [f32; 4])>>(id).is_some_and(|last| last != places);
+        data.insert_temp(id, places);
+        moved
+    })
 }
 
 /// Restore the remembered layout at launch. Unreadable parts keep their defaults.
