@@ -13,7 +13,7 @@ use photocraft_engine::presets::Group;
 use photocraft_engine::presets::gradients::GradientPreset;
 use serde_json::{Value, json};
 
-use super::{picker_color, picker_rgba, rgba_of};
+use crate::shape_paint_ui::{picker_color, picker_rgba, rgba_of, rgba32};
 use crate::theme::Tokens;
 
 /// Width of the tab's rows (the strip, the swatch grids).
@@ -24,7 +24,7 @@ const RECENT: usize = 8;
 /// What a swatch's Gradient tab offers: the recently used gradients, the preset library, and the
 /// Gradient tool's current gradient (what a colour switches to), with the tool colours that
 /// resolve their Foreground / Background stops.
-pub(super) struct GradientChoices<'a> {
+pub(crate) struct GradientChoices<'a> {
     pub presets: &'a [Group<GradientPreset>],
     pub current: &'a GradientPreset,
     /// Newest first ([`GradientChoices::remember`]).
@@ -35,14 +35,14 @@ pub(super) struct GradientChoices<'a> {
 
 impl GradientChoices<'_> {
     /// Photoshop's shape gradient default: the current gradient, linear at 90°, 100%.
-    pub(super) fn default_fill(&self) -> Fill {
+    pub(crate) fn default_fill(&self) -> Fill {
         let mut fill = Fill::gradient(Vec::new(), 90.0, 1.0, GradientStyle::Linear, false);
         take_preset(&mut fill, self.current, self.fg, self.bg);
         fill
     }
 
     /// Puts `gradient`'s stops at the front of the Recent row; a gradient already there moves up.
-    pub(super) fn remember(&mut self, gradient: &Fill) {
+    pub(crate) fn remember(&mut self, gradient: &Fill) {
         let Fill::Gradient { .. } = gradient else { return };
         self.recent.retain(|f| !same_stops(f, gradient));
         self.recent.insert(0, gradient.clone());
@@ -62,7 +62,7 @@ fn same_stops(a: &Fill, b: &Fill) -> bool {
 
 /// `fill` takes `preset`'s colour and opacity stops (live colours resolved now), as a Gradient
 /// Fill layer made from it holds them; its old midpoints belonged to the old stops.
-pub(super) fn take_preset(fill: &mut Fill, preset: &GradientPreset, fg: [f32; 4], bg: [f32; 4]) {
+pub(crate) fn take_preset(fill: &mut Fill, preset: &GradientPreset, fg: [f32; 4], bg: [f32; 4]) {
     if let Fill::Gradient { stops, opacity_stops, midpoints, .. } = fill {
         (*stops, *opacity_stops) = preset.fill_stops(fg, bg);
         midpoints.clear();
@@ -77,7 +77,7 @@ fn take_stops(fill: &mut Fill, from: &Fill) {
 }
 
 /// The Gradient tab of the swatch `id`. Returns the edited gradient.
-pub(super) fn gradient_tab(ui: &mut egui::Ui, fill: &Fill, choices: &GradientChoices, id: egui::Id) -> Option<Fill> {
+pub(crate) fn gradient_tab(ui: &mut egui::Ui, fill: &Fill, choices: &GradientChoices, id: egui::Id) -> Option<Fill> {
     let Fill::Gradient { angle, scale, style, reverse, align, .. } = fill else { return None };
     let t = Tokens::get(ui.ctx());
     let mut out: Option<Fill> = None;
@@ -294,7 +294,7 @@ fn stops_strip(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
         let body = Rect::from_center_size(pos2(x, bar.bottom() + 10.0), vec2(10.0, 10.0));
         p.add(egui::Shape::convex_polygon(vec![pos2(x, bar.bottom() + 1.0), pos2(x + 5.0, body.top()), pos2(x - 5.0, body.top())], outline(sel), Stroke::NONE));
         let [r, g, b, _] = rgba_of(c);
-        p.rect_filled(body, 1.0, super::rgba32([r, g, b, 1.0]));
+        p.rect_filled(body, 1.0, rgba32([r, g, b, 1.0]));
         p.rect_stroke(body, 1.0, Stroke::new(1.0, outline(sel)), StrokeKind::Outside);
     }
     let mid_x = |i: usize| -> Option<f32> {
@@ -443,7 +443,7 @@ fn stop_fields(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
             label(ui, tl!("Color"));
             let (r, resp) = ui.allocate_exact_size(vec2(40.0, 20.0), Sense::click());
             let [cr, cg, cb, _] = rgba_of(c);
-            ui.painter().rect_filled(r.shrink(1.0), t.radius_sm, super::rgba32([cr, cg, cb, 1.0]));
+            ui.painter().rect_filled(r.shrink(1.0), t.radius_sm, rgba32([cr, cg, cb, 1.0]));
             ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.0, if picker_open { t.accent } else { t.field_border }), StrokeKind::Inside);
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ColorButton, true, tl!("Color")));
             if resp.on_hover_text(tl!("Color")).clicked() {
