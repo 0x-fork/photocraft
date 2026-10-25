@@ -15,6 +15,7 @@ struct Window {
     dropped: Vec<egui::DroppedFileHandle>,
     /// The window asked for the clipboard text.
     paste_requested: bool,
+    hidden: bool,
 }
 
 #[derive(Default)]
@@ -46,7 +47,7 @@ impl Host {
             let mut host = host.borrow_mut();
             let builder = &viewport.builder;
             let rect = Rect::from_min_size(builder.position.unwrap_or_default(), builder.inner_size.unwrap_or(vec2(300.0, 200.0)));
-            host.windows.entry(id).or_insert(Window { rect, events: Vec::new(), dropped: Vec::new(), paste_requested: false });
+            host.windows.entry(id).or_insert(Window { rect, events: Vec::new(), dropped: Vec::new(), paste_requested: false, hidden: false });
             let (viewports, focused, time) = (host.infos(), host.focus == Some(id), host.time);
             let window = host.windows.get_mut(&id).expect("just added");
             egui::RawInput {
@@ -120,6 +121,11 @@ impl Desktop {
             for (id, output) in &self.h.output().viewport_output {
                 if let Some(window) = host.windows.get_mut(id) {
                     window.paste_requested |= output.commands.contains(&egui::ViewportCommand::RequestPaste);
+                    for command in &output.commands {
+                        if let egui::ViewportCommand::Visible(visible) = command {
+                            window.hidden = !visible;
+                        }
+                    }
                 }
             }
         }
@@ -323,26 +329,34 @@ fn keys_held_in_a_panel_window_count_as_released_once_it_loses_the_keyboard() {
 
 #[test]
 fn a_dialog_blocks_the_panel_windows() {
-    let mut desktop = Desktop::new(app_with_document());
-    desktop.h.state_mut().run("window.panel.float", json!({"panel": "info"})).unwrap();
-    desktop.steps(3);
-    let viewport = desktop.window_of("info").unwrap();
-    desktop.host.borrow_mut().focus = Some(viewport);
-    desktop.h.state_mut().ui.open_dialog(crate::state::DialogKind::About, Default::default());
-    desktop.steps(2);
-    assert!(modal_open(desktop.h.state(), &desktop.h.ctx));
-    let close = close_button(desktop.window_rect(viewport));
-    desktop.click(viewport, close);
-    assert!(lay(desktop.h.state()).contains(&"info".to_owned()), "the × takes no click under the dialog");
-    desktop.h.state_mut().ui.tool = crate::state::Tool::Move;
-    desktop.key(viewport, Key::B, Modifiers::NONE);
-    assert_eq!(desktop.h.state().ui.tool, crate::state::Tool::Move, "nor do the shortcuts get its keys");
+    let about = |app: &mut PhotocraftApp| _ = app.ui.open_dialog(crate::state::DialogKind::About, Default::default());
+    let blur = |app: &mut PhotocraftApp| _ = crate::dialogs::open_command_dialog(app, "filter.blur.gaussianBlur", "Gaussian Blur");
+    for (name, open) in [("About", &about as &dyn Fn(&mut PhotocraftApp)), ("Gaussian Blur", &blur)] {
+        let mut desktop = Desktop::new(app_with_document());
+        desktop.h.state_mut().run("window.panel.float", json!({"panel": "info"})).unwrap();
+        desktop.steps(3);
+        let viewport = desktop.window_of("info").unwrap();
+        desktop.host.borrow_mut().focus = Some(viewport);
+        open(desktop.h.state_mut());
+        assert!(modal_open(desktop.h.state(), &desktop.h.ctx), "{name}");
+        // The click arrives in the dialog's first frame.
+        let close = close_button(desktop.window_rect(viewport));
+        desktop.click(viewport, close);
+        assert!(lay(desktop.h.state()).contains(&"info".to_owned()), "{name}: the × takes no click under the dialog");
+        desktop.h.state_mut().ui.tool = crate::state::Tool::Move;
+        desktop.key(viewport, Key::B, Modifiers::NONE);
+        assert_eq!(desktop.h.state().ui.tool, crate::state::Tool::Move, "{name}: nor do the shortcuts get its keys");
+        desktop.host.borrow_mut().focus = Some(ViewportId::from_hash_of("another app"));
+        desktop.steps(30);
+        assert!(!desktop.host.borrow().windows[&viewport].hidden, "{name}: the panel window stays shown while the app is in the background");
+        desktop.host.borrow_mut().focus = Some(viewport);
 
-    desktop.h.state_mut().ui.dialogs.clear();
-    desktop.steps(3);
-    assert!(!modal_open(desktop.h.state(), &desktop.h.ctx));
-    desktop.click(viewport, close);
-    assert!(!lay(desktop.h.state()).contains(&"info".to_owned()), "the × closes the panel once the dialog is gone");
+        desktop.h.state_mut().ui.dialogs.clear();
+        desktop.steps(3);
+        assert!(!modal_open(desktop.h.state(), &desktop.h.ctx), "{name}");
+        desktop.click(viewport, close);
+        assert!(!lay(desktop.h.state()).contains(&"info".to_owned()), "{name}: the × closes the panel once the dialog is gone");
+    }
 }
 
 #[derive(Debug)]
