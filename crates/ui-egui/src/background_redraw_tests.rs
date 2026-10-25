@@ -210,13 +210,20 @@ fn a_full_cpu_refresh_draws_in_the_background_with_the_synchronous_pixels() {
 fn an_edit_during_a_redraw_is_not_overwritten_by_blocks_drawn_before_it() {
     let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut g) = gpu_app() else { return };
-    // Hold the worker before its first batch: when the fill lands, all 12 blocks of this 4×3
-    // document are still to draw. Without the hold a fast machine finishes them before the next
-    // frame, so the edit never races the worker and this test only checked a completed redraw.
+    // Hold the worker before its first batch and wait until this very worker acknowledges that
+    // hold: when the fill lands, all 12 blocks of this 4×3 document are still to draw by it.
+    // Without the hold a fast machine finishes them before the next frame, so the edit never
+    // races the worker and this test only checked a completed redraw; without the per-worker
+    // acknowledgement an edit could beat the worker to the hold, and its restarted replacement
+    // would satisfy the checks.
     let held = hold_redraws();
     let doc = cpu_only_document(g.harness.state_mut(), 4096, 3072);
     g.harness.step();
-    assert!(g.harness.state().redraws.contains_key(&doc));
+    let generation = g.harness.state().redraws.get(&doc).expect("the frame started a redraw").worker_generation;
+    assert!(
+        wait_for_held_redraw(g.harness.state(), doc, generation, std::time::Duration::from_secs(10)),
+        "the redraw worker never reached the pre-batch hold; an edit would race an unstarted redraw"
+    );
     // A corner, drawn last (farthest from the view's centre), changes on a layer of its own while
     // the redraw runs: a small edit, drawn at once.
     g.harness.state_mut().run("layer.new.layer", json!({})).expect("layer");

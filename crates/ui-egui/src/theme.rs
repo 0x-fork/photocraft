@@ -949,7 +949,6 @@ pub(crate) fn set_ui_font_size(ctx: &egui::Context, size: UiFontSize) {
         return;
     }
     ctx.data_mut(|d| d.insert_temp(ui_fonts_id(), size));
-    crate::cjk_fonts::set_craft_font_scale(ctx, font_scale(size));
     ctx.request_repaint();
 }
 
@@ -988,6 +987,10 @@ impl egui::Plugin for UiFontSizePlugin {
             Arc::make_mut(data).tweak.scale = original * font_scale(size);
         }
         ctx.set_fonts(fonts);
+        // The provider must use the scale of the definitions that were active while this pass
+        // laid out text. A face it discovers during the pass is inserted at that old scale; after
+        // `set_fonts` the rescaled definitions take effect and the provider follows them.
+        crate::cjk_fonts::set_craft_font_scale(ctx, font_scale(size));
         self.applied = size;
         ctx.request_repaint();
     }

@@ -984,8 +984,11 @@ pub fn install_with(ctx: &egui::Context, sources: Sources) {
     }
 }
 
-/// Keep provider-discovered craft faces in step with Interface > UI Font Size (the size plugin
-/// rescales the configured stack; discovered faces are not part of it and must be re-discovered).
+/// Keep provider-discovered craft faces in step with Interface > UI Font Size. The size plugin
+/// calls this after `ctx.set_fonts` with the rescaled stack. A face discovered while the old stack
+/// was still active stays at the old scale for the rest of that pass; recreating `Fonts` for the
+/// next pass drops the discovered faces (they are not part of `FontDefinitions`) and the provider
+/// rediscovers them at its new scale.
 pub(crate) fn set_craft_font_scale(ctx: &egui::Context, scale: f32) {
     let Some(provider) = ctx.data(|d| d.get_temp::<std::sync::Arc<CraftFontProvider>>(craft_provider_id())) else { return };
     provider.set_scale(scale);
@@ -1021,6 +1024,89 @@ mod tests {
                 assert_eq!(stack.iter().filter(|n| *n == &name).count(), 1);
                 assert_eq!(stack.last(), Some(&name), "fallback stays at the lowest priority");
             }
+        }
+    }
+
+    /// A face discovered by [`CraftFontProvider`] during a pass that also changes Interface > UI
+    /// Font Size must use the scale of the definitions active in that pass. The size plugin moves
+    /// the provider to the new scale only after `ctx.set_fonts` queued the rescaled definitions;
+    /// updating the provider in `set_ui_font_size` would put the new scale on a face laid out
+    /// with the old stack.
+    #[test]
+    fn discovered_faces_use_the_scale_of_the_definitions_they_were_laid_out_with() {
+        use photocraft_engine::prefs::UiFontSize;
+        fn thai_reader(_: &std::path::Path) -> Option<Vec<u8>> {
+            Some(synthetic_font(&[(0x0E01, 0x0E5B)]))
+        }
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts_with(&ctx, craft_only(|| None));
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let mut provider = CraftFontProvider::new(
+            &Sources {
+                locale: || Some("en".into()),
+                files: no_files,
+                last_resort: Vec::new,
+                pending: || false,
+                scripts: |script| if script == Script::Thai { vec![PathBuf::from("synthetic-thai.ttf")] } else { Vec::new() },
+                covers: scripts::covering_face,
+                embedded: no_embedded,
+                eager_craft_fonts: false,
+            },
+            1.0,
+        );
+        provider.reader = thai_reader;
+        let provider = std::sync::Arc::new(provider);
+        ctx.data_mut(|d| d.insert_temp(craft_provider_id(), provider.clone()));
+        let as_provider: std::sync::Arc<dyn FontProvider> = provider.clone();
+        ctx.set_font_providers(vec![as_provider]);
+
+        // The scale of the configured Inter face (part of `FontDefinitions`) and of the face the
+        // provider discovered for Thai.
+        let inter_scale = |ctx: &egui::Context| -> Option<f32> { ctx.fonts(|f| f.definitions().font_data.get("Inter").map(|data| data.tweak.scale)) };
+        let thai_scale = |ctx: &egui::Context| -> Option<f32> {
+            ctx.fonts(|f| f.discovered_fonts().iter().find(|insert| insert.name.starts_with("craft-system-")).map(|insert| insert.data.tweak.scale))
+        };
+        // A frame that checks the state during the change pass, before laying out Thai (the
+        // character that makes the provider discover a face).
+        let frame = |check: &dyn Fn(&egui::Context)| {
+            ctx.run_ui(Default::default(), |ui| {
+                check(&ctx);
+                ui.label("ก");
+            })
+            .textures_delta
+            .clear();
+        };
+        // Small (the install default) is active. Walk Small -> Large -> Small, repeat Large
+        // (the same size must leave both the definitions and the provider alone, not accumulate)
+        // and back to Small.
+        assert_eq!(provider.scale(), 1.0);
+        for (size, want, same_size) in [
+            (UiFontSize::Large, 16.0 / 12.0, false),
+            (UiFontSize::Small, 1.0, false),
+            (UiFontSize::Large, 16.0 / 12.0, false),
+            (UiFontSize::Large, 16.0 / 12.0, true),
+            (UiFontSize::Small, 1.0, false),
+        ] {
+            let old = provider.scale();
+            let inter_before = inter_scale(&ctx);
+            crate::theme::set_ui_font_size(&ctx, size);
+            assert_eq!(provider.scale(), old, "the provider follows the definitions still active in this pass");
+            frame(&|ctx: &egui::Context| {
+                assert_eq!(inter_scale(ctx), inter_before, "the configured Inter keeps its old scale during the change pass");
+                assert_eq!(provider.scale(), old, "the provider does not move before the pass ends");
+            });
+            assert_eq!(provider.scale(), want, "the provider follows the rescaled definitions");
+            if same_size {
+                assert_eq!(inter_scale(&ctx), inter_before, "a same-size request leaves the stack alone");
+            }
+            assert_eq!(thai_scale(&ctx), Some(old), "the pass laid the discovered face out with the old definitions");
+            // The queued definitions with the new scale are active now, and a new pass drops the
+            // discovered face and rediscovers it at the provider's new scale.
+            frame(&|ctx: &egui::Context| {
+                assert_eq!(inter_scale(ctx), Some(want), "the rescaled stack is active in the next pass");
+                assert_eq!(provider.scale(), want);
+            });
+            assert_eq!(thai_scale(&ctx), Some(want), "the next pass rediscovers the face at the provider's scale");
         }
     }
 
