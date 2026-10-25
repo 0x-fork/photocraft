@@ -279,8 +279,12 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
                                 let x = c.x + p;
                                 let black = bl.at(x.saturating_sub(s.active.x), y.saturating_sub(s.active.y), 0, 1);
                                 let range = s.white[0] - black;
-                                let gain = if range >= 1.0 { mult[usize::from(cfa.color(x, y)).min(2)] / range } else { 0.0 };
-                                (black, gain)
+                                // A non-finite black (a BlackLevel DOUBLE beyond f32) gives 0, as
+                                // `Scale::value` does, instead of (raw - inf) * 0 = NaN.
+                                if !(range >= 1.0 && black.is_finite()) {
+                                    return (0.0, 0.0);
+                                }
+                                (black, mult[usize::from(cfa.color(x, y)).min(2)] / range)
                             })
                             .collect();
                         let src = &s.data[y * s.width + c.x..y * s.width + c.x + w];
