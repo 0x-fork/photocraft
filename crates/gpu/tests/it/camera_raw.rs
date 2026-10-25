@@ -1,5 +1,8 @@
 //! Camera Raw's GPU preview pass against the CPU develop (the oracle), stage by stage, at 8, 16
-//! and 32 bits. Skips when there is no adapter or it can't render `Rgba32Float`.
+//! and 32 bits. Skips, with a message, when there is no adapter or device or it can't render
+//! `Rgba32Float`; with `WGPU_BACKEND` set those fail instead, as in `parity.rs`. A pipeline that
+//! doesn't build on an adapter that can run it fails. The shader itself is validated without a
+//! GPU ([`the_shader_validates_without_a_gpu`]), so a WGSL error fails on every runner.
 
 use photocraft_algo::camera_raw::{CameraRaw, Wheel, develop, per_pixel, white_black_points};
 use photocraft_gpu::{CameraRawDevelop, DeviceHealth, Fault};
@@ -20,6 +23,7 @@ struct Gpu {
 
 fn gpu() -> Option<Gpu> {
     let lock = crate::GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let required = std::env::var_os("WGPU_BACKEND").is_some();
     // `WGPU_BACKEND` picks the backend; `PHOTOCRAFT_TEST_FALLBACK_ADAPTER=1` the software one (WARP).
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let fallback = std::env::var_os("PHOTOCRAFT_TEST_FALLBACK_ADAPTER").is_some();
@@ -27,18 +31,41 @@ fn gpu() -> Option<Gpu> {
     let adapter = match pollster::block_on(instance.request_adapter(&options)) {
         Ok(a) => a,
         Err(e) => {
+            assert!(!required, "WGPU_BACKEND is set but has no adapter: {e}");
             eprintln!("skipping Camera Raw GPU tests: no adapter ({e})");
             return None;
         }
     };
+    let info = adapter.get_info();
     if !CameraRawDevelop::supported(&adapter) {
+        assert!(!required, "WGPU_BACKEND is set but {} can't render Rgba32Float", info.name);
         eprintln!("skipping Camera Raw GPU tests: adapter can't render Rgba32Float");
         return None;
     }
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
-    eprintln!("Camera Raw GPU tests on {:?} ({})", adapter.get_info().backend, adapter.get_info().name);
-    let dev = CameraRawDevelop::new(&device).ok()?;
+    let (device, queue) = match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) {
+        Ok(d) => d,
+        Err(e) => {
+            assert!(!required, "WGPU_BACKEND is set but {} has no device: {e}", info.name);
+            eprintln!("skipping Camera Raw GPU tests: no device ({e})");
+            return None;
+        }
+    };
+    eprintln!("Camera Raw GPU tests on {:?} ({})", info.backend, info.name);
+    // The adapter can run the pass: a pipeline that doesn't build is a bug in it, not a skip.
+    let dev = CameraRawDevelop::new(&device).unwrap_or_else(|e| panic!("the Camera Raw pipeline didn't build on {}: {}", info.name, e.0));
     Some(Gpu { device, queue, dev, _lock: lock })
+}
+
+/// The Camera Raw shader parses and validates (naga, as wgpu does before any driver sees it),
+/// with no adapter: the GPU tests below skip on runners without one.
+#[test]
+fn the_shader_validates_without_a_gpu() {
+    let src = photocraft_gpu::CAMERA_RAW_SHADER;
+    let module = wgpu::naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(src)));
+    wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::empty())
+        .validate(&module)
+        .unwrap_or_else(|e| panic!("{}", e.emit_to_string(src)));
+    assert!(!module.entry_points.is_empty());
 }
 
 #[derive(Clone, Copy, Debug)]
