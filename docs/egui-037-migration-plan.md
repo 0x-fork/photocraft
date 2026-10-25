@@ -1,5 +1,9 @@
 # PhotoCraft: egui 0.37 migration plan
 
+Status update (2026-10-25): local implementation includes main `b278ff72459cbf9754863365edd822ba2248aa07`, preserving its JPEG dependency, Affinity import and raster changes. All nine CI stages passed: 11,590 passing test executions, zero failed, 91 ignored across 93 summaries; the ignored panic hunt, strict lint and WASM compilation passed. The current-main integration received independent review. Native/browser GUI, native IME, PRIMARY, packaged WASM size, real-world 0.36 settings and paired application performance remain open. Publication requires separate explicit approval; human review and human merge are required.
+
+The original planning record below is historical.
+
 Current status — 2026-10-25: the port is implemented and reconciled with main
 `486afd82cce99255e999224bcfe28de00fd766aa`. The full managed CI run passed all nine stages:
 formatting, strict clippy, layers, scorecard, workspace tests, the ignored panic hunt,
