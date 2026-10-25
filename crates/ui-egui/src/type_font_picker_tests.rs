@@ -531,7 +531,9 @@ fn options_bar_hover_previews_on_canvas_without_committing() {
         }
     }
 
-    let mut h = Harness::builder().with_size(vec2(900.0, 700.0)).build_eframe(|cc| {
+    // Opening the menu on the current family (#9197) paints rows that load their font samples
+    // over a few frames, more than the default four steps.
+    let mut h = Harness::builder().with_size(vec2(900.0, 700.0)).with_max_steps(64).build_eframe(|cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, crate::theme::ThemeKind::ALL[0]);
         PreviewApp { app: PhotocraftApp::new(photocraft_engine::Session::new(), Services::default()) }
     });
