@@ -390,8 +390,8 @@ pub(crate) fn command(app: &mut PhotocraftApp, id: &str, params: &Value) -> Opti
     }
     let id = match id {
         "window.panel" if app.ui.docking.is_some() => "window.panel.activate",
-        // Floating panels stay in the main window.
-        "window.panel.window" => return None,
+        #[cfg(target_arch = "wasm32")]
+        "window.panel.window" => return Some(Err("floating panels stay in the page on the web".into())),
         id if DockCommand::<String>::IDS.contains(&id) => id,
         _ => return None,
     };
@@ -472,6 +472,17 @@ fn run(app: &mut PhotocraftApp, command: DockCommand<String>) -> Result<Value, S
                 column: false,
             };
             sized.apply(&mut workspace, rtl, &space, permissions).map_err(|e| e.to_string())?
+        }
+        DockCommand::Window { panel, native } if native.unwrap_or(true) => {
+            if workspace.layout.floating.iter().any(|window| window.id == PROPERTIES_WINDOW && window.contains(panel)) {
+                return Err("the Properties card stays over the canvas; float the panel out of it first".into());
+            }
+            if let Ok(location) = workspace.layout.location(panel)
+                && location.floating.is_none()
+            {
+                returns.insert(panel.clone(), location);
+            }
+            command.apply(&mut workspace, rtl, &space, permissions).map_err(|e| e.to_string())?
         }
         command => command.apply(&mut workspace, rtl, &space, permissions).map_err(|e| e.to_string())?,
     };
@@ -589,15 +600,24 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     style.right_to_left = crate::direction::is_rtl();
     style.new_dock_zones = true;
     let style = style.localized(|key| DOCK_LABELS.iter().find(|(k, _)| *k == key).map(|(_, english)| tl!(english).to_string()));
-    let mut dock = craft_ui::docking::DockArea::new(area).locked(locked).auto_collapse_iconic(app.session.prefs().workspace.auto_collapse_icon_panels);
+    let mut dock = craft_ui::docking::DockArea::new(area)
+        .locked(locked)
+        .auto_collapse_iconic(app.session.prefs().workspace.auto_collapse_icon_panels)
+        .input_blocked(modal_open(app, ui.ctx()));
     if let Some(panel) = &reveal {
         dock = dock.raise_panel(panel.clone());
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        dock = dock.native_input_hook(native_input_hook(ui.ctx()));
+    }
     let mut commands = Vec::new();
     let strip = style.tab_height;
+    let card: std::collections::HashSet<String> =
+        layout.floating.iter().filter(|window| window.id == PROPERTIES_WINDOW).flat_map(|window| window.panels().cloned()).collect();
     #[cfg(test)]
     ui.ctx().data_mut(|data| data.insert_temp(bodies_id(), Vec::<(String, egui::Rect)>::new()));
-    let output = dock.show_customized(
+    let mut output = dock.show_customized(
         ui,
         &layout,
         &style,
@@ -617,11 +637,16 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 craft_ui::docking::PanelLimits { min: egui::vec2(220.0, height), ..Default::default() }
             }
         },
-        &mut PanelContent { app, collapsed: &collapsed, fillers: &fillers, strip, commands: &mut commands },
+        &mut PanelContent { app, collapsed: &collapsed, fillers: &fillers, card: &card, strip, commands: &mut commands },
     );
-    if let Some(error) = output.error {
+    if let Some(error) = output.error.take() {
         app.ui.status = error.to_string();
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    open_window_drops(app, ui.ctx(), std::mem::take(&mut output.window_files));
+    // Keys pressed in a floating panel's own OS window run the main window's shortcuts.
+    let forwarded = std::mem::take(&mut output.forwarded_events);
+    crate::shortcuts::handle_forwarded(app, ui.ctx(), forwarded, output.forwarded_modifiers.unwrap_or_default());
     if ui.input(|input| input.pointer.any_released()) {
         let moved = output.actions.iter().any(|action| {
             matches!(action, Action::Move { .. } | Action::Float { .. } | Action::MovePanel { .. } | Action::MoveGroup { .. } | Action::MoveWindow { .. })
@@ -650,6 +675,61 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if let Err(error) = app.run(id, params) {
             app.ui.status = error;
         }
+    }
+}
+
+/// A modal dialog or workspace is open. egui's `Modal` blocks input only in the window it shows
+/// in, so the floating panels' own OS windows are blocked meanwhile (`DockArea::input_blocked`).
+/// The app's dialogs count from the frame they open; any other egui modal (a format's options,
+/// a job's progress) from the frame after it first shows.
+pub(crate) fn modal_open(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
+    !app.ui.dialogs.is_empty()
+        || app.ui.layers_panel_dialog.is_some()
+        || app.discard.is_some()
+        || app.camera_raw.is_some()
+        || crate::distort_ui::modal_workspace(app).is_some()
+        || !ctx.memory(|memory| memory.is_above_modal_layer(egui::LayerId::background()))
+}
+
+/// The viewports of the floating windows that may have OS windows of their own. Where egui
+/// embeds viewports, and on the web, every floating window stays in the main window.
+pub(crate) fn native_viewports(app: &PhotocraftApp, ctx: &egui::Context) -> Vec<egui::ViewportId> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if !ctx.embed_viewports()
+        && let Some(workspace) = &app.ui.docking
+    {
+        return workspace
+            .layout
+            .floating
+            .iter()
+            .filter(|window| window.id != PROPERTIES_WINDOW)
+            .map(|window| craft_ui::docking::DockArea::<String>::window_viewport(area_id(), window.id))
+            .collect();
+    }
+    let _ = (app, ctx);
+    Vec::new()
+}
+
+/// The main window's `raw_input_hook` rewrites that floating panels' own windows need too:
+/// Ctrl+click is a secondary click on macOS. Each window keeps its own press state.
+#[cfg(not(target_arch = "wasm32"))]
+fn native_input_hook(ctx: &egui::Context) -> impl FnMut(&egui::Context, &mut egui::RawInput) + Send + 'static {
+    type Clicks = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<egui::ViewportId, crate::control_click::ControlClick>>>;
+    let clicks = ctx.data_mut(|data| data.get_temp_mut_or_default::<Clicks>(area_id().with("control-click")).clone());
+    move |_, raw| {
+        let mut clicks = clicks.lock().unwrap_or_else(|e| e.into_inner());
+        clicks.entry(raw.viewport_id).or_default().normalize(&mut raw.events, cfg!(target_os = "macos"));
+    }
+}
+
+/// Files dropped on a floating panel's own OS window open as documents, as files dropped on the
+/// main window away from the canvas and the tab strip do, and the main window comes forward.
+#[cfg(not(target_arch = "wasm32"))]
+fn open_window_drops(app: &mut PhotocraftApp, ctx: &egui::Context, windows: Vec<craft_ui::docking::WindowFiles<String>>) {
+    let dropped: Vec<egui::DroppedFileHandle> = windows.into_iter().flat_map(|window| window.dropped).collect();
+    if !dropped.is_empty() {
+        app.open_dropped(ctx, dropped, None);
+        ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
     }
 }
 
@@ -880,6 +960,11 @@ pub(crate) mod probe {
 #[cfg(test)]
 #[path = "panel_docking_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "panel_docking_native_tests.rs"]
+mod native_tests;
 
 /// Return positions for panels already hidden in a legacy workspace.
 fn migration_hidden(app: &PhotocraftApp, visible: &Layout<String>) -> Vec<(String, Location<String>)> {
@@ -1150,6 +1235,8 @@ struct PanelContent<'a> {
     app: &'a mut PhotocraftApp,
     collapsed: &'a std::collections::HashSet<String>,
     fillers: &'a std::collections::HashSet<String>,
+    /// The panels of the Studio themes' Properties card, which stays over the canvas.
+    card: &'a std::collections::HashSet<String>,
     /// The tab strip's height, which the native groups' heights include.
     strip: f32,
     commands: &'a mut Vec<(&'static str, Value)>,
@@ -1209,6 +1296,9 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
     }
     fn panel_menu(&mut self, ui: &mut egui::Ui, id: &String) {
         panel_menu(self.app, ui, id);
+    }
+    fn allow_native(&self, id: &String) -> bool {
+        !self.card.contains(id)
     }
     fn group_header_width(&self, _panels: &[String], _active: &String, _floating: bool, _strip_width: f32) -> f32 {
         28.0

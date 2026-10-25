@@ -22,6 +22,7 @@ pub const SHELL_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("window.panel.closeOthers", "Close Other Panels in Group", &[], None),
     ("window.panel.minimize", "Minimize Panel", &[], None),
     ("window.panel.iconic", "Collapse to Icons", &[], None),
+    ("window.panel.window", "Open Panel in Own Window", &[], None),
     ("ui.dock", "Arrange Panels", &[], None),
     ("file.open", "Open…", &["File"], Some("Cmd+O")),
     ("file.save", "Save", &["File"], Some("Cmd+S")),

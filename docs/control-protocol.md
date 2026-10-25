@@ -667,6 +667,10 @@ by ID or label, and `onto` is accepted for `anchor`.
   position when possible. `window.panel.close {panel}` hides it; `window.panel.closeGroup` and
   `window.panel.closeOthers` close its group or the group's other panels.
 - `window.panel.minimize {panel, minimized?}` collapses a floating window to its title bar.
+- `window.panel.window {panel, native?}` floats a docked panel's group and gives its floating
+  window its own OS window. On the desktop every floating window has one, except the Studio
+  themes' Properties card, which stays over the canvas, and on Wayland, where floating windows
+  stay in the main window. The web refuses the command: floating panels stay in the page.
 - `ui.dock {operation, …}` takes the shared `ui.dock` operations (`open`, `close`, `activate`,
   `float`, `moveFloating`, `move`, `setStackOpen`, `resizeStack`, `resizeSplit`) or `{action}`.
 - `window.workspace.lock {locked?}` sets Lock Workspace; `window.workspace {name}`,

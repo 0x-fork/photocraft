@@ -4641,6 +4641,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         });
         if panning {
             // The fist set with the pan above stays (#2196).
+        } else if crate::tool_cursor::pointer_elsewhere(&ctx, &crate::panel_docking::native_viewports(app, &ctx)) {
+            // The pointer is over a floating panel's own window; this window's last position of
+            // it is stale, so no tool cursor or brush outline is painted at it.
         } else if let Some((vertical, _)) = guide_hover {
             ui.ctx().set_cursor_icon(crate::rulers::guide_cursor(&xf, vertical));
         } else if let Some(p) = response.hover_pos()
