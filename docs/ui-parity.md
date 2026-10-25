@@ -244,7 +244,7 @@ Paragraph; the rest open as in-app floating windows.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-24 | minor | Font menus (options bar, Character panel): the current family is marked in the recent group when it is a recent one, and the menu opens showing it, as Photoshop's does; the arrows walk on from the marked row (#9160). Scores unchanged. |
+| 2026-10-24 | minor | Font menus (options bar, Character panel): the current family is marked in the recent group when it is a recent one, and the menu opens showing it, as Photoshop's does, scrolled to the marked row when it sits below the fold; the arrows walk on from the marked row (#9160). Scores unchanged. |
 | 2026-10-22 | minor | Crop default mode: a drag inside an upright box snaps the frame's edges and centre to the document, layers, guides and grid, as a Classic Mode frame's move does (#8580); no percentage changed |
 | 2026-10-21 | minor | Adjustment clipping moved above Properties editors to remain visible in compact docks (#5231); scope, undo/redo and 8/16/32-bit pixel regressions; readiness estimate unchanged |
 | 2026-10-19 | minor | A guide being moved or dragged out of a ruler shows an `X:` / `Y:` position readout beside the pointer, from the zero point in the ruler unit (#7680) |
