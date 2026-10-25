@@ -21,41 +21,27 @@ pub fn parse<'i>(text: &'i str, opts: ParsingOptions<'i>) -> Result<Document<'i>
     Document::parse_with_options(text, opts).map_err(|e| e.to_string())
 }
 
-/// Does the prolog's DOCTYPE have an internal subset (`<!DOCTYPE x [ … ]>`)? Only the prolog can
-/// hold a DOCTYPE; the parser rejects one anywhere else.
+/// Does a DOCTYPE have an internal subset (`<!DOCTYPE x [ … ]>`)? Every `<!DOCTYPE` in the text
+/// is checked, not only the one a walk over the prolog reaches: a quoted `?>` in the XML
+/// declaration must not hide it. One inside a comment may be refused needlessly; that fails safe.
 fn internal_subset(xml: &[u8]) -> bool {
-    let mut rest = xml.strip_prefix("\u{feff}".as_bytes()).unwrap_or(xml);
-    loop {
-        rest = rest.trim_ascii_start();
-        let skip = |rest: &[u8], open: usize, close: &[u8]| -> Option<usize> {
-            let body = rest.get(open..)?;
-            body.windows(close.len()).position(|w| w == close).map(|p| open.saturating_add(p).saturating_add(close.len()))
-        };
-        let next = if rest.starts_with(b"<?") {
-            skip(rest, 2, b"?>")
-        } else if rest.starts_with(b"<!--") {
-            skip(rest, 4, b"-->")
-        } else if rest.starts_with(b"<!DOCTYPE") {
-            // The name and the quoted public/system ids come first; a `[` outside quotes opens
-            // the subset, a `>` ends a DOCTYPE without one.
-            let mut quote = None;
-            for &b in rest.iter().skip(9) {
-                match quote {
-                    Some(q) if b == q => quote = None,
-                    Some(_) => {}
-                    None if b == b'"' || b == b'\'' => quote = Some(b),
-                    None if b == b'[' => return true,
-                    None if b == b'>' => return false,
-                    None => {}
-                }
+    const DOCTYPE: &[u8] = b"<!DOCTYPE";
+    xml.windows(DOCTYPE.len()).enumerate().filter(|(_, w)| *w == DOCTYPE).any(|(at, _)| {
+        // The name and the quoted public/system ids come first; a `[` outside quotes opens the
+        // subset, a `>` ends a DOCTYPE without one.
+        let mut quote = None;
+        for &b in xml.iter().skip(at.saturating_add(DOCTYPE.len())) {
+            match quote {
+                Some(q) if b == q => quote = None,
+                Some(_) => {}
+                None if b == b'"' || b == b'\'' => quote = Some(b),
+                None if b == b'[' => return true,
+                None if b == b'>' => return false,
+                None => {}
             }
-            return false;
-        } else {
-            return false;
-        };
-        let Some(next) = next else { return false };
-        rest = rest.get(next..).unwrap_or_default();
-    }
+        }
+        false
+    })
 }
 
 #[cfg(test)]
@@ -100,11 +86,14 @@ mod tests {
     fn an_internal_subset_is_refused_an_external_doctype_parses() {
         let krita = "<?xml version=\"1.0\"?>\n<!-- c --><!DOCTYPE DOC PUBLIC '-//KDE//DTD krita 2.0//EN' 'http://www.calligra.org/DTD/[krita].dtd'>\n<DOC/>";
         assert!(parse(krita, dtd()).is_ok());
-        let deep = format!("<!DOCTYPE a [<!ENTITY e \"{}{}\">]><a>&e;</a>", "<g>".repeat(20_000), "</g>".repeat(20_000));
+        let g = ("<g>".repeat(20_000), "</g>".repeat(20_000));
         for xml in [
             "<!DOCTYPE a [<!ENTITY e \"x\">]><a>&e;</a>".to_string(),
             "\u{feff}<?xml version=\"1.0\"?><!-- ' --> <!DOCTYPE a SYSTEM \"a.dtd\" [<!-- ' -->]><a/>".to_string(),
-            deep,
+            format!("<!DOCTYPE a [<!ENTITY e \"{}{}\">]><a>&e;</a>", g.0, g.1),
+            // roxmltree reads the declaration's values as quoted attributes, so they may hold `?>`.
+            format!("<?xml version=\"?>\"?><!DOCTYPE a [<!ENTITY e \"{}{}\">]><a>&e;</a>", g.0, g.1),
+            format!("<?xml version=\"?>\"?><!DOCTYPE a [<!-- ' -->]><a>{}{}</a><!-- ' -->", g.0, g.1),
         ] {
             let e = parse(&xml, dtd()).err().unwrap_or_else(|| panic!("parsed {xml:.60}"));
             assert!(e.contains("internal DTD"), "{e}");
