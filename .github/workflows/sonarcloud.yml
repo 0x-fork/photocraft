@@ -16,8 +16,8 @@ concurrency:
 
 jobs:
   sonarcloud:
-    # Tracked at @main so org-wide CI improvements propagate without PR churn.
-    uses: storytold/craft-common-actions/.github/workflows/sonarcloud.yml@main
+    # Pin the coverage-font fix while craft-common-actions #88 awaits human review.
+    uses: storytold/craft-common-actions/.github/workflows/sonarcloud.yml@68edd37a041a664ea3eef757a2e8feda775da255
     with:
       timeout-minutes: 120
       fonts-ref: b076417b5880bd4154bd22f00695b1d28c6bea83
