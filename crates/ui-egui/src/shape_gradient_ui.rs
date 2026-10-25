@@ -93,7 +93,7 @@ pub(crate) fn gradient_tab(ui: &mut egui::Ui, fill: &Fill, choices: &GradientCho
                     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 18.0), Sense::click());
                     paint_fill_ramp(ui, r, recent, resp.hovered());
                     let name = format!("{} {}", tl!("Recent"), i + 1);
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
                     if resp.clicked() {
                         take_stops(edited(&mut out, fill), recent);
                         picked = true;
@@ -111,7 +111,7 @@ pub(crate) fn gradient_tab(ui: &mut egui::Ui, fill: &Fill, choices: &GradientCho
                     crate::preset_panels::paint_gradient(ui, r, &preset.resolve(choices.fg, choices.bg));
                     let border = if resp.hovered() { t.text_dim } else { t.field_border };
                     ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, border), StrokeKind::Outside);
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &preset.name));
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &preset.name));
                     if resp.on_hover_text(&preset.name).clicked() {
                         take_preset(edited(&mut out, fill), preset, choices.fg, choices.bg);
                         picked = true;
@@ -273,7 +273,7 @@ fn selection(ui: &egui::Ui, id: egui::Id, fill: &Fill) -> Marker {
 fn stops_strip(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [f32; 4]) -> Option<Fill> {
     let t = Tokens::get(ui.ctx());
     let (outer, resp) = ui.allocate_exact_size(vec2(WIDTH, 58.0), Sense::click_and_drag());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!("Gradient stops")));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!("Gradient stops")));
     let top = outer.top() + 16.0;
     let bar = Rect::from_min_max(pos2(outer.left() + 8.0, top), pos2(outer.right() - 8.0, top + 24.0));
     let x_of = |loc: f32| bar.left() + loc.clamp(0.0, 1.0) * bar.width();
@@ -445,7 +445,7 @@ fn stop_fields(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
             let [cr, cg, cb, _] = rgba_of(c);
             ui.painter().rect_filled(r.shrink(1.0), t.radius_sm, rgba32([cr, cg, cb, 1.0]));
             ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.0, if picker_open { t.accent } else { t.field_border }), StrokeKind::Inside);
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ColorButton, true, tl!("Color")));
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ColorWell, true, tl!("Color")));
             if resp.on_hover_text(tl!("Color")).clicked() {
                 picker_open = !picker_open;
             }

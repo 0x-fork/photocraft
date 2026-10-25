@@ -665,7 +665,7 @@ fn graph(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &Shown, channel: HistCha
     if s.stale || s.hist.level > 1 {
         let icon = Rect::from_min_size(r.right_top() + vec2(-18.0, 2.0), vec2(16.0, 16.0));
         crate::icons::paint(ui, icon, "triangle-alert", 12.0, t.warning);
-        let warn = ui.interact(icon, ui.id().with("hist-cached-warning"), Sense::click()).on_hover_text(tl!("Click to refresh histogram with uncached data"));
+        let warn = ui.interact(icon, ui.scope_id().with("hist-cached-warning"), Sense::click()).on_hover_text(tl!("Click to refresh histogram with uncached data"));
         if warn.clicked() {
             uncached_refresh(app);
         }
@@ -674,7 +674,7 @@ fn graph(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &Shown, channel: HistCha
         uncached_refresh(app);
     }
     let pointer = resp.interact_pointer_pos().or_else(|| resp.hover_pos());
-    let id = ui.id().with("hist-drag-from");
+    let id = ui.scope_id().with("hist-drag-from");
     if resp.drag_started()
         && let Some(pos) = resp.interact_pointer_pos()
     {
@@ -754,7 +754,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new(tl!("Channel:")).color(t.text_dim).size(12.0));
         let mut ch = channel;
         let options = channel_options(s.mode);
-        if crate::widgets::dropdown(ui, "histogram-panel-ch", &mut ch, &options, 110.0) {
+        if crate::widgets::dropdown(ui, "histogram-panel-ch", tl!("Channel"), &mut ch, &options, 110.0) {
             app.ui.histogram_panel.channel = ch;
             changed = true;
         }
@@ -777,7 +777,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             } else if src == HistSourceChoice::AdjustmentComposite {
                 src = HistSourceChoice::EntireImage;
             }
-            if crate::widgets::dropdown(ui, "histogram-panel-src", &mut src, &options, 150.0) {
+            if crate::widgets::dropdown(ui, "histogram-panel-src", tl!("Source"), &mut src, &options, 150.0) {
                 app.ui.histogram_panel.source = src;
                 changed = true;
             }

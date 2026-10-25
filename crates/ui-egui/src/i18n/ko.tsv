@@ -3664,3 +3664,9 @@ curves	Smooth	매끄럽게
 	Tight Curl	타이트 컬
 	Loose Curl	루즈 컬
 	Stylized dabs from a history state	작업 내역 상태에서 양식화된 찍기
+
+# Egui 0.37 migration controls (Aspect Ratio, Category, Color Table, Gamma, Interpolation, Profile, Target, Units, Demosaic)
+	Aspect Ratio	종횡비
+	Category	카테고리
+	Target	대상
+	Units	단위

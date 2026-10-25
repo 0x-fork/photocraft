@@ -4068,3 +4068,6 @@ curves	Smooth	Wygładź
 	Tight Curl	Ścisły lok
 	Loose Curl	Luźny lok
 	Stylized dabs from a history state	Stylizowane plamy ze stanu historii
+
+# Egui 0.37 migration controls (Aspect Ratio, Category, Color Table, Gamma, Interpolation, Profile, Target, Units, Demosaic)
+	Target	Cel

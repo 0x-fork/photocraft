@@ -3466,3 +3466,12 @@ curves	Smooth	Glätten
 	Tight Curl	Eng gewellt
 	Loose Curl	Locker gewellt
 	Stylized dabs from a history state	Stilisierte Tupfer aus einem Protokollzustand
+
+# Egui 0.37 migration controls (Aspect Ratio, Category, Color Table, Gamma, Interpolation, Profile, Target, Units, Demosaic)
+	Aspect Ratio	Seitenverhältnis
+	Category	Kategorie
+	Color Table	Farbtabelle
+	Gamma	Gamma
+	Interpolation	Interpolation
+	Target	Ziel
+	Units	Einheiten

@@ -107,7 +107,7 @@ pub(crate) fn interact(
     animated_zoom: bool,
 ) -> (Rect, Response, bool, Option<Rect>) {
     let sampling = *sampler;
-    let response = ui.interact(viewport, ui.id().with("cr-sample-preview"), Sense::click_and_drag());
+    let response = ui.interact(viewport, ui.scope_id().with("cr-sample-preview"), Sense::click_and_drag());
     let modifiers = ui.input(|i| i.modifiers);
     let temporary_zoom = modifiers.command && (state.hand || sampling);
     let hand = !temporary_zoom && (state.hand && !sampling || ui.input(|i| i.key_down(Key::Space)));
@@ -118,7 +118,7 @@ pub(crate) fn interact(
     // Reuse the canvas wheel policy: retain the modifiers of the wheel event while egui
     // smooths it, even if Alt is released before the final part of the notch arrives.
     let cr_hovered = response.hovered();
-    let cr_wheel = ui.id().with("cr-wheel");
+    let cr_wheel = ui.scope_id().with("cr-wheel");
     let wheel = crate::wheel_nav::read(ui.ctx(), false, true, animated_zoom, cr_wheel, cr_hovered);
     if cr_hovered {
         ui.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
@@ -250,7 +250,7 @@ pub(crate) fn interact(
 
 pub(crate) fn toolbar(ui: &mut Ui, state: &mut CameraRawPreviewState, viewport: Rect, size: Vec2, sampler: &mut bool) {
     let zoom_tool = crate::icons::button(ui, "zoom-in", 28.0, !state.hand && !*sampler, tl!("Zoom Tool"));
-    zoom_tool.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!("Zoom Tool")));
+    zoom_tool.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!("Zoom Tool")));
     if zoom_tool.double_clicked() {
         state.fit();
     }
@@ -259,7 +259,7 @@ pub(crate) fn toolbar(ui: &mut Ui, state: &mut CameraRawPreviewState, viewport: 
         *sampler = false;
     }
     let hand_tool = crate::icons::button(ui, "hand", 28.0, state.hand && !*sampler, tl!("Hand Tool"));
-    hand_tool.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!("Hand Tool")));
+    hand_tool.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!("Hand Tool")));
     if hand_tool.double_clicked() {
         state.fit();
     }
@@ -283,7 +283,7 @@ pub(crate) fn toolbar(ui: &mut Ui, state: &mut CameraRawPreviewState, viewport: 
     if !options.iter().any(|(z, _)| *z == zoom) {
         options.push((zoom, &current_label));
     }
-    if widgets::dropdown(ui, "cr-preview-zoom", &mut zoom, &options, 80.0) {
+    if widgets::dropdown(ui, "cr-preview-zoom", tl!("Zoom"), &mut zoom, &options, 80.0) {
         match zoom {
             Some(z) => state.zoom_at(z, viewport.center(), viewport, size),
             None => state.fit(),

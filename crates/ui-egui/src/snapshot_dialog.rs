@@ -64,7 +64,7 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             ("mergedLayers".to_string(), tl!("Merged Layers")),
             ("currentLayer".to_string(), tl!("Current Layer")),
         ];
-        if crate::widgets::dropdown(ui, "new-snapshot-from", &mut from, &opts, 170.0) {
+        if crate::widgets::dropdown(ui, "new-snapshot-from", tl!("From"), &mut from, &opts, 170.0) {
             f.insert("from".into(), json!(from));
         }
     });

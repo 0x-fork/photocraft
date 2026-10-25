@@ -13,7 +13,7 @@ fn frame(app: &mut PhotocraftApp) {
     let ctx = egui::Context::default();
     ctx.begin_pass(Default::default());
     let mut ui =
-        egui::Ui::new(ctx.clone(), egui::Id::new("hist-test"), egui::UiBuilder::new().max_rect(Rect::from_min_size(egui::Pos2::ZERO, vec2(300.0, 900.0))));
+        egui::Ui::new(ctx.clone(), egui::Id::unique("hist-test"), egui::UiBuilder::new().max_rect(Rect::from_min_size(egui::Pos2::ZERO, vec2(300.0, 900.0))));
     show(app, &mut ui);
     ctx.end_pass().textures_delta.clear();
 }

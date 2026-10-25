@@ -163,7 +163,7 @@ pub fn legacy_pinch_to_zoom(events: &mut [Event], now: f64, last: Option<f64>, n
 }
 
 fn pinch_id() -> Id {
-    Id::new("pc-wheel-legacy-pinch")
+    Id::unique("pc-wheel-legacy-pinch")
 }
 
 /// [`legacy_pinch_to_zoom`] for one frame's raw input (`raw_input_hook`, Windows and Linux).
@@ -188,27 +188,27 @@ pub fn fold_legacy_pinch(ctx: &Context, raw: &mut RawInput) {
 }
 
 fn alt_id() -> Id {
-    Id::new("pc-wheel-alt")
+    Id::unique("pc-wheel-alt")
 }
 
 fn shift_id() -> Id {
-    Id::new("pc-wheel-shift")
+    Id::unique("pc-wheel-shift")
 }
 
 fn snap_residual_id(owner: Id) -> Id {
-    Id::new("pc-wheel-snap-residual").with(owner)
+    Id::unique("pc-wheel-snap-residual").with(owner)
 }
 
 fn snap_time_id(owner: Id) -> Id {
-    Id::new("pc-wheel-snap-time").with(owner)
+    Id::unique("pc-wheel-snap-time").with(owner)
 }
 
 fn snap_frame_result_id(owner: Id) -> Id {
-    Id::new("pc-wheel-snap-frame-result").with(owner)
+    Id::unique("pc-wheel-snap-frame-result").with(owner)
 }
 
 fn active_snap_owner_id() -> Id {
-    Id::new("pc-wheel-active-snap-owner")
+    Id::unique("pc-wheel-active-snap-owner")
 }
 
 const SNAP_IDLE_TIMEOUT: f64 = 0.5;
@@ -235,7 +235,7 @@ struct ZoomEase {
 }
 
 fn zoom_ease_id(owner: Id) -> Id {
-    Id::new(("wheel-zoom-ease", owner))
+    Id::unique(("wheel-zoom-ease", owner))
 }
 
 /// Eases `delta` (points of this viewport's zoom-mode wheel events) over the next frames and
@@ -293,7 +293,7 @@ struct Touch {
 
 /// Per viewport, as egui keeps its wheel state per viewport.
 fn touch_id(ctx: &Context) -> Id {
-    Id::new(("wheel-nav-touch", ctx.viewport_id()))
+    Id::unique(("wheel-nav-touch", ctx.viewport_id()))
 }
 
 /// This frame's wheel events (in order) with, for each, whether egui leaves it unsmoothed: during a
@@ -510,7 +510,7 @@ fn wheel_events(i: &InputState) -> Vec<(MouseWheelUnit, Vec2, Modifiers, TouchPh
     for e in &i.events {
         match e {
             Event::Key { key, pressed, .. } if is_alt_key(*key) => alt_key = *pressed,
-            Event::MouseWheel { unit, delta, phase, modifiers } => {
+            Event::MouseWheel { unit, delta, phase, modifiers, .. } => {
                 let modifiers = Modifiers { alt: modifiers.alt || alt_key, ..*modifiers };
                 wheel.push((*unit, *delta, modifiers, *phase));
             }
@@ -549,7 +549,7 @@ mod tests {
     }
 
     fn wheel(delta: Vec2, modifiers: Modifiers) -> Event {
-        Event::MouseWheel { unit: MouseWheelUnit::Line, delta, phase: TouchPhase::Move, modifiers }
+        Event::MouseWheel { source: egui::MouseWheelSource::Unknown, unit: MouseWheelUnit::Line, delta, phase: TouchPhase::Move, modifiers }
     }
 
     const CTRL: Modifiers = Modifiers { ctrl: true, command: true, ..Modifiers::NONE };
@@ -564,7 +564,7 @@ mod tests {
     }
 
     fn gesture_with(frames: Vec<Vec<Event>>, zoom_with_wheel: bool, legacy: bool, animated_zoom: bool) -> (Vec2, f32, i32) {
-        let owner = Id::new("test-gesture");
+        let owner = Id::unique("test-gesture");
         let ctx = Context::default();
         configure(&ctx);
         let (mut pan, mut zoom, mut snaps) = (Vec2::ZERO, 1.0, 0i32);
@@ -587,7 +587,7 @@ mod tests {
     }
 
     fn wheel_point(delta: Vec2, modifiers: Modifiers) -> Event {
-        Event::MouseWheel { unit: MouseWheelUnit::Point, delta, phase: TouchPhase::Move, modifiers }
+        Event::MouseWheel { source: egui::MouseWheelSource::Unknown, unit: MouseWheelUnit::Point, delta, phase: TouchPhase::Move, modifiers }
     }
 
     fn near(a: Vec2, b: Vec2) -> bool {
@@ -599,7 +599,7 @@ mod tests {
     #[test]
     fn unsmoothed_wheel_pans_at_once_without_a_glide() {
         let pans = |smooth: bool| -> Vec<Vec2> {
-            let owner = Id::new("test-unsmoothed");
+            let owner = Id::unique("test-unsmoothed");
             let ctx = Context::default();
             configure(&ctx);
             (0..30)
@@ -636,7 +636,7 @@ mod tests {
     #[test]
     fn animated_wheel_zoom_keeps_its_eased_tail_when_pan_smoothing_is_off() {
         let frames = |smooth: bool| -> Vec<f32> {
-            let owner = Id::new("test-animated-zoom-unsmoothed-pan");
+            let owner = Id::unique("test-animated-zoom-unsmoothed-pan");
             let ctx = Context::default();
             configure(&ctx);
             (0..60)
@@ -723,7 +723,7 @@ mod tests {
 
     /// The factor of every frame of one notch, through a real egui context (60 frames at 60 fps).
     fn zoom_frames(modifiers: Modifiers, zoom_with_wheel: bool, animated_zoom: bool) -> Vec<f32> {
-        let owner = Id::new("test-zoom-frames");
+        let owner = Id::unique("test-zoom-frames");
         let ctx = Context::default();
         configure(&ctx);
         (0..60)
@@ -754,7 +754,7 @@ mod tests {
             assert!((product - NOTCH).abs() < 1e-4, "{modifiers:?} zoom_with_wheel {zoom_with_wheel}: {product} from {frames:?}");
         }
         // The other way round: ×1/1.1.
-        let owner = Id::new("test-zoom-frames-out");
+        let owner = Id::unique("test-zoom-frames-out");
         let ctx = Context::default();
         configure(&ctx);
         let mut product = 1.0f32;
@@ -822,7 +822,7 @@ mod tests {
     /// The zoom factor of each of `frames` frames with Animated Zoom on and ⌥ zooming. `time` gives a
     /// frame's timestamp and `hovered` whether the owner is hovered in it.
     fn run_zoom(frames: u32, events: impl Fn(u32) -> Vec<Event>, time: impl Fn(u32) -> f64, hovered: impl Fn(u32) -> bool) -> Vec<f32> {
-        let owner = Id::new("test-run-zoom");
+        let owner = Id::unique("test-run-zoom");
         let ctx = Context::default();
         configure(&ctx);
         (0..frames)
@@ -878,7 +878,7 @@ mod tests {
     fn shift_snap_zoom_drops_the_unfinished_eased_notch() {
         let notch = Vec2::new(0.0, 1.0);
         let shift_alt = Modifiers { shift: true, ..Modifiers::ALT };
-        let owner = Id::new("test-snap-interrupts-ease");
+        let owner = Id::unique("test-snap-interrupts-ease");
         let ctx = Context::default();
         configure(&ctx);
         let (mut zoom, mut zoom_after_first, mut snaps) = (1.0f32, 1.0f32, 0i32);
@@ -920,7 +920,7 @@ mod tests {
     /// a sideways wheel still pans without a glide (#5721), all of it in the frame it turns.
     #[test]
     fn animated_zoom_keeps_the_sideways_wheel_unsmoothed_with_animations_off() {
-        let owner = Id::new("test-sideways-unsmoothed");
+        let owner = Id::unique("test-sideways-unsmoothed");
         let ctx = Context::default();
         configure(&ctx);
         let pans: Vec<Vec2> = (0..30)
@@ -954,10 +954,10 @@ mod tests {
     /// during a trackpad scroll) must not leave later mouse notches un-eased.
     #[test]
     fn a_touch_end_nobody_read_does_not_stick() {
-        let owner = Id::new("test-touch-unread-end");
+        let owner = Id::unique("test-touch-unread-end");
         let ctx = Context::default();
         configure(&ctx);
-        let point = |phase: TouchPhase| Event::MouseWheel { unit: MouseWheelUnit::Point, delta: Vec2::ZERO, phase, modifiers: Modifiers::ALT };
+        let point = |phase: TouchPhase| Event::MouseWheel { source: egui::MouseWheelSource::Unknown, unit: MouseWheelUnit::Point, delta: Vec2::ZERO, phase, modifiers: Modifiers::ALT };
         let mut first = 1.0;
         for n in 0..10u32 {
             let events = match n {
@@ -1001,7 +1001,7 @@ mod tests {
     /// `InTouch`) even big point steps zoom at once.
     #[test]
     fn animated_zoom_eases_big_pixel_steps_but_not_a_touch() {
-        let point = |dy: f32, phase: TouchPhase| Event::MouseWheel { unit: MouseWheelUnit::Point, delta: Vec2::new(0.0, dy), phase, modifiers: Modifiers::ALT };
+        let point = |dy: f32, phase: TouchPhase| Event::MouseWheel { source: egui::MouseWheelSource::Unknown, unit: MouseWheelUnit::Point, delta: Vec2::new(0.0, dy), phase, modifiers: Modifiers::ALT };
         let browser = run_zoom(60, |n| if n == 0 { vec![point(100.0, TouchPhase::Move)] } else { Vec::new() }, |n| f64::from(n) / 60.0, |_| true);
         assert!(browser[0] > 1.0 && browser[0] < NOTCH.powf(2.5) - 1e-3, "eased: {:?}", &browser[..4]);
         let total: f32 = browser.iter().product();
@@ -1052,6 +1052,7 @@ mod tests {
             unit: MouseWheelUnit::Line,
             delta: egui::vec2(0.0, 0.25),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
             modifiers: Modifiers { ctrl: true, command: true, ..Modifiers::NONE },
         };
         let mut raw = RawInput { time: Some(1.0), events: vec![event()], ..Default::default() };
@@ -1167,7 +1168,13 @@ mod tests {
     fn linux_wayland_point_unit_pinch_keeps_mouse_notches_for_sideways_scroll() {
         // Some Wayland compositors report fractional Ctrl-wheel pinch steps in points
         // rather than line units. The delta must not be multiplied by notch twice.
-        let mut point = [Event::MouseWheel { unit: MouseWheelUnit::Point, delta: Vec2::new(0.0, 8.0), phase: TouchPhase::Move, modifiers: CTRL }];
+        let mut point = [Event::MouseWheel {
+            source: egui::MouseWheelSource::Unknown,
+            unit: MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, 8.0),
+            phase: TouchPhase::Move,
+            modifiers: CTRL,
+        }];
         assert_eq!(legacy_pinch_to_zoom(&mut point, 1.0, None, 40.0, 0.005), Some(1.0));
         assert!(matches!(point[0], Event::Zoom(f) if (f - (8.0f32 * 0.005).exp()).abs() < 1e-5));
         let mut wheel_only = [wheel(Vec2::new(0.0, 1.0), CTRL)];
@@ -1292,7 +1299,7 @@ mod tests {
     #[test]
     fn fractional_point_events_accumulate_across_frames() {
         let quarter = Vec2::new(0.0, 10.0);
-        let batched = snap_gesture(vec![vec![wheel_point(Vec2::new(0.0, 40.0), Modifiers::SHIFT)]], true, Id::new("accum-batched"));
+        let batched = snap_gesture(vec![vec![wheel_point(Vec2::new(0.0, 40.0), Modifiers::SHIFT)]], true, Id::unique("accum-batched"));
         let split = snap_gesture(
             vec![
                 vec![wheel_point(quarter, Modifiers::SHIFT)],
@@ -1301,7 +1308,7 @@ mod tests {
                 vec![wheel_point(quarter, Modifiers::SHIFT)],
             ],
             true,
-            Id::new("accum-split"),
+            Id::unique("accum-split"),
         );
         assert_eq!(batched, 1, "40 points batched → 1 step");
         assert_eq!(split, 1, "4 × 10 points split → 1 step");
@@ -1318,7 +1325,7 @@ mod tests {
                 vec![wheel_point(neg_quarter, Modifiers::SHIFT)],
             ],
             true,
-            Id::new("accum-neg"),
+            Id::unique("accum-neg"),
         );
         assert_eq!(neg_split, -1, "4 × −10 points → −1 step");
         let h_quarter = Vec2::new(10.0, 0.0);
@@ -1330,7 +1337,7 @@ mod tests {
                 vec![wheel_point(h_quarter, Modifiers::SHIFT)],
             ],
             true,
-            Id::new("accum-horiz"),
+            Id::unique("accum-horiz"),
         );
         assert_eq!(h_split, 1, "horizontal 4 × 10 → 1 step");
     }
@@ -1346,13 +1353,13 @@ mod tests {
                 vec![wheel_point(Vec2::new(0.0, 10.0), Modifiers::SHIFT)],
             ],
             true,
-            Id::new("accum-empty"),
+            Id::unique("accum-empty"),
         );
         assert_eq!(snaps, 1, "empty frame preserves residual");
         let reversal = snap_gesture(
             vec![vec![wheel_point(Vec2::new(0.0, 30.0), Modifiers::SHIFT)], vec![wheel_point(Vec2::new(0.0, -15.0), Modifiers::SHIFT)]],
             true,
-            Id::new("accum-reversal"),
+            Id::unique("accum-reversal"),
         );
         assert_eq!(reversal, 0, "30 − 15 = 15 points, below 1 notch → 0 steps");
     }
@@ -1368,15 +1375,15 @@ mod tests {
                 vec![wheel_point(Vec2::new(0.0, 10.0), shift_alt)],
             ],
             false,
-            Id::new("accum-shift-alt"),
+            Id::unique("accum-shift-alt"),
         );
         assert_eq!(split, 1, "Shift+Alt 4 × 10 → 1 step without preference");
     }
 
     #[test]
     fn cross_viewport_does_not_leak_residual() {
-        let owner_a = Id::new("owner-a");
-        let owner_b = Id::new("owner-b");
+        let owner_a = Id::unique("owner-a");
+        let owner_b = Id::unique("owner-b");
         let ctx = Context::default();
         configure(&ctx);
         let mut snaps_a = 0i32;
@@ -1448,7 +1455,7 @@ mod tests {
 
     #[test]
     fn two_reads_same_owner_same_frame_do_not_double_count() {
-        let owner = Id::new("same-owner");
+        let owner = Id::unique("same-owner");
         let ctx = Context::default();
         configure(&ctx);
         let mut total_snaps = 0i32;
@@ -1483,7 +1490,7 @@ mod tests {
     #[test]
     fn accumulation_hostile_numbers() {
         for dy in [1e30, -1e30, 1e-10, -1e-10] {
-            let snaps = snap_gesture(vec![vec![wheel_point(Vec2::new(0.0, dy), Modifiers::SHIFT)]], true, Id::new("accum-hostile"));
+            let snaps = snap_gesture(vec![vec![wheel_point(Vec2::new(0.0, dy), Modifiers::SHIFT)]], true, Id::unique("accum-hostile"));
             assert!(snaps.abs() <= 10, "hostile {dy} clamped: {snaps}");
         }
     }
@@ -1516,7 +1523,7 @@ mod tests {
 
     /// The total zoom [`read_with`] reports over `frames`, Enable Gestures set to `touch_gestures`.
     fn touch_zoom(frames: Vec<Vec<Event>>, touch_gestures: bool) -> f32 {
-        let owner = Id::new("test-touch");
+        let owner = Id::unique("test-touch");
         let ctx = Context::default();
         configure(&ctx);
         let mut zoom = 1.0;

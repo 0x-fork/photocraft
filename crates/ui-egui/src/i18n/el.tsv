@@ -4151,3 +4151,6 @@ curves	Smooth	Εξομάλυνση
 	Tight Curl	Σφιχτή μπούκλα
 	Loose Curl	Χαλαρή μπούκλα
 	Stylized dabs from a history state	Στυλιζαρισμένες πινελιές από μια κατάσταση ιστορικού
+
+# Egui 0.37 migration controls (Aspect Ratio, Category, Color Table, Gamma, Interpolation, Profile, Target, Units, Demosaic)
+	Target	Στόχος

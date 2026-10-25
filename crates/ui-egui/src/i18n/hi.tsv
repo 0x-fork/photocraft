@@ -552,3 +552,14 @@ cameraRaw	Yellow	पीला
 	Tight Curl	सघन घुमाव
 	Loose Curl	ढीला घुमाव
 	Stylized dabs from a history state	इतिहास स्थिति से शैलीबद्ध थपके
+
+# Egui 0.37 migration controls (Aspect Ratio, Category, Color Table, Gamma, Interpolation, Profile, Target, Units, Demosaic)
+	Aspect Ratio	पहलू अनुपात
+	Category	श्रेणी
+	Color Table	रंग तालिका
+	Gamma	गामा
+	Interpolation	इंटरपोलेशन
+	Profile	प्रोफ़ाइल
+	Target	लक्ष्य
+	Units	इकाइयाँ
+	Demosaic	डिमोज़ेक
