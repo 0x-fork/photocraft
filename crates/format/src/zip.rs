@@ -127,11 +127,24 @@ impl<'a> ZipReader<'a> {
         if bytes.len() < 22 {
             return Err(FormatError::corrupt("not a zip archive (too short)"));
         }
-        // End of central directory: scan back over a possible comment.
+        // A comment may itself contain the signature. Only accept a record whose
+        // declared comment reaches the end of the archive (APPNOTE 4.3.16).
         let min = bytes.len().saturating_sub(22 + 65535);
         let eocd = (min..=bytes.len() - 22)
             .rev()
-            .find(|&i| u32_at(bytes, i).ok() == Some(EOCD_SIG))
+            .find(|&i| {
+                if u32_at(bytes, i).ok() != Some(EOCD_SIG) {
+                    return false;
+                }
+                let comment_end = u16_at(bytes, i + 20).ok().and_then(|length| i.checked_add(22)?.checked_add(usize::from(length)));
+                let directory_end = u32_at(bytes, i + 16)
+                    .ok()
+                    .zip(u32_at(bytes, i + 12).ok())
+                    .and_then(|(offset, size)| usize::try_from(offset).ok()?.checked_add(usize::try_from(size).ok()?));
+                // In the supported non-ZIP64 layout, the central directory immediately
+                // precedes this record. A zeroed signature in a comment is not an empty ZIP.
+                comment_end == Some(bytes.len()) && directory_end == Some(i)
+            })
             .ok_or_else(|| FormatError::corrupt("zip end-of-central-directory not found"))?;
         let count = u16_at(bytes, eocd + 10)? as usize;
         let cd_size = u32_at(bytes, eocd + 12)? as usize;
@@ -201,7 +214,12 @@ impl<'a> ZipReader<'a> {
         if e.uncompressed > max {
             return Err(FormatError::LimitExceeded(format!("zip entry `{}` is {} bytes (max {max})", e.name, e.uncompressed)));
         }
-        let raw = &self.bytes[e.data_offset..e.data_offset + e.compressed];
+        // `Entry` is public and cloneable: one from another archive must not index out of range.
+        let raw = e
+            .data_offset
+            .checked_add(e.compressed)
+            .and_then(|end| self.bytes.get(e.data_offset..end))
+            .ok_or_else(|| FormatError::corrupt(format!("zip entry `{}` out of range", e.name)))?;
         let data = match e.method {
             0 => raw.to_vec(),
             8 => {
@@ -256,6 +274,56 @@ mod tests {
         assert_eq!(r.read_by_name("dir/b.bin", 100).unwrap(), [0, 1, 2, 3]);
         assert!(r.read_by_name("empty", 0).unwrap().is_empty());
         assert!(matches!(r.read_by_name("a.txt", 3), Err(FormatError::LimitExceeded(_))));
+    }
+
+    fn archive_with_comment(comment: &[u8]) -> Vec<u8> {
+        let mut writer = ZipWriter::new();
+        writer.add("manifest.json", b"project content").unwrap();
+        let mut bytes = writer.finish().unwrap();
+        let length_offset = bytes.len() - 2;
+        bytes[length_offset..].copy_from_slice(&u16::try_from(comment.len()).unwrap().to_le_bytes());
+        bytes.extend_from_slice(comment);
+        bytes
+    }
+
+    #[test]
+    fn directory_signature_inside_comment_does_not_hide_entries() {
+        for length in [22, 32, usize::from(u16::MAX)] {
+            let mut comment = vec![0; length];
+            comment[..4].copy_from_slice(&EOCD_SIG.to_le_bytes());
+            let bytes = archive_with_comment(&comment);
+            let reader = ZipReader::new(&bytes).unwrap();
+            assert_eq!(reader.entries.len(), 1, "comment length {length}");
+            assert_eq!(reader.read_by_name("manifest.json", 100).unwrap(), b"project content");
+        }
+    }
+
+    #[test]
+    fn archive_comments_support_empty_short_and_maximum_lengths() {
+        for length in [0, 1, 21, 22, 100, usize::from(u16::MAX)] {
+            let bytes = archive_with_comment(&vec![b'x'; length]);
+            let reader = ZipReader::new(&bytes).unwrap();
+            assert_eq!(reader.read_by_name("manifest.json", 100).unwrap(), b"project content", "comment length {length}");
+        }
+    }
+
+    #[test]
+    fn central_directory_digital_signature_remains_supported() {
+        let mut bytes = archive_with_comment(b"signed archive");
+        let eocd = bytes.len() - 22 - b"signed archive".len();
+        let signature = [0x50, 0x4b, 0x05, 0x05, 3, 0, 1, 2, 3];
+        let size = u32_at(&bytes, eocd + 12).unwrap() + signature.len() as u32;
+        bytes[eocd + 12..eocd + 16].copy_from_slice(&size.to_le_bytes());
+        bytes.splice(eocd..eocd, signature);
+        let reader = ZipReader::new(&bytes).unwrap();
+        assert_eq!(reader.read_by_name("manifest.json", 100).unwrap(), b"project content");
+    }
+
+    #[test]
+    fn truncated_archive_comment_is_rejected() {
+        let mut bytes = archive_with_comment(b"comment");
+        bytes.pop();
+        assert!(ZipReader::new(&bytes).is_err());
     }
 
     #[test]
@@ -364,6 +432,19 @@ mod tests {
         forged[central + 24..central + 28].copy_from_slice(&u32::MAX.to_le_bytes());
         let archive = ZipReader::new(&forged).unwrap();
         assert!(matches!(archive.read_by_name("manifest.json", usize::MAX), Err(FormatError::Corrupt(_))));
+    }
+
+    #[test]
+    fn an_entry_from_another_archive_is_an_error_not_a_panic() {
+        let mut big = ZipWriter::new();
+        big.add("a", &[7; 4096]).unwrap();
+        let big = big.finish().unwrap();
+        let foreign = ZipReader::new(&big).unwrap().entries[0].clone();
+        let mut small = ZipWriter::new();
+        small.add("a", b"x").unwrap();
+        let small = small.finish().unwrap();
+        let r = ZipReader::new(&small).unwrap();
+        assert!(matches!(r.read(&foreign, usize::MAX), Err(FormatError::Corrupt(_))));
     }
 
     #[test]

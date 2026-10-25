@@ -131,11 +131,18 @@ fn map_pixels(s: &mut Session, label: &str, p: &Value, f: impl FnOnce(Rect, &mut
     Ok(Value::Null)
 }
 
+/// The effective whole-pixel Stroke width, shared by execution and ATN export.
+pub(crate) fn stroke_width(p: &Value) -> usize {
+    // Whole pixels, rounded up, as in Photoshop (0.5 px strokes 1 px).
+    p.get("width").and_then(Value::as_f64).filter(|w| w.is_finite()).unwrap_or(1.0).clamp(1.0, 250.0).ceil() as usize
+}
+
 /// Edit › Stroke: a band along the selection edge (or the layer's opaque edge without a selection).
 fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
-    // Whole pixels, rounded up, as in Photoshop (0.5 px strokes 1 px).
-    let width = p.get("width").and_then(Value::as_f64).filter(|w| w.is_finite()).unwrap_or(1.0).clamp(1.0, 250.0).ceil() as usize;
-    let color = color_param(p, "color", s.tools.foreground);
+    let width = stroke_width(p);
+    let color = color_param("edit.stroke", p, "color", s.tools.foreground)?;
+    // A colour picked as CMYK strokes a CMYK document with the picked inks (#4196).
+    let picked = s.tools.picked_cmyk([color[0], color[1], color[2]]);
     let mode = match p.get("mode") {
         None | Some(Value::Null) => photocraft_color::BlendMode::Normal,
         Some(Value::String(m)) => crate::commands::blend_from_str(m)
@@ -214,7 +221,7 @@ fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
         let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
         let area = band.content_bounds().intersect(&canvas);
         if !area.is_empty() {
-            crate::fill_cmds::blend_color_mask(surf, area, color, &band, mode, opacity, preserve || lock)?;
+            crate::fill_cmds::blend_color_mask(surf, area, color, picked, &band, mode, opacity, preserve || lock)?;
             surf.prune();
         }
         Ok(())
@@ -276,72 +283,24 @@ fn average(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
-fn hash(x: i32, y: i32, seed: u32) -> f32 {
-    let mut h = (x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841) ^ seed.wrapping_mul(0xcb1a_b31f);
-    h ^= h >> 13;
-    h = h.wrapping_mul(0x5bd1_e995);
-    h ^= h >> 15;
-    (h & 0x00ff_ffff) as f32 / 0x00ff_ffff as f32
-}
-
-/// Smooth value noise, summed over octaves (fBm), in 0..1.
-pub(crate) fn clouds_value(x: f32, y: f32, base: f32, seed: u32) -> f32 {
-    let (mut sum, mut amp, mut freq, mut norm) = (0.0, 1.0, 1.0 / base, 0.0);
-    for o in 0..8u32 {
-        let (fx, fy) = (x * freq, y * freq);
-        let (ix, iy) = (fx.floor() as i32, fy.floor() as i32);
-        let (tx, ty) = (fx - ix as f32, fy - iy as f32);
-        let (sx, sy) = (tx * tx * (3.0 - 2.0 * tx), ty * ty * (3.0 - 2.0 * ty));
-        let s = seed.wrapping_add(o * 7919);
-        let top = hash(ix, iy, s) + (hash(ix + 1, iy, s) - hash(ix, iy, s)) * sx;
-        let bot = hash(ix, iy + 1, s) + (hash(ix + 1, iy + 1, s) - hash(ix, iy + 1, s)) * sx;
-        sum += (top + (bot - top) * sy) * amp;
-        norm += amp;
-        amp *= 0.5;
-        freq *= 2.0;
-    }
-    // Stretch the bell-shaped sum so the clouds use the full foreground→background range.
-    ((sum / norm - 0.5) * 2.2 + 0.5).clamp(0.0, 1.0)
-}
-
-/// Filter › Render › Clouds / Difference Clouds, between the foreground and background colours.
-fn clouds(s: &mut Session, p: &Value, difference: bool) -> Result<Value> {
-    let (fg, bg) = (s.tools.foreground, s.tools.background);
-    let seed = p.get("seed").and_then(Value::as_u64).unwrap_or(0) as u32;
-    let size = s.active().map_or(256.0, |d| d.doc.size.width.max(d.doc.size.height) as f32);
-    let base = (size / 4.0).clamp(16.0, 512.0);
-    map_pixels(s, if difference { "Difference Clouds" } else { "Clouds" }, p, |area, px, _| {
-        let w = area.width() as usize;
-        for (i, p) in px.iter_mut().enumerate() {
-            let (x, y) = ((area.x0 + (i % w) as i32) as f32, (area.y0 + (i / w) as i32) as f32);
-            let t = clouds_value(x, y, base, seed);
-            let c: [f32; 3] = std::array::from_fn(|k| fg[k] + (bg[k] - fg[k]) * t);
-            if difference {
-                for k in 0..3 {
-                    p[k] = (p[k] - c[k]).abs();
-                }
-            } else {
-                *p = [c[0], c[1], c[2], 1.0];
-            }
-        }
-    })
-}
-
 // ---------- transform presets ----------
 
 /// The presets' params: like Free Transform, they follow the Channels and Layers panel target.
 const TRANSFORM_TARGET: &str =
     r#"{"target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask turns alone)}"#;
 
+/// Flips and turns about the centre of the box Free Transform would open: with a selection
+/// limiting the transform it is the selection's own bounds, as in Photoshop, so Select All
+/// mirrors across the canvas (#6928); otherwise the content's bounds.
 fn transform_preset(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     // A targeted alpha channel, the Quick Mask or an unlinked layer mask turns by itself (#2835).
     let (b, mut params) = match crate::transform_cmds::lone_target(&d.doc, d.active_layer, p)? {
-        Some(surf) => (crate::transform_cmds::target_bounds(&d.doc, surf), json!({"target": p.get("target")})),
+        Some(surf) => (crate::transform_cmds::target_frame(&d.doc, surf), json!({"target": p.get("target")})),
         None => {
             let id = d.active_layer.ok_or(EngineError::Other("no active layer".into()))?;
             let l = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
-            (crate::transform_cmds::transform_bounds(&d.doc, l), json!({"layer": id.0}))
+            (crate::transform_cmds::transform_frame(&d.doc, l), json!({"layer": id.0}))
         }
     };
     if b.is_empty() {
@@ -377,6 +336,9 @@ fn can_reselect(s: &Session) -> std::result::Result<(), String> {
     reselect_target(s).map(|_| ()).ok_or_else(|| "there is no selection to restore".into())
 }
 
+/// Edit › Paste Special › Paste Into (or Outside): the clipboard centred on the selection, not
+/// clamped to the canvas, as a new layer masked to the selection (or its inverse), or into the
+/// targeted mask or channel. One history step.
 fn paste_into(s: &mut Session, p: &Value, outside: bool) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let selection = d.doc.selection.clone().ok_or(EngineError::Other("Paste Into needs a selection".into()))?;
@@ -394,7 +356,8 @@ fn paste_into(s: &mut Session, p: &Value, outside: bool) -> Result<Value> {
         selection
     };
     let label = if outside { "Paste Outside" } else { "Paste Into" };
-    let mut params = json!({"center": [(b.x0 + b.x1) as f64 / 2.0, (b.y0 + b.y1) as f64 / 2.0]});
+    // Centred on the selection, even where that runs off the canvas (not clamped like a paste).
+    let mut params = json!({"center": [(b.x0 + b.x1) as f64 / 2.0, (b.y0 + b.y1) as f64 / 2.0], "clampToCanvas": false});
     if let Some(c) = p.get("center") {
         params["center"] = c.clone();
     }
@@ -406,6 +369,13 @@ fn paste_into(s: &mut Session, p: &Value, outside: bool) -> Result<Value> {
         // A targeted mask or channel (#1035): the paste goes into it, only where `limit` allows.
         params["target"] = p.get("target").cloned().unwrap_or_default();
         return crate::edit_cmds::paste_to_target(s, &params, false, Some(&limit), label);
+    }
+    // The pasted layer lands beside the active one, inside its group, and a Lock-All group refuses
+    // its layer mask: refuse before pasting rather than leave an unmasked paste behind.
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    let group = d.active_layer.and_then(|a| d.doc.path_of(a)).and_then(|p| d.doc.layer_at(p.split_last()?.1).map(|g| g.id));
+    if let Some(g) = group {
+        crate::commands::check_all_unlocked(&d.doc, g)?;
     }
     let key = step_key(s, "pasteInto");
     params["coalesce"] = json!(key);
@@ -435,11 +405,20 @@ pub fn reveal_all_bounds(doc: &Document) -> Rect {
 
 // ---------- layers ----------
 
-fn layer_from_background(s: &mut Session) -> Result<Value> {
+fn layer_from_background(s: &mut Session, p: &Value) -> Result<Value> {
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    if d.doc.background().is_none() && p.get("ifPresent").and_then(Value::as_bool) == Some(true) {
+        return Ok(json!({"layer": null}));
+    }
+    // `select: false`: the targeted layer stays targeted, as when a Photoshop action's `set`
+    // names the Background while another layer is selected.
+    let select = p.get("select").and_then(Value::as_bool).unwrap_or(true);
     let id = s.edit("Layer From Background", |doc, active| {
         let l = doc.background_mut().ok_or(EngineError::Other("the document has no Background layer".into()))?;
         unlock_background(l);
-        *active = Some(l.id);
+        if select || active.is_none() {
+            *active = Some(l.id);
+        }
         Ok(l.id)
     })?;
     Ok(json!({"layer": id.0}))
@@ -511,11 +490,16 @@ fn delete_where(s: &mut Session, label: &str, pred: fn(&Layer) -> bool) -> Resul
             n
         }
         let backup = doc.layers.clone();
+        // The clip groups of the doomed layers, read before they go (clip_group rule 3: layers
+        // clipped to a deleted base are released).
+        let doomed: Vec<LayerId> = doc.walk().into_iter().filter(|(_, _, l)| pred(l)).map(|(_, _, l)| l.id).collect();
+        let before = crate::clip_group::Before::read(doc, &doomed);
         let n = rec(&mut doc.layers, pred);
         if doc.layers.is_empty() {
             doc.layers = backup;
             return Err(EngineError::Other("a document must keep at least one layer".into()));
         }
+        crate::clip_group::settle(doc, &[], &before, false);
         if active.is_none_or(|id| doc.layer(id).is_none()) {
             *active = doc.top_layer();
         }
@@ -564,6 +548,35 @@ fn set_visible(s: &mut Session, p: &Value, visible: bool) -> Result<Value> {
         Ok(())
     })?;
     Ok(Value::Null)
+}
+
+/// Layer › Hide Layers (⌘,): hide the targeted layers, or show them when every one is already
+/// hidden, as Photoshop's item does (it reads Show Layers then), so ⌘, toggles.
+fn hide_or_show(s: &mut Session, p: &Value) -> Result<Value> {
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let targets = if crate::layer_multi_cmds::multi(s, p) { crate::layer_multi_cmds::selected(s) } else { vec![layer_param(s, p)?] };
+    let all_hidden = targets.iter().all(|id| st.doc.layer(*id).is_some_and(|l| !l.visible));
+    set_visible(s, p, all_hidden)
+}
+
+/// `/`: Lock Transparent Pixels on or off for the targeted layers, as the Layers panel's first lock
+/// button does. With several layers targeted, any unlocked one means lock them all. The
+/// Background, which can't take this lock, is left out.
+fn toggle_lock_transparency(s: &mut Session, p: &Value) -> Result<Value> {
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let targets: Vec<LayerId> = if crate::layer_multi_cmds::multi(s, p) { crate::layer_multi_cmds::selected(s) } else { vec![layer_param(s, p)?] };
+    let targets: Vec<LayerId> = targets.into_iter().filter(|id| st.doc.layer(*id).is_some_and(|l| !st.doc.is_background(l.id))).collect();
+    if targets.is_empty() {
+        return Err(EngineError::Other("the Background layer can't lock transparent pixels".into()));
+    }
+    let lock = !targets.iter().all(|id| st.doc.layer(*id).is_some_and(|l| l.locks.transparency));
+    s.edit(if lock { "Lock Transparent Pixels" } else { "Unlock Transparent Pixels" }, |doc, _| {
+        for id in &targets {
+            doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?.locks.transparency = lock;
+        }
+        Ok(())
+    })?;
+    Ok(json!({"locked": lock}))
 }
 
 /// Is the layer at `path` shown alone: it and its enclosing groups visible, every layer outside
@@ -667,10 +680,34 @@ fn rasterize_content(s: &mut Session, id: LayerId, only: Option<&str>, key: &str
         "shape" => {
             s.execute("layer.rasterize.shape", json!({"layer": id.0, "coalesce": key}))?;
         }
-        _ => {
-            let label = if kind == "fill" { "Rasterize Fill Content" } else { "Rasterize Smart Object" };
+        "smart" => {
             s.coalesce_request = Some(key.to_string());
-            let r = s.edit(label, |doc, _| {
+            let r = s.edit("Rasterize Smart Object", |doc, _| {
+                let snapshot = doc.clone();
+                let mut snap = doc.layer(id).cloned().ok_or(EngineError::NoLayer(id))?;
+                if matches!(snap.content, LayerContent::Smart(ref sm) if sm.cache.is_none()) {
+                    let _ = crate::smart_cmds::refresh_layer(&snapshot, &mut snap);
+                }
+                let fmt = snapshot.pixel_format();
+                let surface = match &mut snap.content {
+                    LayerContent::Smart(sm) => match sm.cache.take() {
+                        Some(c) => c,
+                        None => content_pixels(&snapshot, &snap),
+                    },
+                    _ => return Err(EngineError::Other(format!("layer {} is not a smart object", id.0))),
+                };
+                let surface = if surface.format() == fmt { surface } else { surface.convert(fmt) };
+                let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+                l.content = LayerContent::Raster(surface);
+                l.psd_blocks.retain(|(k, _)| k != b"SoLd" && k != b"SoLE" && k != b"PlLd");
+                Ok(())
+            });
+            s.coalesce_request = None;
+            r?;
+        }
+        _ => {
+            s.coalesce_request = Some(key.to_string());
+            let r = s.edit("Rasterize Fill Content", |doc, _| {
                 let snap = doc.layer(id).cloned().ok_or(EngineError::NoLayer(id))?;
                 let px = content_pixels(doc, &snap);
                 let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
@@ -800,14 +837,33 @@ pub fn specs() -> Vec<CommandSpec> {
             if all == d.doc.bounds() {
                 return Ok(json!({"changed": false}));
             }
-            s.execute("image.crop", json!({"x": all.x0, "y": all.y0, "width": all.width(), "height": all.height(), "deleteCroppedPixels": false}))?;
+            // One History step named as in Photoshop, not the crop's "Crop".
+            let p = json!({"x": all.x0, "y": all.y0, "width": all.width(), "height": all.height(), "deleteCroppedPixels": false});
+            crate::analysis_cmds::compound(s, "Reveal All", |s| s.execute("image.crop", p))?;
             Ok(json!({"changed": true}))
         }),
-        spec!("layer.new.layerFromBackground", "Layer From Background…", &["Layer", "New"], None, "{}", has_background, |s, _| layer_from_background(s)),
+        spec!(
+            "layer.new.layerFromBackground",
+            "Layer From Background…",
+            &["Layer", "New"],
+            None,
+            r##"{"ifPresent":bool=false (true: a document without a Background is left as it is, as a Photoshop action's step needs on an image that opened as a normal layer),"select":bool=true (false: the targeted layer stays targeted)}"##,
+            has_background,
+            layer_from_background
+        ),
         spec!("layer.layerStyle.copyLayerStyle", "Copy Layer Style", &["Layer", "Layer Style"], None, r##"{"layer":id?}"##, has_layer, |s, p| {
             let id = layer_param(s, p)?;
-            let l = s.active().and_then(|d| d.doc.layer(id)).ok_or(EngineError::NoLayer(id))?;
-            let style = (l.effects.clone(), l.blend, l.fill_opacity, l.advanced);
+            let d = s.active().ok_or(EngineError::NoDocument)?;
+            let l = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+            let style = crate::CopiedStyle {
+                effects: l.effects.clone(),
+                blend: l.blend,
+                fill: l.fill_opacity,
+                advanced: l.advanced,
+                blend_if: l.blend_if.clone(),
+                excluded_channels: l.excluded_channels,
+                mode: d.doc.mode,
+            };
             s.style_clipboard = Some(style);
             Ok(Value::Null)
         }),
@@ -823,17 +879,39 @@ pub fn specs() -> Vec<CommandSpec> {
             },
             |s, p| {
                 let ids = style_targets(s, p, |_| true)?;
-                let (mut fx, blend, fill, advanced) = s.style_clipboard.clone().ok_or(EngineError::Other("no layer style has been copied".into()))?;
+                let style = s.style_clipboard.clone().ok_or(EngineError::Other("no layer style has been copied".into()))?;
+                let mut fx = style.effects;
                 s.edit("Paste Layer Style", |doc, _| {
                     // A style copied from a document in another mode takes this one's colours.
                     let mode = doc.mode;
                     fx.items = std::mem::take(&mut fx.items).into_iter().map(|e| e.in_mode(mode)).collect();
+                    // Blend If's Gray range carries over to any mode; its channel ranges and the
+                    // channel restrictions only to the mode they were set in.
+                    let same_mode = style.mode == mode;
+                    let blend_if = if same_mode {
+                        style.blend_if.clone()
+                    } else {
+                        // Through `set`, which keeps the normalised form (no trailing full
+                        // entries), so a full Gray range pastes as the default.
+                        let mut gray = photocraft_doc::BlendIf::default();
+                        gray.set(0, style.blend_if.get(0));
+                        gray
+                    };
                     for id in ids {
+                        background_to_layer(doc, id);
                         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
                         l.effects = fx.clone();
-                        l.blend = blend;
-                        l.fill_opacity = fill;
-                        l.advanced = advanced;
+                        // Pass Through is a group's mode: a group's style pastes onto other layers as
+                        // Normal, as a merged group's Pass Through becomes Normal.
+                        l.blend = if style.blend == photocraft_color::BlendMode::PassThrough && !l.is_group() {
+                            photocraft_color::BlendMode::Normal
+                        } else {
+                            style.blend
+                        };
+                        l.fill_opacity = style.fill;
+                        l.advanced = style.advanced;
+                        l.blend_if = blend_if.clone();
+                        l.excluded_channels = if same_mode { style.excluded_channels } else { 0 };
                     }
                     Ok(())
                 })?;
@@ -916,8 +994,25 @@ pub fn specs() -> Vec<CommandSpec> {
             },
             ungroup
         ),
-        spec!("layer.hideLayers", "Hide Layers", &["Layer"], Some("Cmd+,"), r##"{"layer":id?}"##, has_layer, |s, p| set_visible(s, p, false)),
+        spec!(
+            "layer.hideLayers",
+            "Hide Layers",
+            &["Layer"],
+            Some("Cmd+,"),
+            r##"{"layer":id?} (shows them instead when every targeted layer is already hidden, so ⌘, toggles)"##,
+            has_layer,
+            hide_or_show
+        ),
         spec!("layer.showLayers", "Show Layers", &[], None, r##"{"layer":id?}"##, has_layer, |s, p| set_visible(s, p, true)),
+        spec!(
+            "layer.toggleLockTransparency",
+            "Lock Transparent Pixels",
+            &[],
+            Some("/"),
+            r##"{"layer":id?} (toggles; several layers selected: locks them all unless every one is locked)"##,
+            has_layer,
+            toggle_lock_transparency
+        ),
         spec!(
             "layer.showOnly",
             "Show Only This Layer",
@@ -928,8 +1023,6 @@ pub fn specs() -> Vec<CommandSpec> {
             show_only
         ),
         spec!("filter.blur.average", "Average", &["Filter", "Blur"], None, "{}", has_pixels, average),
-        spec!("filter.render.clouds", "Clouds", &["Filter", "Render"], None, r##"{"seed":u32=0}"##, has_pixels, |s, p| clouds(s, p, false)),
-        spec!("filter.render.differenceClouds", "Difference Clouds", &["Filter", "Render"], None, r##"{"seed":u32=0}"##, has_pixels, |s, p| clouds(s, p, true)),
     ]
 }
 
@@ -1345,6 +1438,49 @@ mod tests {
         assert_eq!(pixel(&s, 10, 10), vec![0.0, 1.0, 0.0, 1.0]);
     }
 
+    /// #6928: with a selection, the presets flip and turn about the selection's own bounds, as
+    /// in Photoshop: Select All mirrors across the canvas, a marquee across its own centre.
+    /// Without a selection they keep turning about the content (above).
+    #[test]
+    fn transform_presets_turn_about_the_selection() {
+        let mut s = session(8);
+        paint_square(&mut s, Rect::new(10, 10, 20, 14), [1.0, 0.0, 0.0, 1.0]);
+        paint_square(&mut s, Rect::new(10, 10, 11, 11), [0.0, 1.0, 0.0, 1.0]);
+        let green = vec![0.0, 1.0, 0.0, 1.0];
+        // Select All on the 40 × 30 canvas: across the canvas's centre lines.
+        s.execute("select.all", json!({})).unwrap();
+        let past = s.active().unwrap().history.past_len();
+        s.execute("edit.transform.flipHorizontal", json!({})).unwrap();
+        assert_eq!(active(&s).surface().unwrap().content_bounds(), Rect::new(20, 10, 30, 14));
+        assert_eq!(pixel(&s, 29, 10), green);
+        assert_eq!(s.active().unwrap().history.past_len(), past + 1, "one undo step");
+        s.execute("edit.transform.flipVertical", json!({})).unwrap();
+        assert_eq!(active(&s).surface().unwrap().content_bounds(), Rect::new(20, 16, 30, 20));
+        assert_eq!(pixel(&s, 29, 19), green);
+        s.execute("edit.transform.rotate180", json!({})).unwrap();
+        assert_eq!(active(&s).surface().unwrap().content_bounds(), Rect::new(10, 10, 20, 14));
+        assert_eq!(pixel(&s, 10, 10), green);
+        // A marquee (0, 0)–(24, 30) holding the whole square: across x = 12.
+        s.execute("select.rect", json!({"x": 0, "y": 0, "width": 24, "height": 30})).unwrap();
+        s.execute("edit.transform.flipHorizontal", json!({})).unwrap();
+        assert_eq!(active(&s).surface().unwrap().content_bounds(), Rect::new(4, 10, 14, 14));
+        assert_eq!(pixel(&s, 13, 10), green);
+        // Undo puts it back where it was.
+        s.undo();
+        assert_eq!(active(&s).surface().unwrap().content_bounds(), Rect::new(10, 10, 20, 14));
+        // A targeted alpha channel turns about the selection's bounds too.
+        s.execute("channel.new", json!({})).unwrap();
+        s.edit("paint channel", |doc, _| {
+            doc.channels[0].surface.fill_rect(Rect::new(10, 10, 20, 20), &[1.0]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("channel.target", json!({"channel": 0})).unwrap();
+        s.execute("select.all", json!({})).unwrap();
+        s.execute("edit.transform.flipHorizontal", json!({})).unwrap();
+        assert_eq!(s.active().unwrap().doc.channels[0].surface.content_bounds(), Rect::new(20, 10, 30, 20));
+    }
+
     #[test]
     fn reselect_restores_the_last_selection() {
         let mut s = session(8);
@@ -1366,6 +1502,31 @@ mod tests {
             s.execute("image.adjustments.equalize", json!({})).unwrap();
             let (dark, light) = (pixel(&s, 1, 1)[0], pixel(&s, 1, 20)[0]);
             assert!(dark < 0.05 && light > 0.95, "{depth}: {dark} {light}");
+        }
+    }
+
+    /// A selection masks Clouds but doesn't change their size: inside it they are the canvas's
+    /// clouds, as when Clouds sized itself by the document (before it became a filter).
+    #[test]
+    fn clouds_in_a_selection_are_the_canvas_clouds() {
+        // Big enough that the canvas (cloud size 100 px) and the selection (16 px) size differently.
+        let big = |depth: u32| {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 400, "height": 300, "depth": depth})).unwrap();
+            s.execute("layer.new.layer", json!({})).unwrap();
+            s
+        };
+        for depth in [8, 16, 32] {
+            let mut whole = big(depth);
+            whole.execute("filter.render.clouds", json!({"seed": 4})).unwrap();
+            let mut s = big(depth);
+            s.execute("select.rect", json!({"x": 50, "y": 40, "width": 60, "height": 50})).unwrap();
+            s.execute("filter.render.clouds", json!({"seed": 4})).unwrap();
+            for (x, y) in [(50, 40), (75, 60), (100, 85), (109, 89)] {
+                let (a, b) = (pixel(&s, x, y), pixel(&whole, x, y));
+                assert!((0..4).all(|c| (a[c] - b[c]).abs() < 1e-3), "depth {depth} at {x},{y}: {a:?} vs {b:?}");
+            }
+            assert_eq!(pixel(&s, 300, 200)[3], 0.0, "outside the selection the layer stays empty");
         }
     }
 
@@ -1460,7 +1621,7 @@ mod tests {
         // Layer 1 is already the only visible layer: ⌥-clicking it shows everything.
         assert_eq!(s.execute("layer.showOnly", json!({})).unwrap()["shownAlone"], false);
         assert!(doc(&s).layers.iter().all(|l| l.visible));
-        assert!(s.execute("layer.showOnly", json!({"layer": 9999})).is_err());
+        assert!(s.execute("layer.showOnly", json!({"layer": u64::MAX})).is_err());
         assert!(Session::new().execute("layer.showOnly", json!({})).is_err());
     }
 
@@ -1494,6 +1655,48 @@ mod tests {
         let l = doc(&s).layer(top).unwrap();
         assert!(l.mask.is_some() && l.name != "Layer 0" && l.locks.position);
         assert_eq!(doc(&s).layers[0].name, "Background");
+    }
+
+    #[test]
+    fn hide_layers_toggles_once_every_target_is_hidden() {
+        let mut s = session(8);
+        s.execute("layer.new.layer", json!({})).unwrap();
+        let b = active(&s).id;
+        let visible = |s: &Session| doc(s).layer(b).unwrap().visible;
+        // Select › All Layers leaves out the Background, as in Photoshop.
+        let all = |s: &Session| crate::layer_multi_cmds::selected(s).iter().map(|id| doc(s).layer(*id).unwrap().visible).collect::<Vec<_>>();
+        s.execute("layer.hideLayers", json!({})).unwrap();
+        assert!(!visible(&s));
+        s.execute("layer.hideLayers", json!({})).unwrap();
+        assert!(visible(&s), "⌘, again shows it");
+        // Several selected: any one still shown means hide them all; then they all come back.
+        s.execute("layer.hideLayers", json!({"layer": b.0})).unwrap();
+        s.execute("select.allLayers", json!({})).unwrap();
+        assert!(all(&s).len() > 1);
+        s.execute("layer.hideLayers", json!({})).unwrap();
+        assert!(all(&s).iter().all(|v| !v));
+        s.execute("layer.hideLayers", json!({})).unwrap();
+        assert!(all(&s).iter().all(|v| *v));
+    }
+
+    #[test]
+    fn slash_toggles_lock_transparent_pixels_but_not_on_the_background() {
+        let mut s = session(8);
+        let bg = doc(&s).layers[0].id;
+        assert!(doc(&s).is_background(bg));
+        s.execute("layer.new.layer", json!({})).unwrap();
+        let top = active(&s).id;
+        let locked = |s: &Session, id: LayerId| doc(s).layer(id).unwrap().locks.transparency;
+        assert_eq!(s.execute("layer.toggleLockTransparency", json!({})).unwrap()["locked"], true);
+        assert!(locked(&s, top));
+        s.execute("layer.toggleLockTransparency", json!({})).unwrap();
+        assert!(!locked(&s, top));
+        s.undo();
+        assert!(locked(&s, top), "one undoable step each");
+        let bg_locks = doc(&s).layer(bg).unwrap().locks;
+        assert!(s.execute("layer.toggleLockTransparency", json!({"layer": bg.0})).is_err());
+        assert_eq!(doc(&s).layer(bg).unwrap().locks, bg_locks, "the Background is left alone");
+        assert!(s.execute("layer.toggleLockTransparency", json!({"layer": u64::MAX})).is_err());
     }
 
     #[test]
@@ -1548,8 +1751,12 @@ mod tests {
         s.execute("layer.translate", json!({"dx": 0, "dy": 0})).ok();
         paint_square(&mut s, Rect::new(-5, 0, 10, 10), [1.0, 0.0, 0.0, 1.0]);
         assert_eq!(reveal_all_bounds(doc(&s)), Rect::new(-5, 0, 40, 30));
+        let steps = s.active().unwrap().history.past_len();
         s.execute("image.revealAll", json!({})).unwrap();
         assert_eq!((doc(&s).size.width, doc(&s).size.height), (45, 30));
+        let history = &s.active().unwrap().history;
+        assert_eq!(history.past_len(), steps + 1, "one step");
+        assert_eq!(history.entries().last().map(String::as_str), Some("Reveal All"), "named as in Photoshop, not Crop");
         assert_eq!(s.execute("image.revealAll", json!({})).unwrap()["changed"], false);
     }
 
@@ -1566,5 +1773,57 @@ mod tests {
         assert_eq!(s.execute("layer.rasterize.allLayers", json!({})).unwrap()["rasterized"], 1);
         assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
         assert!(doc(&s).walk().iter().all(|(_, _, l)| !matches!(l.content, LayerContent::Fill(_))));
+    }
+
+    #[test]
+    fn rasterize_smart_object_layer() {
+        let mut s = session(8);
+        s.execute("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+        let px_before = pixel(&s, 5, 5);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        assert!(matches!(active(&s).content, LayerContent::Smart(_)));
+        s.execute("layer.rasterize.smartObject", json!({})).unwrap();
+        assert!(matches!(active(&s).content, LayerContent::Raster(_)));
+        let px_after = pixel(&s, 5, 5);
+        assert_eq!(px_after, px_before);
+
+        // Case 2: New layer above background
+        let mut s2 = session(8);
+        s2.execute("layer.new.layer", json!({})).unwrap();
+        s2.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+        s2.execute("edit.fill", json!({"contents": "color", "color": "#00ff00"})).unwrap();
+        s2.execute("select.deselect", json!({})).unwrap();
+        let px_mid = pixel(&s2, 20, 20);
+        assert_eq!(px_mid[1], 1.0); // green
+        s2.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        assert!(matches!(active(&s2).content, LayerContent::Smart(_)));
+        s2.execute("layer.rasterize.smartObject", json!({})).unwrap();
+        assert!(matches!(active(&s2).content, LayerContent::Raster(_)));
+        let px_after_rast = pixel(&s2, 20, 20);
+        assert_eq!(px_after_rast, px_mid);
+
+        // Case 3: Shape layer converted to smart object then rasterized
+        let mut s3 = session(8);
+        s3.execute("shape.create", json!({"kind": "rect", "rect": [10, 10, 40, 40], "fill": "#0000ff"})).unwrap();
+        let px_shape = pixel(&s3, 20, 20);
+        s3.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        assert!(matches!(active(&s3).content, LayerContent::Smart(_)));
+        s3.execute("layer.rasterize.layer", json!({})).unwrap();
+        assert!(matches!(active(&s3).content, LayerContent::Raster(_)));
+        let px_after_shape = pixel(&s3, 20, 20);
+        assert_eq!(px_after_shape, px_shape);
+
+        // Case 4: Transformed smart object
+        let mut s4 = session(8);
+        s4.execute("layer.new.layer", json!({})).unwrap();
+        s4.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+        s4.execute("edit.fill", json!({"contents": "color", "color": "#ffff00"})).unwrap();
+        s4.execute("select.deselect", json!({})).unwrap();
+        s4.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        // Move smart object by 10, 10
+        s4.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 10, 10]})).unwrap();
+        s4.execute("layer.rasterize.smartObject", json!({})).unwrap();
+        assert!(matches!(active(&s4).content, LayerContent::Raster(_)));
+        assert_eq!(pixel(&s4, 30, 30), vec![1.0, 1.0, 0.0, 1.0]);
     }
 }

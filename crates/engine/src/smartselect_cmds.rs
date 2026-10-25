@@ -11,6 +11,7 @@ use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
+use crate::select_mask_edits;
 use crate::{EngineError, Result, Session};
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
@@ -130,9 +131,149 @@ fn rect_param(p: &Value) -> Option<Rect> {
     Some(Rect::new(x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32))
 }
 
+fn point_param(p: &Value) -> Option<(f32, f32)> {
+    let a = p.get("point")?.as_array()?;
+    let (x, y) = (a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32);
+    (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
+/// The layer [`with_doc_sampler`] samples for `layer` / `all_layers`: `None` = the composite.
+pub fn sampled_target(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<LayerId> {
+    layer.filter(|id| !all_layers && doc.layer(*id).and_then(Layer::surface).is_some())
+}
+
+/// Object Finder (#4087): the object Object Selection would select at document point `(x, y)`,
+/// sampling `layer` (or the composite). Pure, so the UI can run it on a worker thread while the
+/// pointer hovers; `select.object` with `"point"` commits the same result.
+pub fn find_object(doc: &Document, layer: Option<LayerId>, all_layers: bool, x: f32, y: f32) -> Option<Region> {
+    with_doc_sampler(doc, layer, all_layers, |smp, doc| grabcut::object_at(smp, doc.bounds(), x, y, grabcut::OBJECT_AT_WORK_PX))
+}
+
+/// Most objects remembered by [`ObjectFinderCache`].
+pub const OBJECT_FINDER_ENTRIES: usize = 12;
+
+/// Object Finder results for one document's pixels (#4087): hovering over an object already
+/// found, or clicking it, answers at once. Keyed like [`SubjectCache`] (valid while the pixels
+/// are the same, the document held weakly) plus the sampled layer; a lookup hits any cached
+/// object that covers the point, so one computation serves the whole object.
+#[derive(Debug, Default)]
+pub struct ObjectFinderCache {
+    doc: std::sync::Weak<Document>,
+    doc_id: Option<photocraft_doc::DocId>,
+    target: Option<LayerId>,
+    regions: Vec<std::sync::Arc<Region>>,
+}
+
+impl ObjectFinderCache {
+    fn valid(&self, doc: &Document, target: Option<LayerId>) -> bool {
+        self.doc_id == Some(doc.id) && self.target == target && self.doc.upgrade().is_some_and(|old| crate::layer_multi_cmds::same_pixels(&old, doc))
+    }
+
+    /// A cached object of `doc` (sampling `target`) covering `(x, y)`.
+    pub fn lookup(&self, doc: &Document, target: Option<LayerId>, x: f32, y: f32) -> Option<std::sync::Arc<Region>> {
+        if !x.is_finite() || !y.is_finite() || !self.valid(doc, target) {
+            return None;
+        }
+        let (px, py) = (x.floor() as i32, y.floor() as i32);
+        self.regions.iter().find(|r| r.at(px, py) >= 0.5).cloned()
+    }
+
+    /// Remembers `region`, found in `doc` sampling `target`. A different document or pixels
+    /// start over; the oldest object is dropped beyond [`OBJECT_FINDER_ENTRIES`].
+    pub fn insert(&mut self, doc: &std::sync::Arc<Document>, target: Option<LayerId>, region: std::sync::Arc<Region>) {
+        if !self.valid(doc, target) {
+            self.regions.clear();
+        }
+        self.doc = std::sync::Arc::downgrade(doc);
+        self.doc_id = Some(doc.id);
+        self.target = target;
+        if self.regions.len() >= OBJECT_FINDER_ENTRIES {
+            self.regions.remove(0);
+        }
+        self.regions.push(region);
+    }
+
+    /// Number of remembered objects.
+    pub fn len(&self) -> usize {
+        self.regions.len()
+    }
+
+    /// Whether nothing is remembered.
+    pub fn is_empty(&self) -> bool {
+        self.regions.is_empty()
+    }
+
+    /// Forget the results if they were computed from the document `id` (it is closing).
+    pub(crate) fn forget_doc(&mut self, id: photocraft_doc::DocId) {
+        if self.doc_id == Some(id) {
+            *self = Self::default();
+        }
+    }
+
+    /// Follows `doc` past a selection-only edit (same pixels), so the next lookup still hits.
+    fn follow(&mut self, doc: &std::sync::Arc<Document>) {
+        if self.doc_id == Some(doc.id) && self.doc.upgrade().is_some_and(|old| crate::layer_multi_cmds::same_pixels(&old, doc)) {
+            self.doc = std::sync::Arc::downgrade(doc);
+        }
+    }
+}
+
+/// Object Selection samples only the active layer by default: when that layer has no pixels in
+/// `area`, say so instead of quietly finding nothing (#5246; scripts often add an empty layer
+/// above the photo first).
+fn check_sampled_pixels(doc: &Document, layer: Option<LayerId>, all_layers: bool, area: Rect) -> Result<()> {
+    match empty_sampled_area(doc, layer, all_layers, area) {
+        Some(msg) => Err(bad("select.object", &format!("{msg}; set \"sampleAllLayers\": true or select a layer with pixels"))),
+        None => Ok(()),
+    }
+}
+
+/// Why sampling `layer` (unless `all_layers`) can find nothing in `area`: the layer is empty, or has no pixels there.
+/// `None` = there is something to sample. The click path reports it as an error, the Object Finder hover as a hint.
+pub fn empty_sampled_area(doc: &Document, layer: Option<LayerId>, all_layers: bool, area: Rect) -> Option<&'static str> {
+    let surf = sampled_target(doc, layer, all_layers).and_then(|id| doc.layer(id)).and_then(Layer::surface)?;
+    if !surf.content_bounds().intersect(&area).is_empty() {
+        return None;
+    }
+    Some(if surf.content_bounds().is_empty() { "the active layer is empty" } else { "the active layer has no pixels in that area" })
+}
+
+/// `select.object` with `"point"`: the Object Finder's object under the point (cached).
+fn object_at_point(s: &mut Session, p: &Value, (x, y): (f32, f32)) -> Result<Value> {
+    let all_layers = b(p, "sampleAllLayers", false);
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    check_sampled_pixels(&d.doc, d.active_layer, all_layers, Rect::from_xywh(x.floor() as i32, y.floor() as i32, 1, 1))?;
+    let target = sampled_target(&d.doc, d.active_layer, all_layers);
+    let region = match s.object_finder.lookup(&d.doc, target, x, y) {
+        Some(r) => Some(r),
+        None => {
+            let doc = std::sync::Arc::clone(&d.doc);
+            let found = find_object(&doc, d.active_layer, all_layers, x, y).map(std::sync::Arc::new);
+            if let Some(r) = &found {
+                s.object_finder.insert(&doc, target, std::sync::Arc::clone(r));
+            }
+            found
+        }
+    };
+    let out = apply(s, "Object Selection", region.as_deref(), mode(p, "replace"))?;
+    if let Some(d) = s.active() {
+        let doc = std::sync::Arc::clone(&d.doc);
+        s.object_finder.follow(&doc);
+    }
+    Ok(out)
+}
+
 fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
-    let rect = rect_param(p).ok_or_else(|| bad("select.object", "needs \"rect\": [x, y, w, h]"))?;
-    let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| grabcut::object_select(smp, doc.bounds(), rect, 160_000))?;
+    if p.get("rect").is_none()
+        && let Some(pt) = point_param(p)
+    {
+        return object_at_point(s, p, pt);
+    }
+    let rect = rect_param(p).ok_or_else(|| bad("select.object", "needs \"rect\": [x, y, w, h] or \"point\": [x, y]"))?;
+    let all_layers = b(p, "sampleAllLayers", false);
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    check_sampled_pixels(&d.doc, d.active_layer, all_layers, rect)?;
+    let region = with_sampler(s, all_layers, |smp, doc| grabcut::object_select(smp, doc.bounds(), rect, 160_000))?;
     apply(s, "Object Selection", region.as_ref(), mode(p, "replace"))
 }
 
@@ -258,8 +399,9 @@ fn refine_strokes(p: &Value) -> Result<Vec<matting::EdgeStroke>> {
     Ok(strokes)
 }
 
-/// Select and Mask: refines the selection edge, then outputs to the selection, a layer mask on
-/// the active layer, a new layer or a new document (each with or without a mask).
+/// Select and Mask: applies the workspace's tool `edits` to the selection (or layer mask), refines
+/// its edge, then outputs to the selection, a layer mask on the active layer, a new layer or a new
+/// document (each with or without a mask).
 /// Decontaminating colours needs new pixels, so it upgrades `selection` / `layerMask` output to
 /// `newLayerWithMask` (as Photoshop does). New-layer outputs hide the source layer; new-document
 /// outputs leave the source document untouched.
@@ -279,12 +421,30 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     if decontaminate && matches!(output.as_str(), "selection" | "layerMask") {
         output = "newLayerWithMask".into();
     }
+    let edits = select_mask_edits::parse(p)?;
+    // Before anything is painted: a thin stroke across a huge canvas paints few pixels but many tiles.
+    select_mask_edits::check_size(&edits, d.doc.bounds())?;
+    select_mask_edits::check_strokes(&strokes, d.doc.bounds())?;
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
         let mask_surf = active.and_then(|id| doc.layer(id)).and_then(|l| l.mask.as_ref()).map(|m| &m.surface);
-        let sel = doc.selection.as_ref().or(mask_surf)?;
+        let target_mask = p.get("target").and_then(Value::as_str) == Some("mask");
+        let start = if target_mask { mask_surf.or(doc.selection.as_ref()) } else { doc.selection.as_ref().or(mask_surf) };
+        // The workspace's tool edits change the selection before its edge is refined.
+        let edited = if edits.is_empty() { None } else { select_mask_edits::apply(doc, active, start.cloned(), &edits) };
+        let Some(sel) = (if edits.is_empty() { start } else { edited.as_ref() }) else { return Ok(None) };
         let brush = matting::EdgeBrush::new(&strokes, doc.bounds());
-        matting::refine_mask_brushed(smp, &matting::surface_reader(sel), sel.content_bounds(), doc.bounds(), &params, brush.as_ref())
-    })?;
+        // The refined result is dense over the selection's bounds: refuse what would not fit
+        // rather than allocate it (a thin edit across a huge canvas; the #8783 review).
+        let content = sel.content_bounds();
+        let area = matting::refine_area(content, doc.bounds(), &params, brush.as_ref());
+        if u64::from(area.width()) * u64::from(area.height()) > matting::MAX_REFINE_AREA {
+            return Err(bad(
+                "select.refineEdge",
+                &format!("the selection is too large to refine ({} × {} px; at most {} px in all)", area.width(), area.height(), matting::MAX_REFINE_AREA),
+            ));
+        }
+        Ok(matting::refine_mask_brushed(smp, &matting::surface_reader(sel), content, doc.bounds(), &params, brush.as_ref()))
+    })??;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let active = d.active_layer.filter(|id| d.doc.layer(*id).is_some());
     match output.as_str() {
@@ -300,7 +460,9 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
             s.edit("Select and Mask", |doc, _| {
                 let surface =
                     region.as_ref().map(matting::region_surface).unwrap_or_else(|| photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8));
-                doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(LayerMask { surface, ..LayerMask::reveal_all() });
+                crate::extra_cmds::background_to_layer_for_mask(doc, id);
+                let existing = doc.layer(id).and_then(|l| l.mask.as_ref()).cloned().unwrap_or_else(LayerMask::reveal_all);
+                doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(LayerMask { surface, ..existing });
                 doc.selection = None;
                 Ok(())
             })?;
@@ -373,7 +535,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.object",
             "Object Selection",
             [],
-            r##"{"rect":[x,y,w,h],"mode":"replace|add|subtract|intersect"="replace","sampleAllLayers":bool=false}"##,
+            r##"{"rect":[x,y,w,h] | "point":[x,y],"mode":"replace|add|subtract|intersect"="replace","sampleAllLayers":bool=false} (point: the Object Finder's object under the point, as hovering previews it)"##,
             has_doc,
             object_selection
         ),
@@ -389,7 +551,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.refineEdge",
             "Refine Edge",
             [],
-            r##"{"radius":px=0,"smartRadius":bool=false,"smooth":0..100=0,"feather":px=0,"contrast":0..100=0,"shiftEdge":-100..100=0,"decontaminate":bool=false,"amount":0..100=100,"output":"selection|layerMask|newLayer|newLayerWithMask|newDocument|newDocumentWithMask"="selection","sampleAllLayers":bool=false,"refineStrokes":[{"points":[[x,y],…],"size":px=30,"mode":"add|subtract"="add"},…]=[]} (refineStrokes: the Refine Edge Brush, in painting order: add refines the painted area from the image, subtract keeps the original edge there)"##,
+            r##"{"radius":px=0,"smartRadius":bool=false,"smooth":0..100=0,"feather":px=0,"contrast":0..100=0,"shiftEdge":-100..100=0,"decontaminate":bool=false,"amount":0..100=100,"output":"selection|layerMask|newLayer|newLayerWithMask|newDocument|newDocumentWithMask"="selection","sampleAllLayers":bool=false,"refineStrokes":[{"points":[[x,y],…],"size":px=30,"mode":"add|subtract"="add"},…]=[],"edits":[{"tool":"quick","points":[[x,y],…],"size":px=30,"mode":"add|subtract"="add","sampleAllLayers":bool=false} | {"tool":"brush","points":[[x,y],…],"size":px=30,"hardness":0..100=100,"mode":"add|subtract"="add"} | {"tool":"lasso","points":[[x,y],…≥3],"mode":"add|subtract"="add"} | {"tool":"object","rect":[x,y,w,h] | "point":[x,y],"mode":"add|subtract"="add","sampleAllLayers":bool=false} | {"tool":"subject","mode":"replace|add|subtract"="replace","sampleAllLayers":bool=true} | {"tool":"clear"} | {"tool":"invert"},…]=[]} (refineStrokes: the Refine Edge Brush, in painting order: add refines the painted area from the image, subtract keeps the original edge there; edits: the workspace's Quick Selection, Brush, Lasso, Object Selection, Select Subject, Clear Selection and Invert, applied in order to the selection before its edge is refined)"##,
             has_selection_or_mask,
             refine_edge
         ),
@@ -545,6 +707,75 @@ mod tests {
     }
 
     #[test]
+    fn object_selection_point_selects_the_object_under_it() {
+        for depth in [8, 16, 32] {
+            let (mut s, inside) = disc(depth);
+            let r = s.execute("select.object", json!({"point": [100, 80]})).unwrap();
+            assert_eq!(r["changed"], true, "depth {depth}");
+            let v = sel_iou(&s, 200, 160, &inside);
+            assert!(v > 0.9, "depth {depth}: IoU {v}");
+        }
+        // The background is no object: nothing changes.
+        let (mut s, _) = disc(8);
+        let r = s.execute("select.object", json!({"point": [3, 3]})).unwrap();
+        assert_eq!(r["changed"], false);
+        assert!(s.active().unwrap().doc.selection.is_none());
+        assert!(s.execute("select.object", json!({"point": ["a", 1]})).is_err());
+    }
+
+    #[test]
+    fn object_selection_finds_a_large_foreground_at_each_depth_and_undoes() {
+        for depth in [8, 16, 32] {
+            let inside = |x: i32, y: i32| (10..190).contains(&x) && (8..152).contains(&y);
+            let mut s = session_with(200, 160, depth, |x, y| if inside(x as i32, y as i32) { [0.8, 0.2, 0.1] } else { [0.1, 0.2, 0.8] });
+            let r = s.execute("select.object", json!({"point": [100, 80]})).unwrap();
+            assert_eq!(r["changed"], true, "depth {depth}");
+            assert!(sel_iou(&s, 200, 160, inside) > 0.95, "depth {depth}");
+            s.execute("edit.undo", json!({})).unwrap();
+            assert!(s.active().unwrap().doc.selection.is_none());
+            let r = s.execute("select.object", json!({"point": [1, 1]})).unwrap();
+            assert_eq!(r["changed"], false, "background at depth {depth}");
+            assert!(s.active().unwrap().doc.selection.is_none());
+        }
+    }
+
+    #[test]
+    fn object_selection_point_honours_the_modes() {
+        let (mut s, _) = disc(8);
+        s.execute("select.all", json!({})).unwrap();
+        s.execute("select.object", json!({"point": [100, 80], "mode": "subtract"})).unwrap();
+        assert!(cov(&s, 100, 80) < 0.5 && cov(&s, 3, 3) >= 0.5);
+        s.execute("select.object", json!({"point": [100, 80], "mode": "add"})).unwrap();
+        assert!(cov(&s, 100, 80) >= 0.5 && cov(&s, 3, 3) >= 0.5);
+        s.execute("select.object", json!({"point": [100, 80], "mode": "intersect"})).unwrap();
+        assert!(cov(&s, 100, 80) >= 0.5 && cov(&s, 3, 3) < 0.5);
+    }
+
+    #[test]
+    fn object_finder_cache_serves_the_whole_object_until_pixels_change() {
+        let (mut s, _) = disc(8);
+        let d = s.active().unwrap();
+        let doc = std::sync::Arc::clone(&d.doc);
+        let target = sampled_target(&doc, d.active_layer, false);
+        assert!(s.object_finder.lookup(&doc, target, 100.0, 80.0).is_none());
+        let r = std::sync::Arc::new(find_object(&doc, d.active_layer, false, 100.0, 80.0).unwrap());
+        s.object_finder.insert(&doc, target, std::sync::Arc::clone(&r));
+        // Any point on the object hits; the background and another target miss.
+        assert!(std::sync::Arc::ptr_eq(&s.object_finder.lookup(&doc, target, 120.0, 90.0).unwrap(), &r));
+        assert!(s.object_finder.lookup(&doc, target, 3.0, 3.0).is_none());
+        assert!(s.object_finder.lookup(&doc, Some(LayerId(u64::MAX)), 100.0, 80.0).is_none());
+        // The click reuses it, and a selection-only edit keeps it.
+        s.execute("select.object", json!({"point": [110, 70]})).unwrap();
+        assert_eq!(s.object_finder.len(), 1);
+        s.execute("select.deselect", json!({})).unwrap();
+        let d = s.active().unwrap();
+        assert!(s.object_finder.lookup(&std::sync::Arc::clone(&d.doc), target, 100.0, 80.0).is_some());
+        // A pixel edit drops it.
+        s.execute("paint.pencil", json!({"points": [[5, 5], [30, 5]], "size": 4, "color": "#000000"})).unwrap();
+        assert!(s.object_finder.is_empty());
+    }
+
+    #[test]
     fn object_selection_disc() {
         for depth in [8, 16, 32] {
             let (mut s, inside) = disc(depth);
@@ -557,6 +788,26 @@ mod tests {
         // Negative width/height (drag up-left) work too.
         s.execute("select.object", json!({"rect": [160, 140, -120, -120]})).unwrap();
         assert!(cov(&s, 100, 80) >= 0.5);
+    }
+
+    #[test]
+    fn object_selection_on_an_empty_active_layer_says_so() {
+        // #5246: an empty layer above the photo used to find nothing without a word.
+        let (mut s, inside) = disc(8);
+        s.execute("layer.new.layer", json!({})).unwrap();
+        for p in [json!({"rect": [40, 20, 120, 120]}), json!({"point": [100, 80]})] {
+            let e = s.execute("select.object", p.clone()).unwrap_err().to_string();
+            assert!(e.contains("active layer is empty") && e.contains("sampleAllLayers"), "{p}: {e}");
+            assert!(s.active().unwrap().doc.selection.is_none());
+        }
+        // Sampling all layers finds the disc below.
+        s.execute("select.object", json!({"rect": [40, 20, 120, 120], "sampleAllLayers": true})).unwrap();
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.95);
+        // A layer with pixels elsewhere: the rectangle holds none of them.
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("paint.pencil", json!({"points": [[5, 5], [10, 5]], "size": 2, "color": "#000000"})).unwrap();
+        let e = s.execute("select.object", json!({"rect": [60, 60, 100, 80]})).unwrap_err().to_string();
+        assert!(e.contains("no pixels in that area"), "{e}");
     }
 
     #[test]
@@ -651,6 +902,31 @@ mod tests {
         s.execute("edit.undo", json!({})).unwrap();
         assert!(s.active().unwrap().doc.layers[0].mask.is_none());
         assert!(s.active().unwrap().doc.selection.is_some());
+
+        // Existing mask settings (density, feather, linked) are preserved
+        s.edit("set mask", |doc, _| {
+            doc.layers[0].mask = Some(photocraft_doc::LayerMask {
+                surface: photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8),
+                density: 0.75,
+                feather: 3.5,
+                linked: false,
+                enabled: true,
+            });
+            Ok(())
+        })
+        .unwrap();
+        let r = s.execute("select.refineEdge", json!({"radius": 8, "output": "layerMask"})).unwrap();
+        let l = s.active().unwrap().doc.layer(photocraft_doc::LayerId(r["layer"].as_u64().unwrap())).unwrap();
+        let m = l.mask.as_ref().unwrap();
+        assert_eq!(m.density, 0.75);
+        assert_eq!(m.feather, 3.5);
+        assert!(!m.linked);
+        s.execute("edit.undo", json!({})).unwrap();
+        s.edit("clear mask", |doc, _| {
+            doc.layers[0].mask = None;
+            Ok(())
+        })
+        .unwrap();
 
         // New layer: pixels with the refined alpha; the source is hidden.
         let r = s.execute("select.refineEdge", json!({"radius": 8, "feather": 1, "output": "newLayer"})).unwrap();
@@ -774,7 +1050,6 @@ mod tests {
     fn refine_edge_works_on_layer_mask_without_selection() {
         let mut s = blurred_edge_selected();
         s.execute("layer.layerMask.revealSelection", json!({})).unwrap();
-        s.execute("select.deselect", json!({})).unwrap();
         assert!(s.active().unwrap().doc.selection.is_none());
         assert!(s.active().unwrap().doc.layers[0].mask.is_some());
         assert!(s.is_enabled("select.refineEdge"));
@@ -808,5 +1083,175 @@ mod tests {
         });
         s.execute("select.focusArea", json!({})).unwrap();
         assert!(cov(&s, 30, 50) >= 0.5 && cov(&s, 130, 50) < 0.5);
+    }
+    /// The selection as 8-bit coverage over `w × h`, to compare two selections exactly.
+    fn sel_bytes(s: &Session, w: i32, h: i32) -> Vec<u8> {
+        (0..h).flat_map(|y| (0..w).map(move |x| (cov(s, x, y) * 255.0).round() as u8)).collect()
+    }
+
+    /// The #8783 review: a refine whose result would be dense over more than
+    /// [`matting::MAX_REFINE_AREA`] pixels is refused, not allocated: a thin Brush edit across a
+    /// huge canvas (its edited selection spans the canvas) and a selection of the whole canvas.
+    /// The selection stays as it was.
+    #[test]
+    fn refine_edge_refuses_a_selection_too_large_to_refine() {
+        let mut s = Session::new();
+        s.add_document(
+            Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8),
+            None,
+        );
+        s.execute("select.rect", json!({"x": 10, "y": 60, "width": 10, "height": 10})).unwrap();
+        let small = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
+        let diagonal = json!({"edits": [{"tool": "brush", "points": [[0, 0], [99_999, 99_999]], "size": 1}]});
+        let t = std::time::Instant::now();
+        let e = s.execute("select.refineEdge", diagonal).expect_err("too large to refine");
+        assert!(e.to_string().contains("too large to refine"), "{e}");
+        assert!(s.active().and_then(|d| d.doc.selection.as_ref()) == Some(&small), "the selection is unchanged");
+        // The small selection itself still refines.
+        s.execute("select.refineEdge", json!({"radius": 4})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        s.execute("select.all", json!({})).unwrap();
+        let all = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
+        assert!(s.execute("select.refineEdge", json!({"radius": 4})).is_err());
+        assert!(s.active().and_then(|d| d.doc.selection.as_ref()) == Some(&all));
+        assert!(t.elapsed() < std::time::Duration::from_secs(20), "{:?}", t.elapsed());
+    }
+
+    /// The #8783 review: Brush and Lasso edits and Refine Edge Brush strokes that would paint
+    /// too many tiles of a huge canvas are refused before anything is painted, and the selection
+    /// stays as it was.
+    #[test]
+    fn refine_edge_refuses_edits_that_cross_too_many_tiles() {
+        let mut s = Session::new();
+        s.add_document(
+            Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8),
+            None,
+        );
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap();
+        let before = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
+        let zigzag: Vec<[f32; 2]> = (0..20).map(|i| [if i % 2 == 0 { 0.0 } else { 99_999.0 }, i as f32 * 5000.0]).collect();
+        for p in [
+            json!({"edits": [{"tool": "brush", "points": zigzag, "size": 1}]}),
+            json!({"edits": [{"tool": "lasso", "points": zigzag}]}),
+            json!({"refineStrokes": [{"points": zigzag, "size": 1}]}),
+        ] {
+            let e = s.execute("select.refineEdge", p.clone()).expect_err("refused");
+            assert!(e.to_string().contains("too many tiles"), "{p}: {e}");
+            assert!(s.active().and_then(|d| d.doc.selection.as_ref()) == Some(&before), "{p}: the selection is unchanged");
+        }
+    }
+
+    /// Select and Mask's own tools (#7069, #8148): each edit changes the selection before the
+    /// edge is refined, at every depth, and the whole run is one history step.
+    #[test]
+    fn refine_edge_edits_apply_each_tool_at_every_depth() {
+        for depth in [8, 16, 32] {
+            let mut s = two_regions(depth);
+            s.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 20})).unwrap();
+            let start = sel_bytes(&s, 140, 100);
+            let run = |s: &mut Session, edits: Value| {
+                s.execute("select.refineEdge", json!({"edits": edits})).unwrap();
+                let after = sel_bytes(s, 140, 100);
+                s.execute("edit.undo", json!({})).unwrap();
+                assert_eq!(sel_bytes(s, 140, 100), start, "depth {depth}: one undo restores the selection");
+                after
+            };
+            let at = |b: &[u8], x: usize, y: usize| b[y * 140 + x];
+            // Quick Selection grows across the cool region; subtracting it again leaves the start.
+            let quick = run(&mut s, json!([{"tool": "quick", "points": [[100, 50], [110, 50]], "size": 8}]));
+            assert!(at(&quick, 120, 80) >= 128 && at(&quick, 5, 5) >= 128 && at(&quick, 40, 60) < 128, "depth {depth}: quick");
+            let back = run(
+                &mut s,
+                json!([{"tool": "quick", "points": [[100, 50]], "size": 8}, {"tool": "quick", "points": [[100, 50]], "size": 8, "mode": "subtract"}]),
+            );
+            assert!(at(&back, 120, 80) < 128 && at(&back, 5, 5) >= 128, "depth {depth}: quick subtract");
+            // The Brush paints exactly where it goes.
+            let brush = run(&mut s, json!([{"tool": "brush", "points": [[30, 80], [60, 80]], "size": 10}]));
+            assert!(at(&brush, 45, 80) == 255 && at(&brush, 45, 90) == 0, "depth {depth}: brush");
+            let erased = run(&mut s, json!([{"tool": "brush", "points": [[10, 10]], "size": 6, "mode": "subtract"}]));
+            assert!(at(&erased, 10, 10) == 0 && at(&erased, 2, 2) == 255, "depth {depth}: brush subtract");
+            // Lasso adds and subtracts polygons.
+            let lasso = run(&mut s, json!([{"tool": "lasso", "points": [[50, 50], [90, 50], [90, 90], [50, 90]]}]));
+            assert!(at(&lasso, 70, 70) == 255 && at(&lasso, 95, 70) == 0 && at(&lasso, 5, 5) == 255, "depth {depth}: lasso");
+            let cut = run(&mut s, json!([{"tool": "lasso", "points": [[0, 0], [10, 0], [10, 10], [0, 10]], "mode": "subtract"}]));
+            assert!(at(&cut, 5, 5) == 0 && at(&cut, 15, 15) == 255, "depth {depth}: lasso subtract");
+            // Clear Selection, then Invert of nothing: everything.
+            let all = run(&mut s, json!([{"tool": "clear"}, {"tool": "invert"}]));
+            assert!(all.iter().all(|v| *v == 255), "depth {depth}: clear + invert");
+            let inverted = run(&mut s, json!([{"tool": "invert"}]));
+            assert!(at(&inverted, 5, 5) == 0 && at(&inverted, 100, 50) == 255, "depth {depth}: invert");
+        }
+    }
+
+    /// Object Selection and Select Subject inside the workspace find what the standalone tools find.
+    #[test]
+    fn refine_edge_edits_object_and_subject() {
+        for depth in [8, 16, 32] {
+            let (mut s, inside) = disc(depth);
+            s.execute("select.rect", json!({"x": 0, "y": 0, "width": 10, "height": 10})).unwrap();
+            s.execute("select.refineEdge", json!({"edits": [{"tool": "object", "rect": [40, 20, 120, 120]}, {"tool": "lasso", "points": [[0, 0], [10, 0], [10, 10], [0, 10]], "mode": "subtract"}]})).unwrap();
+            let v = sel_iou(&s, 200, 160, &inside);
+            assert!(v > 0.95, "depth {depth}: object rect IoU {v}");
+            s.execute("select.refineEdge", json!({"edits": [{"tool": "clear"}, {"tool": "object", "point": [3, 3]}, {"tool": "object", "point": [100, 80]}]}))
+                .unwrap();
+            let v = sel_iou(&s, 200, 160, &inside);
+            assert!(v > 0.9, "depth {depth}: object point IoU {v} (the background point finds nothing)");
+        }
+        let (mut s, inside) = disc(8);
+        s.execute("select.rect", json!({"x": 0, "y": 0, "width": 10, "height": 10})).unwrap();
+        s.execute("select.refineEdge", json!({"edits": [{"tool": "subject"}]})).unwrap();
+        let v = sel_iou(&s, 200, 160, &inside);
+        assert!(v > 0.9, "subject replaces the selection: IoU {v}");
+        s.execute("select.rect", json!({"x": 0, "y": 0, "width": 10, "height": 10})).unwrap();
+        s.execute("select.refineEdge", json!({"edits": [{"tool": "subject", "mode": "add"}]})).unwrap();
+        assert!(cov(&s, 5, 5) >= 0.5 && cov(&s, 100, 80) >= 0.5, "subject added to the selection");
+    }
+
+    /// An edit gives what the standalone tool gives, then the edge is refined as usual, and the
+    /// result reaches every output.
+    #[test]
+    fn refine_edge_edits_match_the_tools_and_reach_the_outputs() {
+        let mut tool = two_regions(8);
+        tool.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 20})).unwrap();
+        tool.execute("select.quick", json!({"points": [[100, 50], [110, 50]], "size": 8})).unwrap();
+        let mut ws = two_regions(8);
+        ws.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 20})).unwrap();
+        ws.execute("select.refineEdge", json!({"edits": [{"tool": "quick", "points": [[100, 50], [110, 50]], "size": 8}]})).unwrap();
+        assert_eq!(sel_bytes(&ws, 140, 100), sel_bytes(&tool, 140, 100));
+        // Refinement runs on the edited selection: Shift Edge contracts the brushed bar too.
+        let mut s = two_regions(8);
+        s.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 20})).unwrap();
+        s.execute("select.refineEdge", json!({"shiftEdge": -100, "edits": [{"tool": "brush", "points": [[30, 80], [100, 80]], "size": 20}]})).unwrap();
+        assert!(cov(&s, 60, 80) >= 0.5 && cov(&s, 60, 88) < 0.5 && cov(&s, 60, 72) < 0.5, "the 20 px bar shrank");
+        // Layer mask and new-layer outputs take the edited selection.
+        let mut s = blurred_edge_selected();
+        let r = s.execute("select.refineEdge", json!({"output": "layerMask", "edits": [{"tool": "invert"}]})).unwrap();
+        assert_eq!(r["output"], "layerMask");
+        let m = s.active().unwrap().doc.layers[0].mask.as_ref().unwrap();
+        assert!(m.surface.sample_channel(10, 20, 0) < 0.01 && m.surface.sample_channel(70, 20, 0) > 0.99);
+        let mut s = blurred_edge_selected();
+        let r = s.execute("select.refineEdge", json!({"output": "newLayerWithMask", "edits": [{"tool": "invert"}]})).unwrap();
+        assert_eq!(r["output"], "newLayerWithMask");
+        let d = s.active().unwrap();
+        let m = d.doc.layers.iter().find_map(|l| l.mask.as_ref()).unwrap();
+        assert!(m.surface.sample_channel(10, 20, 0) < 0.01 && m.surface.sample_channel(70, 20, 0) > 0.99);
+        // Clearing everything deselects.
+        let mut s = blurred_edge_selected();
+        let r = s.execute("select.refineEdge", json!({"edits": [{"tool": "clear"}]})).unwrap();
+        assert_eq!(r["selected"], false);
+        assert!(s.active().unwrap().doc.selection.is_none());
+    }
+
+    /// Bad edits are refused before anything changes.
+    #[test]
+    fn refine_edge_rejects_bad_edits_and_keeps_the_selection() {
+        let mut s = blurred_edge_selected();
+        let before = sel_bytes(&s, 80, 40);
+        for bad in
+            [json!(7), json!([{"tool": "nope"}]), json!([{"tool": "lasso", "points": [[0, 0]]}]), json!([{"tool": "brush", "points": [[0, 0]], "size": -1}])]
+        {
+            assert!(s.execute("select.refineEdge", json!({"edits": bad})).is_err(), "{bad}");
+            assert_eq!(sel_bytes(&s, 80, 40), before, "{bad}");
+        }
     }
 }

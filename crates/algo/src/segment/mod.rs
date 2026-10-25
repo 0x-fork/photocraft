@@ -35,7 +35,7 @@ pub mod slic;
 pub mod subject;
 
 use photocraft_geom::Rect;
-use photocraft_raster::Surface;
+use photocraft_raster::{Cancelled, Interrupt, Surface};
 
 pub use crate::selection::Region;
 use gmm::Gmm;
@@ -288,6 +288,9 @@ fn grid_cut_impl<const OPTIMIZED: bool>(
     if count == 0 {
         return Some(out);
     }
+    if cancel() {
+        return None;
+    }
     let mut g = Graph::with_capacity(count as usize, count as usize * 4);
     for i in 0..n {
         if idx[i] != u32::MAX {
@@ -329,6 +332,9 @@ fn grid_cut_impl<const OPTIMIZED: bool>(
                 visit((y as usize) * img.w + x as usize, x, y)
             }
         }
+    }
+    if cancel() {
+        return None;
     }
     if OPTIMIZED {
         g.maxflow_with(cancel)?;
@@ -442,6 +448,51 @@ pub fn clean_mask(mask: &[bool], w: usize, h: usize, frac: f32, hole_frac: f32) 
     out
 }
 
+/// Fills the holes of `mask` (4-connected background areas not touching the border) by what
+/// they look like: a hole up to `speck_frac` of the mask's area always fills; a larger one, up
+/// to `hole_frac`, only when its pixels fit the foreground model `fg` better than `bg` on
+/// average, so an enclosed patch of backdrop stays open.
+pub fn fill_holes_by_model(mask: &[bool], img: &RgbImage, fg: &Gmm, bg: &Gmm, speck_frac: f32, hole_frac: f32) -> Vec<bool> {
+    let (w, h) = (img.w, img.h);
+    let mut out = mask.to_vec();
+    let area = out.iter().filter(|v| **v).count();
+    let max_speck = (area as f32 * speck_frac) as usize;
+    let max_hole = (area as f32 * hole_frac) as usize;
+    let inv: Vec<bool> = out.iter().map(|v| !v).collect();
+    let (hl, hs) = components4(&inv, w, h);
+    let mut touches = vec![false; hs.len()];
+    for x in 0..w {
+        touches[hl[x] as usize] = true;
+        touches[hl[(h - 1) * w + x] as usize] = true;
+    }
+    for y in 0..h {
+        touches[hl[y * w] as usize] = true;
+        touches[hl[y * w + w - 1] as usize] = true;
+    }
+    // Summed data costs per hole; only holes small enough to be candidates are evaluated.
+    let mut cost = vec![(0.0f64, 0.0f64); hs.len()];
+    for (i, l) in hl.iter().enumerate() {
+        let l = *l as usize;
+        if l == 0 || touches[l] || hs[l] > max_hole || hs[l] <= max_speck {
+            continue;
+        }
+        if let Some(p) = img.px.get(i) {
+            cost[l].0 += f64::from(fg.neg_log(*p));
+            cost[l].1 += f64::from(bg.neg_log(*p));
+        }
+    }
+    for (o, l) in out.iter_mut().zip(&hl) {
+        let l = *l as usize;
+        if l == 0 || touches[l] || hs[l] > max_hole {
+            continue;
+        }
+        if hs[l] <= max_speck || cost[l].0 <= cost[l].1 {
+            *o = true;
+        }
+    }
+    out
+}
+
 fn components4(mask: &[bool], w: usize, h: usize) -> (Vec<u32>, Vec<usize>) {
     let mut lab = vec![0u32; w * h];
     let mut sizes = vec![0usize];
@@ -473,23 +524,24 @@ fn components4(mask: &[bool], w: usize, h: usize) -> (Vec<u32>, Vec<usize>) {
 /// rule as the magic wand's anti-aliasing).
 pub fn antialias_u8(mask: &mut [u8], w: usize, h: usize) {
     let src = mask.to_vec();
-    let at = |x: i32, y: i32, v: u8| if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 { v } else { src[y as usize * w + x as usize] };
+    // A span whose 3×3 neighbourhood holds one value has no edge pixel, so it is only compared:
+    // most of a full-resolution mask is far from its boundary. 64 pixels keep the three row
+    // compares cheap per pixel, and a span that does reach the boundary costs few extra pixels.
+    const SPAN: usize = 64;
+    let uniform = |y: usize, x0: usize, x1: usize| {
+        let (a, b, v) = (x0.saturating_sub(1), (x1 + 1).min(w), src[y * w + x0]);
+        (y.saturating_sub(1)..(y + 2).min(h)).all(|ny| src[ny * w + a..ny * w + b].iter().all(|n| *n == v))
+    };
     let row = |y: usize, out: &mut [u8]| {
-        for (x, o) in out.iter_mut().enumerate() {
-            let v = src[y * w + x];
-            let mut sum = 0u32;
-            let mut edge = false;
-            for dy in -1..=1 {
-                for dx in -1..=1 {
-                    let n = at(x as i32 + dx, y as i32 + dy, v);
-                    edge |= n != v;
-                    sum += n as u32;
-                }
+        for (c, span) in out.chunks_mut(SPAN).enumerate() {
+            let x0 = c * SPAN;
+            if uniform(y, x0, x0 + span.len()) {
+                continue;
             }
-            if edge {
-                let avg = sum as f32 / (9.0 * 255.0);
-                let f = if v > 127 { 0.5 + 0.5 * avg } else { 0.5 * avg };
-                *o = (f * 255.0).round() as u8;
+            for (i, o) in span.iter_mut().enumerate() {
+                if let Some(v) = edge_value(&src, w, h, x0 + i, y) {
+                    *o = v;
+                }
             }
         }
     };
@@ -500,6 +552,27 @@ pub fn antialias_u8(mask: &mut [u8], w: usize, h: usize) {
     }
     #[cfg(target_arch = "wasm32")]
     mask.chunks_mut(w).enumerate().for_each(|(y, r)| row(y, r));
+}
+
+/// The anti-aliased value of pixel `(x, y)` of `src` (`w` × `h`), or `None` when every neighbour
+/// in its 3×3 neighbourhood has its value (neighbours outside the mask count as the pixel itself).
+fn edge_value(src: &[u8], w: usize, h: usize, x: usize, y: usize) -> Option<u8> {
+    let v = src[y * w + x];
+    let mut sum = 0u32;
+    let mut edge = false;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+            let n = if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 { v } else { src[ny as usize * w + nx as usize] };
+            edge |= n != v;
+            sum += n as u32;
+        }
+    }
+    edge.then(|| {
+        let avg = sum as f32 / (9.0 * 255.0);
+        let f = if v > 127 { 0.5 + 0.5 * avg } else { 0.5 * avg };
+        (f * 255.0).round() as u8
+    })
 }
 
 /// Shrinks a region's box to its non-zero pixels (`None` if empty).
@@ -539,6 +612,22 @@ pub fn trim_region(r: Region) -> Option<Region> {
 /// pixels wide around the upsampled boundary, using the given colour models, tile by tile.
 /// The result is anti-aliased by one pixel.
 pub fn finish_region(sampler: &dyn Sampler, window: Rect, step: usize, low: &[bool], lw: usize, lh: usize, models: Option<(&Gmm, &Gmm)>) -> Option<Region> {
+    finish_region_with(sampler, window, step, low, lw, lh, models, &Interrupt::NONE).unwrap_or_default()
+}
+
+/// [`finish_region`] that stops with `Err(Cancelled)` once `ctl` is cancelled, asked before each
+/// band tile and inside its min cut.
+#[allow(clippy::too_many_arguments)]
+pub fn finish_region_with(
+    sampler: &dyn Sampler,
+    window: Rect,
+    step: usize,
+    low: &[bool],
+    lw: usize,
+    lh: usize,
+    models: Option<(&Gmm, &Gmm)>,
+    ctl: &Interrupt,
+) -> Result<Option<Region>, Cancelled> {
     let (w, h) = (window.width() as usize, window.height() as usize);
     let mut mask = vec![0u8; w * h];
     if step <= 1 {
@@ -576,16 +665,28 @@ pub fn finish_region(sampler: &dyn Sampler, window: Rect, step: usize, low: &[bo
         #[cfg(target_arch = "wasm32")]
         mask.chunks_mut(w).enumerate().for_each(|(y, r)| fill(y, r));
         if let Some((fg, bg)) = models {
-            refine_band(sampler, window, step, low, &band, lw, lh, fg, bg, &mut mask);
+            refine_band(sampler, window, step, low, &band, lw, lh, fg, bg, &mut mask, ctl)?;
         }
     }
     antialias_u8(&mut mask, w, h);
-    trim_region(Region { bbox: window, mask })
+    Ok(trim_region(Region { bbox: window, mask }))
 }
 
 /// Full-resolution graph cut restricted to the band blocks (see [`finish_region`]).
 #[allow(clippy::too_many_arguments)]
-fn refine_band(sampler: &dyn Sampler, window: Rect, step: usize, low: &[bool], band: &[bool], lw: usize, lh: usize, fg: &Gmm, bg: &Gmm, mask: &mut [u8]) {
+fn refine_band(
+    sampler: &dyn Sampler,
+    window: Rect,
+    step: usize,
+    low: &[bool],
+    band: &[bool],
+    lw: usize,
+    lh: usize,
+    fg: &Gmm,
+    bg: &Gmm,
+    mask: &mut [u8],
+    ctl: &Interrupt,
+) -> Result<(), Cancelled> {
     const T: i32 = 192;
     const HALO: i32 = 12;
     let w = window.width() as usize;
@@ -606,7 +707,9 @@ fn refine_band(sampler: &dyn Sampler, window: Rect, step: usize, low: &[bool], b
         }
         ty += T;
     }
-    let run = |t: &Rect| -> (Rect, Vec<bool>) {
+    let cancel = || ctl.cancelled();
+    let run = |t: &Rect| -> Result<(Rect, Vec<bool>), Cancelled> {
+        ctl.check()?;
         let r = t.inflate(HALO).intersect(&window);
         let img = sampler.rgb(r);
         let (rw, rh) = (r.width() as usize, r.height() as usize);
@@ -629,7 +732,8 @@ fn refine_band(sampler: &dyn Sampler, window: Rect, step: usize, low: &[bool], b
             }
         }
         let beta = contrast_beta(&img);
-        let cut = grid_cut(&img, &cfg, &cbg, &fixed, 50.0, beta);
+        // `grid_cut`'s weight, with the cut stopping on cancel.
+        let cut = grid_cut_cancellable(&img, &cfg, &cbg, &fixed, |d2| 50.0 * (-beta * d2).exp(), &cancel).ok_or(Cancelled)?;
         let (cw, ch) = (t.width() as usize, t.height() as usize);
         let mut core = Vec::with_capacity(cw * ch);
         for yy in 0..ch {
@@ -637,15 +741,16 @@ fn refine_band(sampler: &dyn Sampler, window: Rect, step: usize, low: &[bool], b
             let sx = (t.x0 - r.x0) as usize;
             core.extend_from_slice(&cut[sy * rw + sx..sy * rw + sx + cw]);
         }
-        (*t, core)
+        Ok((*t, core))
     };
+    // A cancelled tile ends the collect; tiles not yet started see `ctl` and return at once.
     #[cfg(not(target_arch = "wasm32"))]
     let results: Vec<(Rect, Vec<bool>)> = {
         use rayon::prelude::*;
-        tiles.par_iter().map(run).collect()
+        tiles.par_iter().map(run).collect::<Result<_, _>>()?
     };
     #[cfg(target_arch = "wasm32")]
-    let results: Vec<(Rect, Vec<bool>)> = tiles.iter().map(run).collect();
+    let results: Vec<(Rect, Vec<bool>)> = tiles.iter().map(run).collect::<Result<_, _>>()?;
     for (t, core) in results {
         let cw = t.width() as usize;
         for (yy, row) in core.chunks_exact(cw).enumerate() {
@@ -655,6 +760,7 @@ fn refine_band(sampler: &dyn Sampler, window: Rect, step: usize, low: &[bool], b
             }
         }
     }
+    Ok(())
 }
 
 /// Deterministic pseudo-random numbers (xorshift) for sampling and tests.

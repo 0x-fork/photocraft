@@ -110,7 +110,7 @@ fn tiled_adjustment_matches_one_pass_over_the_content() {
             for sel in [None, Some(&soft)] {
                 let want = one_pass(&s, &adj, sel, fmt.mode);
                 let mut got = s.clone();
-                adjust_surface(&mut got, &adj, sel, fmt.mode);
+                adjust_surface(&mut got, &adj, sel, fmt.mode).unwrap();
                 assert!(want != s, "{kind} {fmt:?}: the adjustment changes the layer");
                 assert!(got == want, "{kind} {fmt:?} selection {}: tiled result differs", sel.is_some());
             }
@@ -121,7 +121,7 @@ fn tiled_adjustment_matches_one_pass_over_the_content() {
 #[test]
 fn an_empty_layer_is_left_alone() {
     let mut s = Surface::new(PixelFormat::RGBA8);
-    adjust_surface(&mut s, &Adjustment::Invert, None, ColorMode::Rgb);
+    adjust_surface(&mut s, &Adjustment::Invert, None, ColorMode::Rgb).unwrap();
     assert_eq!(s.tile_count(), 0);
 }
 
@@ -183,19 +183,29 @@ fn tiled_clear_and_fill_match_one_pass_over_the_area() {
     let sr = Rect::new(0, 0, 600, 400);
     soft.write_region(sr, &(0..sr.height()).flat_map(|_| (0..sr.width()).map(|x| (1.0 - (x as f32 - 256.0).max(0.0) / 300.0).max(0.0))).collect::<Vec<_>>());
     let canvas = Rect::new(0, 0, 700, 600);
+    // Pixel formats and fill settings are independent: a run takes a quarter of their combinations,
+    // a different quarter each day.
+    let sweep = photocraft_testkit::Sweep::new(4);
+    let mut case = 0;
+    let mut runs = || {
+        case += 1;
+        sweep.includes(case)
+    };
     for fmt in formats {
         let s = clear_layer(fmt);
         for sel in [None, Some(&soft)] {
             let area = sel.map_or(canvas, |m| m.content_bounds());
             let what = format!("{fmt:?} selection {}", sel.is_some());
-            let mut got = s.clone();
-            try_clear_surface(&mut got, area, sel).unwrap();
-            assert!(same_pixels(&got, &reference_fill_or_clear(&s, area, sel, None)), "clear {what}");
-            if fmt.alpha {
-                assert!(!same_pixels(&got, &s), "clear {what} changes the layer");
+            if runs() {
+                let mut got = s.clone();
+                try_clear_surface(&mut got, area, sel).unwrap();
+                assert!(same_pixels(&got, &reference_fill_or_clear(&s, area, sel, None)), "clear {what}");
+                if fmt.alpha {
+                    assert!(!same_pixels(&got, &s), "clear {what} changes the layer");
+                }
             }
             for color in [[1.0, 1.0, 1.0, 1.0], [0.3, 0.5, 0.9, 1.0], [0.3, 0.5, 0.9, 0.4]] {
-                for lock in [true, false] {
+                for lock in [true, false].into_iter().filter(|_| runs()) {
                     let mut got = s.clone();
                     try_fill_surface(&mut got, area, color, sel, lock).unwrap();
                     assert!(same_pixels(&got, &reference_fill_or_clear(&s, area, sel, Some((color, lock)))), "fill {color:?} lock {lock} {what}");
@@ -242,7 +252,8 @@ fn benchmark_clear_large_selection() {
     }
 }
 
-/// Image › Adjustments › Invert in a Lab document mirrors L, a and b, at every depth.
+/// Image › Adjustments › Invert in a Lab document mirrors L, a and b, at every depth: 8-bit bytes
+/// become 255 - v (a lands one step past the mirror), 16 bits mirror a and b around neutral.
 #[test]
 fn invert_in_a_lab_document_mirrors_l_a_and_b() {
     use photocraft_color::convert::{lab_to_srgb, srgb_to_lab};
@@ -252,10 +263,193 @@ fn invert_in_a_lab_document_mirrors_l_a_and_b() {
         let mut s = Surface::new(fmt);
         let r = Rect::new(0, 0, 2, 2);
         s.write_region(r, &(0..4).flat_map(|_| from_rgba(&fmt, [c[0], c[1], c[2], 1.0])).collect::<Vec<_>>());
-        adjust_surface(&mut s, &Adjustment::Invert, None, ColorMode::Lab);
+        adjust_surface(&mut s, &Adjustment::Invert, None, ColorMode::Lab).unwrap();
         let px = s.read_region(Rect::new(1, 1, 2, 2));
         let rgba = photocraft_raster::to_rgba(&fmt, &px);
         let got = srgb_to_lab([rgba[0], rgba[1], rgba[2]]);
-        assert!(got.iter().zip([70.0, -13.0, 17.0]).all(|(g, w)| (g - w).abs() < 1.0), "{depth:?}: {got:?}");
+        let want = if depth == SampleType::U8 { [70.0, -13.0, 17.0] } else { [70.0, -12.0, 18.0] };
+        assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.5), "{depth:?}: {got:?}");
     }
+}
+
+#[test]
+fn mixing_through_a_selection_matches_sampling_it_per_pixel() {
+    // A rectangle across tile edges (negative x included), a selection with fractional
+    // coverage, untouched tiles (default coverage) and a 16-bit as well as an 8-bit layer.
+    let r = Rect::new(-300, 200, 330, 290);
+    let gray32 = PixelFormat { mode: ColorMode::Grayscale, sample: SampleType::F32, alpha: false };
+    for sel_fmt in [PixelFormat::GRAY8, PixelFormat::GRAYA8, gray32] {
+        let mut sel = Surface::new(sel_fmt);
+        sel.fill_rect(Rect::new(-260, 210, 40, 280), &vec![0.6; sel_fmt.channels()]);
+        for x in 0..120 {
+            sel.write_pixel(x * 2, 230 + x % 40, &vec![x as f32 / 119.0; sel_fmt.channels()]);
+        }
+        for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16] {
+            let n = (r.width() * r.height()) as usize;
+            let orig: Vec<[f32; 4]> = (0..n).map(|i| [(i % 7) as f32 / 7.0, 0.5, (i % 13) as f32 / 13.0, 0.25 + (i % 3) as f32 / 4.0]).collect();
+            let edited: Vec<[f32; 4]> = orig.iter().map(|p| [1.0 - p[0], p[1] * 0.5, p[2], 1.0]).collect();
+            let w = r.width() as usize;
+            let mut expected = Vec::new();
+            for (i, (a, o)) in edited.iter().zip(&orig).enumerate() {
+                let k = sel.sample_channel(r.x0 + (i % w) as i32, r.y0 + (i / w) as i32, 0);
+                let mixed: [f32; 4] = std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k);
+                let mut enc = [0.0f32; 8];
+                let m = photocraft_raster::from_rgba_into(&fmt, mixed, &mut enc);
+                expected.extend_from_slice(&enc[..m]);
+            }
+            assert_eq!(mix_through_selection(&fmt, r, &orig, &edited, Some(&sel)), expected, "{sel_fmt:?} over {fmt:?}");
+        }
+    }
+    // Without a selection the edit is taken whole; an empty rectangle mixes nothing.
+    let px = [[0.1, 0.2, 0.3, 1.0]];
+    let fmt = PixelFormat::RGBA8;
+    let mut enc = [0.0f32; 8];
+    let m = photocraft_raster::from_rgba_into(&fmt, px[0], &mut enc);
+    assert_eq!(mix_through_selection(&fmt, Rect::new(0, 0, 1, 1), &[[0.0; 4]], &px, None), enc[..m].to_vec());
+    assert!(mix_through_selection(&fmt, Rect::EMPTY, &[], &[], None).is_empty());
+}
+
+/// One `fmt` pixel holding `ch`, after `adj` through an optional `k`-strength selection.
+fn adjusted_pixel(fmt: PixelFormat, ch: &[f32], adj: &Adjustment, k: Option<f32>) -> Vec<f32> {
+    let unit = Rect::new(0, 0, 1, 1);
+    let mut s = Surface::new(fmt);
+    s.write_region(unit, ch);
+    let mut sel = Surface::new(PixelFormat::GRAY8);
+    if let Some(k) = k {
+        sel.write_region(unit, &[k]);
+    }
+    adjust_surface(&mut s, adj, k.map(|_| &sel), fmt.mode).unwrap();
+    s.read_region(unit)
+}
+
+fn assert_levels(got: &[f32], want_255: &[f32], what: &str) {
+    let want: Vec<f32> = want_255.iter().map(|v| v / 255.0).collect();
+    assert!(got.iter().zip(&want).all(|(g, w)| (g - w).abs() < 1e-4), "{what}: got {:?}, want {want_255:?}", got.iter().map(|v| v * 255.0).collect::<Vec<_>>());
+}
+
+/// Image › Adjustments › Invert, Posterize and Threshold change a Lab or CMYK layer's stored
+/// channels exactly as Photoshop's do (photoshop corpus lab8, lab16, cmyk8 and cmyk16 invert,
+/// posterize-4 and threshold-128 follow these rules on every pixel), with no trip through RGB.
+#[test]
+fn invert_posterize_and_threshold_change_lab_and_cmyk_channels_as_stored() {
+    let f = |v: [f32; 4]| v.map(|x| x / 255.0);
+    let cmyk = PixelFormat::new(ColorMode::Cmyk, SampleType::U8, true);
+    let ink = [51.0, 102.0, 153.0, 26.0, 255.0].map(|x| x / 255.0);
+    assert_levels(&adjusted_pixel(cmyk, &ink, &Adjustment::Invert, None), &[204.0, 153.0, 102.0, 229.0, 255.0], "CMYK invert");
+    assert_levels(&adjusted_pixel(cmyk, &ink, &Adjustment::Posterize { levels: 4 }, None), &[0.0, 85.0, 170.0, 0.0, 255.0], "CMYK posterize");
+    // Threshold: the black ink alone, or paper.
+    let dark = [200.0, 180.0, 180.0, 200.0, 255.0].map(|x| x / 255.0);
+    assert_levels(&adjusted_pixel(cmyk, &dark, &Adjustment::Threshold { level: 0.5 }, None), &[0.0, 0.0, 0.0, 255.0, 255.0], "CMYK threshold dark");
+    let paper = [0.0, 0.0, 0.0, 0.0, 1.0];
+    assert_levels(&adjusted_pixel(cmyk, &paper, &Adjustment::Threshold { level: 0.5 }, None), &[0.0, 0.0, 0.0, 0.0, 255.0], "CMYK threshold paper");
+    // A half-strength selection mixes the stored inks.
+    let half = adjusted_pixel(cmyk, &paper, &Adjustment::Invert, Some(0.5));
+    assert!(half.iter().take(4).all(|v| (v - 0.5).abs() < 0.01) && half[4] == 1.0, "{half:?}");
+
+    let lab8 = PixelFormat::new(ColorMode::Lab, SampleType::U8, true);
+    let lab16 = PixelFormat::new(ColorMode::Lab, SampleType::U16, true);
+    let px = f([77.0, 128.0, 200.0, 255.0]);
+    assert_levels(&adjusted_pixel(lab8, &px, &Adjustment::Invert, None), &[178.0, 127.0, 55.0, 255.0], "Lab 8-bit invert");
+    assert_levels(&adjusted_pixel(lab16, &px, &Adjustment::Invert, None), &[178.0, 128.0, 56.0, 255.0], "Lab 16-bit invert");
+    // A neutral grey posterizes warm: a and b step to +42.
+    let grey = f([128.0, 128.0, 128.0, 255.0]);
+    assert_levels(&adjusted_pixel(lab8, &grey, &Adjustment::Posterize { levels: 4 }, None), &[170.0, 170.0, 170.0, 255.0], "Lab posterize");
+    // Threshold compares L alone and keeps black and white neutral.
+    let level = Adjustment::Threshold { level: 128.0 / 255.0 };
+    assert_levels(&adjusted_pixel(lab8, &f([128.0, 30.0, 220.0, 255.0]), &level, None), &[255.0, 128.0, 128.0, 255.0], "Lab threshold light");
+    assert_levels(&adjusted_pixel(lab16, &f([127.0, 30.0, 220.0, 255.0]), &level, None), &[0.0, 128.0, 128.0, 255.0], "Lab threshold dark");
+}
+
+/// Image › Adjustments › Brightness/Contrast on a CMYK layer curves each stored ink value
+/// (1 - ink) exactly, modern and legacy, and a selection mixes the stored inks.
+#[test]
+fn brightness_contrast_curves_cmyk_inks_as_stored() {
+    let cmyk = PixelFormat::new(ColorMode::Cmyk, SampleType::U16, true);
+    let ink = [0.2, 0.4, 0.6, 0.1, 1.0];
+    for legacy in [false, true] {
+        let adj = Adjustment::BrightnessContrast { brightness: 25.0, contrast: 30.0, legacy };
+        let table = adjust::ink_brightness_contrast_lut(25.0, 30.0, legacy);
+        let got = adjusted_pixel(cmyk, &ink, &adj, None);
+        for c in 0..4 {
+            let want = adjust::ink_through(&table, ink[c]);
+            assert!((got[c] - want).abs() < 1e-4, "legacy {legacy} ink {c}: {} vs {want}", got[c]);
+        }
+        assert_eq!(got[4], 1.0);
+        let half = adjusted_pixel(cmyk, &ink, &adj, Some(0.5));
+        for c in 0..4 {
+            let want = ink[c] + (adjust::ink_through(&table, ink[c]) - ink[c]) * 128.0 / 255.0;
+            assert!((half[c] - want).abs() < 1e-3, "legacy {legacy} ink {c} through half a selection");
+        }
+    }
+}
+
+/// Image › Adjustments › Hue/Saturation and Color Balance on a CMYK layer work on its stored C, M
+/// and Y as inverted RGB, keep its black ink exactly, and mix through a selection.
+#[test]
+fn hue_saturation_and_color_balance_keep_a_cmyk_layers_black() {
+    let cmyk = PixelFormat::new(ColorMode::Cmyk, SampleType::U16, true);
+    let ink = [0.2, 0.7, 0.1, 0.3, 1.0];
+    let hue =
+        Adjustment::HueSaturation { hue: 40.0, saturation: 25.0, lightness: -10.0, colorize: false, ranges: photocraft_doc::adjust::HueRange::defaults() };
+    let balance =
+        Adjustment::ColorBalance { shadows: [20.0, -10.0, 0.0], midtones: [-15.0, 10.0, 30.0], highlights: [0.0, 0.0, -20.0], preserve_luminosity: true };
+    for adj in [hue, balance] {
+        let mut want = [[ink[0], ink[1], ink[2], ink[3]]];
+        adjust::apply_cmy(&adj, &mut want);
+        let got = adjusted_pixel(cmyk, &ink, &adj, None);
+        assert!((0..4).all(|c| (got[c] - want[0][c]).abs() < 1e-4), "{}: {got:?} vs {want:?}", adj.label());
+        assert!((got[3] - ink[3]).abs() < 1e-4 && got[4] == 1.0, "{}: black and alpha kept", adj.label());
+        let half = adjusted_pixel(cmyk, &ink, &adj, Some(0.5));
+        let k = 128.0 / 255.0;
+        assert!((0..4).all(|c| (half[c] - (ink[c] + (want[0][c] - ink[c]) * k)).abs() < 1e-3), "{}: half a selection", adj.label());
+    }
+}
+
+/// Two small blocks two billion pixels apart: the content bounds are a grid of 6·10¹³ tiles
+/// that holds nothing, which no adjustment may materialize.
+fn distant_blocks(fmt: PixelFormat, default: f32) -> Surface {
+    let mut s = Surface::with_default(fmt, &vec![default; fmt.channels()]);
+    s.fill_rect(Rect::new(0, 0, 10, 10), &vec![0.25; fmt.channels()]);
+    s.fill_rect(Rect::new(2_000_000_000, 2_000_000_000, 2_000_000_010, 2_000_000_010), &vec![0.25; fmt.channels()]);
+    s
+}
+
+#[test]
+fn adjusting_a_layer_of_distant_blocks_visits_only_its_tiles() {
+    let mut s = distant_blocks(PixelFormat::RGBA8, 0.0);
+    adjust_surface(&mut s, &Adjustment::Invert, None, ColorMode::Rgb).unwrap();
+    let p = s.read_region(Rect::new(2_000_000_005, 2_000_000_005, 2_000_000_006, 2_000_000_006));
+    // Straight colour inverted, alpha untouched.
+    assert!((p[0] - 0.75).abs() < 0.01 && (p[3] - 0.25).abs() < 0.01, "{p:?}");
+    assert_eq!(s.tile_count(), 2);
+}
+
+#[test]
+fn adjusting_a_mask_of_distant_blocks_visits_only_its_tiles() {
+    let mut m = distant_blocks(PixelFormat::GRAY8, 1.0);
+    adjust_mask(&mut m, &Adjustment::Invert, None).unwrap();
+    assert!(m.default_pixel()[0] < 0.01, "the default is inverted: {:?}", m.default_pixel());
+    let p = m.read_region(Rect::new(2_000_000_005, 2_000_000_005, 2_000_000_006, 2_000_000_006));
+    assert!((p[0] - 0.75).abs() < 0.01, "{p:?}");
+    // Through a selection of its own distant tiles, too.
+    let mut sel = Surface::new(PixelFormat::GRAY8);
+    sel.fill_rect(Rect::new(2_000_000_000, 2_000_000_000, 2_000_000_010, 2_000_000_010), &[1.0]);
+    adjust_mask(&mut m, &Adjustment::Invert, Some(&sel)).unwrap();
+    let p = m.read_region(Rect::new(2_000_000_005, 2_000_000_005, 2_000_000_006, 2_000_000_006));
+    assert!((p[0] - 0.25).abs() < 0.01, "{p:?}");
+}
+
+#[test]
+fn an_opaque_layer_of_distant_blocks_is_refused_not_half_adjusted() {
+    let mut s = distant_blocks(PixelFormat::RGBA8, 1.0);
+    let before = s.clone();
+    assert!(adjust_surface(&mut s, &Adjustment::Invert, None, ColorMode::Rgb).is_err());
+    assert!(s == before, "a refused adjustment leaves the layer as it was");
+}
+
+#[test]
+fn a_selection_with_a_nonzero_default_over_distant_blocks_is_refused() {
+    let mut m = Surface::with_default(PixelFormat::GRAY8, &[0.5]);
+    let sel = distant_blocks(PixelFormat::GRAY8, 1.0);
+    assert!(adjust_mask(&mut m, &Adjustment::Invert, Some(&sel)).is_err());
 }

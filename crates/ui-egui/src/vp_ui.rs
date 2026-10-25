@@ -12,13 +12,14 @@
 use egui::{Color32, Pos2, Stroke, TextureHandle, pos2};
 use photocraft_algo::transform::Homography;
 use photocraft_algo::vanishing::{PlaneCheck, Scene, VpPlane};
-use photocraft_doc::{LayerContent, LayerId};
+use photocraft_doc::{DocId, LayerContent, LayerId};
 use photocraft_engine::vp_cmds::VP;
 use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
 use crate::canvas::{ToolEvent, ViewXform};
+use crate::edit_history::{EditHistory, Step};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +46,8 @@ struct Clip {
 }
 
 pub struct VpSession {
+    /// Document this session belongs to (#5115).
+    pub document: DocId,
     pub layer: LayerId,
     canvas: Rect,
     pub planes: Vec<VpPlane>,
@@ -63,7 +66,11 @@ pub struct VpSession {
     pub new_layer: bool,
     clip: Option<Clip>,
     drag: Option<Drag>,
+    history: EditHistory<VpEdit>,
 }
+
+/// What ⌘Z steps through: the planes and where the paste sits on them.
+type VpEdit = (Vec<VpPlane>, [f64; 2], f64);
 
 /// Most planes a session holds (the control channel can't make it allocate without bound).
 const MAX_PLANES: usize = 64;
@@ -75,6 +82,7 @@ impl VpSession {
         let center = self.center();
         let planes: Vec<Value> = self.planes.iter().map(|p| json!({"corners": p.corners, "check": p.check(center)})).collect();
         json!({
+            "document": self.document.0,
             "layer": self.layer.0,
             "tool": self.tool,
             "planes": planes,
@@ -149,6 +157,24 @@ impl VpSession {
             self.selected = Some(self.planes.len() - 1);
             // Photoshop hands over to Edit Plane once a plane is closed.
             self.tool = VpTool::EditPlane;
+        }
+    }
+
+    fn edit(&self) -> VpEdit {
+        (self.planes.clone(), self.paste_at, self.paste_width)
+    }
+
+    fn settle(&mut self, busy: bool) {
+        let now = self.edit();
+        self.history.settle(&now, busy || self.drag.is_some());
+    }
+
+    pub(crate) fn step(&mut self, step: Step) {
+        let mut now = self.edit();
+        if self.history.step(&mut now, step) {
+            (self.planes, self.paste_at, self.paste_width) = now;
+            self.drag = None;
+            self.selected = self.selected.filter(|i| *i < self.planes.len());
         }
     }
 
@@ -287,6 +313,7 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
         })
     });
     app.distort.vanishing = Some(VpSession {
+        document: st.doc.id,
         layer,
         canvas,
         planes: Vec::new(),
@@ -300,6 +327,7 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
         new_layer: false,
         clip,
         drag: None,
+        history: EditHistory::new(&(Vec::new(), [0.25, 0.25], 0.5)),
     });
     app.ui.status = tl!("Vanishing Point: click four corners to create a plane").into();
     Ok(())
@@ -369,6 +397,7 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     if let Some(b) = ui.get("newLayer").and_then(Value::as_bool) {
         s.new_layer = b;
     }
+    s.settle(false);
     Ok(s.describe())
 }
 
@@ -383,6 +412,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, _mods: egui::Modifiers) {
             s.drag = None;
         }
     }
+    s.settle(false);
 }
 
 /// Keys while the mode is active (↩ and Esc are handled by `distort_ui::keys`).
@@ -400,6 +430,7 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
         s.tool = VpTool::CreatePlane;
     } else if key(Key::Delete) || key(Key::Backspace) {
         s.delete_selected();
+        s.settle(false);
     }
 }
 
@@ -411,18 +442,24 @@ pub fn escape(app: &mut PhotocraftApp) {
     }
 }
 
-pub fn draw(s: &VpSession, painter: &egui::Painter, xf: &ViewXform) {
+/// The paste on its plane: image content, drawn under the grid and guides like the document so a
+/// guide stays visible across it (#7781). The planes and their grids are [`draw`].
+pub fn draw_content(s: &VpSession, painter: &egui::Painter, xf: &ViewXform) {
     let scr = |p: [f64; 2]| xf.to_screen(p[0] as f32, p[1] as f32);
-    let tokens = crate::theme::Tokens::get(painter.ctx());
-    let center = s.center();
-    // The paste first, under the grids.
     if let Some(i) = s.paste_plane()
-        && s.planes.get(i).is_some_and(|p| p.check(center) != PlaneCheck::Invalid)
+        && s.planes.get(i).is_some_and(|p| p.check(s.center()) != PlaneCheck::Invalid)
         && let (Some((h, lu, lv)), Some(c)) = (s.frame(i), s.clip.as_ref())
         && let Some(ext) = s.paste_extent(lu, lv)
     {
         draw_paste(painter, &scr, &h, s.paste_at, ext, &c.texture);
     }
+}
+
+/// The planes, their grids and nodes over the paste ([`draw_content`]) and the guides.
+pub fn draw(s: &VpSession, painter: &egui::Painter, xf: &ViewXform) {
+    let scr = |p: [f64; 2]| xf.to_screen(p[0] as f32, p[1] as f32);
+    let tokens = crate::theme::Tokens::get(painter.ctx());
+    let center = s.center();
     for (i, p) in s.planes.iter().enumerate() {
         let check = p.check(center);
         let colour = match check {
@@ -551,6 +588,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             app.distort.vanishing = None;
         }
     });
+    if let Some(s) = app.distort.vanishing.as_mut() {
+        s.settle(ui.input(|i| i.pointer.any_down()));
+    }
 }
 
 #[cfg(test)]

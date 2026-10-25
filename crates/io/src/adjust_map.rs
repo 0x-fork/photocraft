@@ -29,7 +29,7 @@ fn bef32(d: &[u8], at: usize) -> Option<f32> {
 }
 
 fn unsupported(key: &[u8; 4], data: &[u8]) -> Adjustment {
-    Adjustment::Unsupported { psd_key: String::from_utf8_lossy(key).into_owned(), raw: data.to_vec() }
+    Adjustment::Unsupported { psd_key: String::from_utf8_lossy(key).into_owned(), raw: data.into() }
 }
 
 fn levels_rec(d: &[u8], at: usize) -> Option<LevelsChannel> {
@@ -139,6 +139,19 @@ pub fn label(key: &[u8; 4]) -> &'static str {
     }
 }
 
+/// Keys of a Brightness/Contrast `CgEd` descriptor: the ones [`write`] emits plus Photoshop's
+/// preset bookkeeping.
+const BRIT_CGED_KEYS: [&str; 9] = ["Vrsn", "Brgh", "Cntr", "means", "Lab ", "useLegacy", "Auto", "presetKind", "presetFileName"];
+
+/// Whether a `brit` layer's `CgEd` descriptor holds settings Brightness/Contrast has no place
+/// for. Photoshop 2026's Light adjustment (Exposure, Contrast, Highlights, Shadows, Whites,
+/// Blacks) is stored under the `brit` key; read as Brightness/Contrast it kept only Contrast and
+/// lost the rest without a word (#6542), so such a layer stays [`Adjustment::Unsupported`].
+pub fn is_extended_brit(cged: Option<&[u8]>) -> bool {
+    cged.and_then(|c| VersionedDescriptor::parse_prefix(c).ok())
+        .is_some_and(|(v, _)| v.descriptor.items.iter().any(|(k, _)| !BRIT_CGED_KEYS.iter().any(|n| k.is(n))))
+}
+
 /// Why [`parse`] keeps a block as [`Adjustment::Unsupported`], when there is more to say than
 /// "it could not be read" (so far: Color Lookup).
 pub fn unreadable_reason(key: &[u8; 4], data: &[u8]) -> Option<String> {
@@ -204,6 +217,8 @@ fn parse_any(key: &[u8; 4], data: &[u8], cged: Option<&[u8]>) -> Adjustment {
         b"nvrt" => Some(Adjustment::Invert),
         b"thrs" => be16(data, 0).map(|v| Adjustment::Threshold { level: f32::from(v) / 255.0 }),
         b"post" => be16(data, 0).map(|v| Adjustment::Posterize { levels: u32::from(v) }),
+        // Kept raw (with its `CgEd`, which the PSD writer keeps while the layer is unchanged).
+        b"brit" if is_extended_brit(cged) => None,
         b"brit" => {
             let modern = cged.and_then(|c| VersionedDescriptor::parse_prefix(c).ok()).and_then(|(v, _)| {
                 let d = v.descriptor;
@@ -228,8 +243,10 @@ fn parse_any(key: &[u8; 4], data: &[u8], cged: Option<&[u8]>) -> Adjustment {
                     *r = HueRange { hue: h, saturation: s, lightness: l, bounds: HueRange::canonical_bounds([a, b, c, d]) };
                 }
             }
+            let hue = f32::from(bei16(data, base)?);
             Some(Adjustment::HueSaturation {
-                hue: f32::from(bei16(data, base)?),
+                // Photoshop stores the colorize hue signed (200 as -160); the model keeps 0..360.
+                hue: if colorize { hue.rem_euclid(360.0) } else { hue },
                 saturation: f32::from(bei16(data, base + 2)?),
                 lightness: f32::from(bei16(data, base + 4)?),
                 colorize,
@@ -280,7 +297,8 @@ fn parse_gradient_map(d: &[u8]) -> Option<Adjustment> {
         3 => (Some(d.get(4..8)?), 8),
         _ => return None,
     };
-    at += 4 + be32(d, at)? as usize * 2;
+    // The gradient's name (UTF-16 units); checked, as `len * 2` overflows a 32-bit `usize`.
+    at = (be32(d, at)? as usize).checked_mul(2)?.checked_add(at + 4)?;
     let n = usize::from(be16(d, at)?);
     at += 2;
     let mut stops = Vec::with_capacity(n);
@@ -322,6 +340,22 @@ pub(crate) fn retarget_gradient_map(data: &mut [u8], target: &Adjustment, channe
             flags[0] = u8::from(*reverse);
             flags[1] = u8::from(*dither);
             true
+        }
+        _ => false,
+    }
+}
+
+/// `true` for a `grdm` block exactly as older PhotoCraft builds wrote it: [`write_gradient_map`]'s
+/// output without the two padding bytes, which makes Photoshop refuse the file (#8070). Blocks
+/// from other writers, whatever their length, are not matched.
+pub(crate) fn is_unpadded_photocraft_gradient_map(data: &[u8]) -> bool {
+    if data.len().is_multiple_of(4) {
+        return false;
+    }
+    match parse_gradient_map(data) {
+        Some(Adjustment::GradientMap { stops, reverse, dither }) => {
+            let padded = write_gradient_map(&stops, reverse, dither);
+            padded.len() == data.len() + 2 && padded.starts_with(data)
         }
         _ => false,
     }
@@ -369,6 +403,8 @@ fn write_gradient_map(stops: &[(f32, [f32; 3])], reverse: bool, dither: bool) ->
         put16(&mut v, x);
     }
     put16(&mut v, 0);
+    // Photoshop includes the two-byte pad in the `grdm` length when the block is 2 mod 4 (#8070).
+    v.resize(v.len().next_multiple_of(4), 0);
     v
 }
 
@@ -429,6 +465,12 @@ fn read_lookup(d: &[u8]) -> Result<Adjustment, String> {
         _ => ("x.cube", "CUBE"),
     };
     let lut = photocraft_cms::lutfile::parse(ext, bytes).map_err(|e| format!("its {format} LUT can't be read ({e})"))?;
+    if !lut.domain_is_default() {
+        return Err(format!(
+            "its LUT has a non-default input domain (DOMAIN_MIN {:?}, DOMAIN_MAX {:?}), which is not supported yet",
+            lut.domain_min, lut.domain_max
+        ));
+    }
     let name = desc_text(&desc, "LUT3DFileName").or_else(|| desc_text(&desc, "NM  ")).unwrap_or_default();
     Ok(Adjustment::ColorLookup {
         name,
@@ -506,8 +548,17 @@ fn parse_black_white(d: &[u8]) -> Option<Adjustment> {
 }
 
 /// `phfl` (Adobe spec, "Photo Filter"): version (2 or 3); version 2 has a colour structure
-/// (colour space + four u16), version 3 three i32 holding the Lab colour ×100 (as documented by
-/// ag-psd, MIT); then density (u32 percent) and preserve luminosity (1 byte).
+/// (colour space + four u16), version 3 "4 bytes each for XYZ color"; then density (u32 percent)
+/// and preserve luminosity (1 byte).
+///
+/// The spec gives no scale for the XYZ values. They are read as XYZ relative to the D50 white
+/// (X / 0.9642, Y, Z / 0.8249) with 1.0 = 32768, so white is stored as (32768, 32768, 32768).
+/// That is inferred, not documented: decoded this way, every version 3 colour in the Photoshop
+/// CS2 files of #3777 and #4940 is exactly a Photoshop preset (the Yellow filter holds
+/// (24191, 25002, 3827) and decodes to #F9E31C, Warming Filter (85) holds (15548, 12029, 0)
+/// and decodes to #EC8A00); reading them as absolute XYZ gives #FFE03A and #F18600.
+const PHFL_XYZ_ONE: f32 = 32768.0;
+
 fn parse_photo_filter(d: &[u8]) -> Option<Adjustment> {
     let (color, at) = match be16(d, 0)? {
         2 => {
@@ -519,11 +570,16 @@ fn parse_photo_filter(d: &[u8]) -> Option<Adjustment> {
             (crate::channel_map::decode_color(space, c).to_rgb(), 12)
         }
         3 => {
-            let lab = [be32(d, 2)? as i32, be32(d, 6)? as i32, be32(d, 10)? as i32].map(|v| v as f32 / 100.0);
-            if !(0.0..=100.0).contains(&lab[0]) || lab[1].abs() > 128.0 || lab[2].abs() > 128.0 {
+            let rel = [be32(d, 2)?, be32(d, 6)?, be32(d, 10)?].map(|v| v as f32 / PHFL_XYZ_ONE);
+            // Relative to the white, real colours stay below about 2.0 (Cooling Filter (82)
+            // reaches 1.99 on Z); anything past that is not an XYZ colour.
+            if rel.iter().any(|v| *v > 2.0) {
                 return None;
             }
-            (photocraft_color::convert::lab_to_srgb(lab), 14)
+            // Relative to the D50 white: bring it back to absolute D50 XYZ before converting.
+            let xyz = [rel[0] * photocraft_color::convert::D50[0], rel[1], rel[2] * photocraft_color::convert::D50[2]];
+            let lin = photocraft_color::convert::mat3_mul(&photocraft_color::convert::XYZ_D50_TO_SRGB, xyz);
+            (lin.map(|v| photocraft_color::convert::linear_to_srgb(v.clamp(0.0, 1.0))), 14)
         }
         _ => return None,
     };
@@ -606,10 +662,16 @@ pub fn write(adj: &Adjustment) -> Vec<([u8; 4], Vec<u8>)> {
             put16(&mut v, 2);
             v.push(u8::from(*colorize));
             v.push(0);
-            for _ in 0..2 {
-                for x in [hue, saturation, lightness] {
-                    v.extend_from_slice(&clamp_i16(*x).to_be_bytes());
-                }
+            // The colorize triplet, then the master triplet. The inactive one gets Photoshop's
+            // defaults; the colorize hue (0..360 in the model) is stored signed, -180..180.
+            let (colorize_hsl, master) = if *colorize {
+                let h = hue.rem_euclid(360.0);
+                ([if h > 180.0 { h - 360.0 } else { h }, *saturation, *lightness], [0.0; 3])
+            } else {
+                ([30.0, 25.0, 0.0], [*hue, *saturation, *lightness])
+            };
+            for x in colorize_hsl.into_iter().chain(master) {
+                v.extend_from_slice(&clamp_i16(x).to_be_bytes());
             }
             // Six hue ranges (reds, yellows, greens, cyans, blues, magentas): range values in
             // 0..360, then the range's hue, saturation and lightness.
@@ -772,7 +834,7 @@ pub fn write(adj: &Adjustment) -> Vec<([u8; 4], Vec<u8>)> {
         Adjustment::Unsupported { psd_key, raw } => {
             let k = psd_key.as_bytes();
             if k.len() == 4 {
-                return vec![([k[0], k[1], k[2], k[3]], raw.clone())];
+                return vec![([k[0], k[1], k[2], k[3]], raw.to_vec())];
             }
         }
     }
@@ -812,7 +874,8 @@ mod tests {
         // Smoothness 100 % (4096) bends a three-stop ramp.
         let three = vec![(0.0, [0.0; 3]), (0.25, [1.0, 0.0, 0.0]), (0.75, [0.0, 0.0, 1.0]), (1.0, [1.0; 3])];
         let mut smooth = write_gradient_map(&three, false, false);
-        let at = smooth.len() - 2 - 16 - 2 - 4 - 2 - 2 - 4 - 2 - 2 - 2;
+        // v1 header/name/count + colour stops + transparency stops + expansion count.
+        let at = 48 + three.len() * 20;
         smooth[at..at + 2].copy_from_slice(&4096u16.to_be_bytes());
         let (a, b) = (at_t(&write_gradient_map(&three, false, false), 0.4), at_t(&smooth, 0.4));
         assert!((0..3).any(|k| (a[k] - b[k]).abs() > 1e-3), "{a:?} {b:?}");
@@ -933,6 +996,21 @@ mod tests {
         assert_eq!(back, a);
     }
 
+    /// Photoshop keeps the colorize triplet at byte 4 and the master triplet at byte 10, and fills
+    /// the inactive one with its defaults: colorize (30, 25, 0), master (0, 0, 0). The colorize hue
+    /// is stored signed (200 -> -160).
+    #[test]
+    fn hue2_writes_each_triplet_in_its_own_slot() {
+        let triplets = |a: &Adjustment| -> Vec<i16> {
+            let blocks = write(a);
+            (0..6).map(|i| bei16(&blocks[0].1, 4 + 2 * i).unwrap_or(i16::MIN)).collect()
+        };
+        let on = Adjustment::HueSaturation { hue: 200.0, saturation: 40.0, lightness: 10.0, colorize: true, ranges: HueRange::defaults() };
+        assert_eq!(triplets(&on), [-160, 40, 10, 0, 0, 0]);
+        let off = Adjustment::HueSaturation { hue: -30.0, saturation: 20.0, lightness: 5.0, colorize: false, ranges: HueRange::defaults() };
+        assert_eq!(triplets(&off), [30, 25, 0, -30, 20, 5]);
+    }
+
     #[test]
     fn roundtrips() {
         rt(Adjustment::Invert);
@@ -975,7 +1053,7 @@ mod tests {
         let inkl = Adjustment::Levels { master: lc(0, 255), per_channel: [lc(0, 255), lc(5, 250), lc(0, 255)], space: ToneSpace::Cmyk, black: lc(30, 255) };
         let b = write(&inkl);
         assert_eq!(parse(&b[0].0, &b[0].1, None, Channels::Cmyk), inkl);
-        rt(Adjustment::Unsupported { psd_key: "selc".into(), raw: vec![1, 2, 3] });
+        rt(Adjustment::Unsupported { psd_key: "selc".into(), raw: vec![1, 2, 3].into() });
         rt(Adjustment::GradientMap { stops: vec![(0.0, [0.0, 0.0, 0.0]), (0.5, [1.0, 0.0, 0.0]), (1.0, [1.0, 1.0, 1.0])], reverse: true, dither: false });
         rt(Adjustment::GradientMap { stops: vec![(0.0, [0.0, 0.0, 0.0]), (1.0, [1.0, 1.0, 1.0])], reverse: false, dither: true });
         rt(Adjustment::SelectiveColor { relative: true, adjustments: std::array::from_fn(|r| [r as f32 * 10.0 - 40.0, 5.0, -100.0, 100.0]) });
@@ -1055,6 +1133,46 @@ mod tests {
         assert!(matches!(parse(b"selc", &[0, 1, 0, 0], None, Channels::Rgb), Adjustment::Unsupported { .. }));
     }
 
+    fn cube_lookup_block(cube: &[u8]) -> Vec<u8> {
+        let en = |t: &str, val: &str| Value::Enumerated { type_id: photocraft_psd::descriptor::Id::new(t), value: photocraft_psd::descriptor::Id::new(val) };
+        let desc = Descriptor::new("null")
+            .with("LUTFormat", en("LUTFormatType", "LUTFormatCUBE"))
+            .with("LUT3DFileName", Value::Text(photocraft_psd::descriptor::UnicodeString::new_nul("domain.cube")))
+            .with("LUT3DFileData", Value::RawData(cube.to_vec()));
+        let mut block = vec![0, 1];
+        block.extend(VersionedDescriptor::new(desc).to_bytes());
+        block
+    }
+
+    fn identity_cube(domain: &str) -> Vec<u8> {
+        format!("{domain}LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n").into_bytes()
+    }
+
+    #[test]
+    fn color_lookup_custom_domains_are_kept_unsupported() {
+        let domains = ["DOMAIN_MIN 0 0 0\nDOMAIN_MAX 0.5 0.5 0.5\n", "DOMAIN_MIN 0 0.25 0\nDOMAIN_MAX 1 0.75 1\n", "LUT_3D_INPUT_RANGE 0 0.5\n"];
+        for domain in domains {
+            let raw = cube_lookup_block(&identity_cube(domain));
+            let Adjustment::Unsupported { psd_key, raw: kept } = parse(b"clrL", &raw, None, Channels::Rgb) else {
+                panic!("custom LUT domain was applied instead of kept unsupported: {domain}")
+            };
+            assert_eq!(psd_key, "clrL");
+            assert_eq!(*kept, *raw);
+            let reason = unreadable_reason(b"clrL", &raw).expect("custom domain has an explanation");
+            assert!(reason.contains("DOMAIN_MIN") && reason.contains("DOMAIN_MAX"), "{reason}");
+            assert!(reason.to_ascii_lowercase().contains("not supported"), "{reason}");
+        }
+    }
+
+    #[test]
+    fn color_lookup_default_domains_stay_supported() {
+        for domain in ["", "DOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n"] {
+            let raw = cube_lookup_block(&identity_cube(domain));
+            assert!(matches!(parse(b"clrL", &raw, None, Channels::Rgb), Adjustment::ColorLookup { size: 2, .. }));
+            assert_eq!(unreadable_reason(b"clrL", &raw), None);
+        }
+    }
+
     #[test]
     fn malformed_falls_back_to_unsupported() {
         assert!(matches!(parse(b"levl", &[0, 2, 1], None, Channels::Rgb), Adjustment::Unsupported { .. }));
@@ -1075,15 +1193,17 @@ mod tests {
         assert!(matches!(parse(b"mixr", &ours[0].1, None, Channels::Cmyk), Adjustment::ChannelMixer { .. }));
         assert!(matches!(parse(b"mixr", &ours[0].1, None, Channels::Other), Adjustment::ChannelMixer { .. }));
         assert!(matches!(parse(b"mixr", &[0, 1, 0, 0, 0, 100], None, Channels::Rgb), Adjustment::Unsupported { .. }));
-        // Photo Filter: unknown version, HSB colour space, out-of-range version-3 Lab, truncated.
+        // Photo Filter: unknown version, HSB colour space, out-of-range version-3 XYZ, truncated.
         assert!(matches!(parse(b"phfl", &[0, 4, 0, 0], None, Channels::Rgb), Adjustment::Unsupported { .. }));
         assert!(matches!(parse(b"phfl", &[0, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 1], None, Channels::Rgb), Adjustment::Unsupported { .. }));
-        let mut lab = vec![0, 3];
-        for x in [20000i32, 0, 0] {
-            lab.extend(x.to_be_bytes());
+        for bad in [[200_000u32, 0, 0], [0, u32::MAX, 0]] {
+            let mut xyz = vec![0, 3];
+            for x in bad {
+                xyz.extend(x.to_be_bytes());
+            }
+            xyz.extend([0, 0, 0, 25, 1]);
+            assert!(matches!(parse(b"phfl", &xyz, None, Channels::Rgb), Adjustment::Unsupported { .. }));
         }
-        lab.extend([0, 0, 0, 25, 1]);
-        assert!(matches!(parse(b"phfl", &lab, None, Channels::Rgb), Adjustment::Unsupported { .. }));
         assert!(matches!(parse(b"phfl", &[0, 2, 0, 0, 0, 0], None, Channels::Rgb), Adjustment::Unsupported { .. }));
         // Arbitrary bytes never panic, whatever the key.
         for key in ADJUSTMENT_KEYS {
@@ -1156,25 +1276,56 @@ mod tests {
         let Adjustment::PhotoFilter { color, density, preserve_luminosity: false } = parse(b"phfl", &lab, None, Channels::Rgb) else { panic!() };
         assert!(color.iter().all(|c| (c - 0.466).abs() < 0.01), "{color:?}");
         assert_eq!(density, 0.25);
-        // Version 3: Lab ×100 as i32 (L 100, a 0, b 0 = white), density 100 %.
-        let mut v3 = vec![0, 3];
-        for x in [10000i32, 0, 0] {
-            v3.extend(x.to_be_bytes());
-        }
-        v3.extend(100u32.to_be_bytes());
-        v3.push(1);
+        // Version 3: XYZ relative to the D50 white, 1.0 = 32768. White is (32768, 32768, 32768).
+        let v3 = phfl_v3([32768, 32768, 32768], 100, true);
         let Adjustment::PhotoFilter { color, density, preserve_luminosity: true } = parse(b"phfl", &v3, None, Channels::Rgb) else { panic!() };
-        assert!(color.iter().all(|c| (c - 1.0).abs() < 0.01), "{color:?}");
+        assert!(color.iter().all(|c| (c - 1.0).abs() < 0.005), "{color:?}");
         assert_eq!(density, 1.0);
-        // A negative a* (green) in version 3.
-        let mut green = vec![0, 3];
-        for x in [5000i32, -6000, 0] {
-            green.extend(x.to_be_bytes());
+        // Photoshop's Warming Filter (85) preset, sRGB #EC8A00: the CS2 file of #4940 stores it
+        // relative to the D50 white as (15548, 12029, 0).
+        let Adjustment::PhotoFilter { color, density, preserve_luminosity: false } =
+            parse(b"phfl", &phfl_v3([15548, 12029, 0], 25, false), None, Channels::Rgb)
+        else {
+            panic!()
+        };
+        let expected = [0xecu8, 0x8a, 0x00].map(|v| f32::from(v) / 255.0);
+        assert!(color.iter().zip(expected).all(|(got, want)| (got - want).abs() < 1.5 / 255.0), "{color:?}");
+        assert_eq!(density, 0.25);
+        // The block from #3777 (Photoshop CS2): the Yellow filter preset, #F9E31C, density 63 %.
+        let issue = [0, 3, 0, 0, 0x5e, 0x7f, 0, 0, 0x61, 0xaa, 0, 0, 0x0e, 0xf3, 0, 0, 0, 0x3f, 1, 0];
+        let Adjustment::PhotoFilter { color, density, preserve_luminosity: true } = parse(b"phfl", &issue, None, Channels::Rgb) else { panic!() };
+        let expected = [0xf9u8, 0xe3, 0x1c].map(|v| f32::from(v) / 255.0);
+        assert!(color.iter().zip(expected).all(|(got, want)| (got - want).abs() < 1.5 / 255.0), "{color:?}");
+        assert_eq!(density, 0.63);
+        // Cooling Filter (82) from #4940: a deep blue outside sRGB; its Z stays under the 2.0
+        // garbage guard and the colour clamps to (0, 181, 255).
+        let Adjustment::PhotoFilter { color: cooling, density, preserve_luminosity: true } =
+            parse(b"phfl", &phfl_v3([5327, 9584, 65357], 72, true), None, Channels::Rgb)
+        else {
+            panic!("Cooling Filter (82) must parse")
+        };
+        let expected = [0u8, 181, 255].map(|v| f32::from(v) / 255.0);
+        assert!(cooling.iter().zip(expected).all(|(got, want)| (got - want).abs() < 1.5 / 255.0), "{cooling:?}");
+        assert_eq!(density, 0.72);
+        // The 19-byte form (no trailing pad) parses the same.
+        assert_eq!(parse(b"phfl", &issue[..19], None, Channels::Rgb), parse(b"phfl", &issue, None, Channels::Rgb));
+        // Version 3 is read, never written: an edited filter is saved as version 2 and keeps its colour.
+        let a = parse(b"phfl", &issue, None, Channels::Rgb);
+        let w = write(&a);
+        assert_eq!(&w[0].1[..2], &[0, 2]);
+        let Adjustment::PhotoFilter { color: back, .. } = parse(b"phfl", &w[0].1, None, Channels::Rgb) else { panic!() };
+        assert!(back.iter().zip(color).all(|(b, c)| (b - c).abs() <= 1.0 / 65535.0));
+    }
+
+    /// A version 3 Photo Filter block: version, three u32 XYZ components, density, flag, pad.
+    fn phfl_v3(xyz: [u32; 3], density: u32, preserve_luminosity: bool) -> Vec<u8> {
+        let mut d = vec![0, 3];
+        for x in xyz {
+            d.extend(x.to_be_bytes());
         }
-        green.extend(30u32.to_be_bytes());
-        green.push(0);
-        let Adjustment::PhotoFilter { color, .. } = parse(b"phfl", &green, None, Channels::Rgb) else { panic!() };
-        assert!(color[1] > color[0] && color[1] > color[2], "{color:?}");
+        d.extend(density.to_be_bytes());
+        d.extend([u8::from(preserve_luminosity), 0]);
+        d
     }
 
     #[test]
@@ -1256,7 +1407,7 @@ mod tests {
             assert_eq!(*t, photocraft_cms::lutfile::LutFile::identity(2).data);
         }
         // Every kind except a malformed Unsupported key has an encoding.
-        assert!(write(&Adjustment::Unsupported { psd_key: "abc".into(), raw: vec![] }).is_empty());
+        assert!(write(&Adjustment::Unsupported { psd_key: "abc".into(), raw: Vec::new().into() }).is_empty());
     }
 
     #[test]

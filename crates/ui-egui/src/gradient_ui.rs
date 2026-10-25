@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use egui::emath::GuiRounding;
 use egui::{Color32, Pos2, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use photocraft_compose::gradient_fill as gf;
 use photocraft_doc::{Document, Fill, GradientStyle, Layer, LayerContent, LayerId};
@@ -216,6 +217,11 @@ impl Widget {
 pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) -> bool {
     if !live_mode(app) {
         app.gradient.drag = None;
+        return false;
+    }
+    // ⌘ is the Move tool (`hold_keys::cmd_moves`): a press with it held drags a guide or the layer
+    // (#6288). A drag already under way keeps its events.
+    if app.gradient.drag.is_none() && crate::canvas::event_tool(app, mods) != Tool::Gradient {
         return false;
     }
     let zoom = app.point_zoom().max(0.01);
@@ -508,6 +514,9 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
 
 /// A ramp of RGBA stops over a checkerboard in `r`.
 fn paint_ramp(p: &egui::Painter, r: Rect, sample: impl Fn(f32) -> [f32; 4]) {
+    // The tessellator snaps the checker's rects to pixels but not the mesh: snap both alike, or a
+    // half-pixel offset leaves a row of checker showing under the ramp (#4577).
+    let r = r.round_to_pixels(p.pixels_per_point());
     widgets::checker(p, r, 5.0);
     let n = 64;
     let mut mesh = egui::Mesh::default();
@@ -674,6 +683,25 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
     let _ = app.run(cmds::SET, p);
 }
 
+/// Live mode: the options bar's Opacity sets a selected gradient fill layer's opacity, as a
+/// drag's `opacity` does, live while it is scrubbed; `drag` numbers the scrub so it is one undo
+/// step, as in the Layers panel (#5012).
+pub fn opacity_changed(app: &mut PhotocraftApp, drag: Option<u64>) {
+    let o = &app.ui.tool_options;
+    if app.ui.tool != Tool::Gradient || o.gradient_classic {
+        return;
+    }
+    let opacity = o.fill_opacity / 100.0;
+    let Some((l, ..)) = active_gradient(app) else { return };
+    if (l.opacity - opacity).abs() > 1e-6 {
+        let mut p = json!({"layer": l.id.0, "opacity": opacity});
+        if let Some(n) = drag {
+            p["coalesce"] = json!(format!("gradient-tool-opacity:{n}"));
+        }
+        let _ = app.run("layer.setProps", p);
+    }
+}
+
 // ---------------------------------------------------------------- Properties panel
 
 /// Properties panel for a live gradient. Every change uses the existing gradient commands.
@@ -782,12 +810,48 @@ fn preset_stop_color(app: &mut PhotocraftApp, i: usize) {
 }
 
 fn stops_editor_for(app: &mut PhotocraftApp, ui: &mut egui::Ui, sink: Sink, f: Fill) {
-    let key = strip_key(app, sink).with("selection");
-    if ui.data(|d| d.get_temp::<Marker>(key)).is_none() {
-        ui.data_mut(|d| d.insert_temp(key, Marker::Color(0)));
+    let key = strip_key(app, sink);
+    let selection_key = key.with("selection");
+    if ui.data(|d| d.get_temp::<Marker>(selection_key)).is_none() {
+        ui.data_mut(|d| d.insert_temp(selection_key, Marker::Color(0)));
     }
-    stop_strip(app, ui, sink, f);
+    let pending = match sink {
+        Sink::Layer(id) => app.gradient.panel.clone().filter(|(l, ..)| *l == id).map(|(_, _, p)| p),
+        Sink::Preset => app.gradient.preset_stop.clone(),
+    };
+    let colors = (app.session.tools.foreground, app.session.tools.background);
+    match stop_strip(ui, key, &f, sink.midpoints(), pending.as_ref(), colors) {
+        Some(StopAction::Preview(p)) => match sink {
+            Sink::Layer(id) => app.gradient.panel = Some((id, cmds::STOP, sink.params(p))),
+            Sink::Preset => app.gradient.preset_stop = Some(p),
+        },
+        Some(StopAction::Commit(p)) => {
+            match sink {
+                Sink::Layer(_) => app.gradient.panel = None,
+                Sink::Preset => app.gradient.preset_stop = None,
+            }
+            let selected = ui.data(|d| d.get_temp::<Marker>(selection_key));
+            let selection = selection_after_edit(&f, &p, selected);
+            if app.run(sink.cmd(), sink.params(p)).is_ok()
+                && let Some(marker) = selection
+            {
+                ui.data_mut(|d| d.insert_temp(selection_key, marker));
+            }
+        }
+        Some(StopAction::Color(i)) => match sink {
+            Sink::Layer(id) => edit_stop_color(app, id, i),
+            Sink::Preset => preset_stop_color(app, i),
+        },
+        None => {}
+    }
     properties_panel::stop_fields(app, ui, sink);
+}
+
+/// A shared stop strip keeps previews local; its caller chooses the command or paint target.
+pub(crate) enum StopAction {
+    Preview(Value),
+    Commit(Value),
+    Color(usize),
 }
 
 /// Keep selection on a stop after the engine sorts its new position.
@@ -817,8 +881,8 @@ fn selection_after_edit(f: &Fill, p: &Value, previous: Option<Marker>) -> Option
     Some(if opacity { Marker::Opacity(at) } else { Marker::Color(at) })
 }
 
-fn stop_strip(app: &mut PhotocraftApp, ui: &mut egui::Ui, sink: Sink, f: Fill) {
-    let Fill::Gradient { stops, .. } = &f else { return };
+fn stop_strip(ui: &mut egui::Ui, key: egui::Id, f: &Fill, midpoints: bool, pending: Option<&Value>, colors: ([f32; 4], [f32; 4])) -> Option<StopAction> {
+    let Fill::Gradient { stops, .. } = f else { return None };
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width().max(120.0);
     let (outer, resp) = ui.allocate_exact_size(vec2(w, 58.0), Sense::click_and_drag());
@@ -829,12 +893,8 @@ fn stop_strip(app: &mut PhotocraftApp, ui: &mut egui::Ui, sink: Sink, f: Fill) {
     let x_of = |loc: f32| bar.left() + loc.clamp(0.0, 1.0) * bar.width();
     let loc_of = |x: f32| ((x - bar.left()) / bar.width().max(1.0)).clamp(0.0, 1.0);
     // The ramp being shown (with a pending drag's edit applied).
-    let pending: Option<Value> = match sink {
-        Sink::Layer(id) => app.gradient.panel.clone().filter(|(l, ..)| *l == id).map(|(_, _, p)| p),
-        Sink::Preset => app.gradient.preset_stop.clone(),
-    };
-    let (fg, bg) = (app.session.tools.foreground, app.session.tools.background);
-    let shown = pending.as_ref().and_then(|p| cmds::apply_stop(&f, p, fg, bg).ok()).unwrap_or_else(|| f.clone());
+    let (fg, bg) = colors;
+    let shown = pending.and_then(|p| cmds::apply_stop(f, p, fg, bg).ok()).unwrap_or_else(|| f.clone());
     let mut track_fill = shown.clone();
     if let Fill::Gradient { reverse, .. } = &mut track_fill {
         // All markers address un-reversed positions; Reverse applies to the canvas output.
@@ -852,7 +912,6 @@ fn stop_strip(app: &mut PhotocraftApp, ui: &mut egui::Ui, sink: Sink, f: Fill) {
     sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut ops: Vec<(f32, f32)> = if os.is_empty() { vec![(0.0, 1.0), (1.0, 1.0)] } else { os.clone() };
     ops.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let key = strip_key(app, sink);
     let selection_key = key.with("selection");
     let selected: Option<Marker> = ui.data(|d| d.get_temp(selection_key));
     let dragging: Option<Marker> = ui.data(|d| d.get_temp(key));
@@ -873,7 +932,7 @@ fn stop_strip(app: &mut PhotocraftApp, ui: &mut egui::Ui, sink: Sink, f: Fill) {
         p.rect_filled(body, 1.0, color);
         p.rect_stroke(body, 1.0, Stroke::new(1.0, if sel { t.accent } else { t.text_dim }), StrokeKind::Outside);
     }
-    if sink.midpoints() {
+    if midpoints {
         for i in 0..sorted.len().saturating_sub(1) {
             let (a, b) = (sorted[i].0, sorted[i + 1].0);
             if b - a > 1e-3 {
@@ -903,7 +962,7 @@ fn stop_strip(app: &mut PhotocraftApp, ui: &mut egui::Ui, sink: Sink, f: Fill) {
             if let Some(i) = sorted.iter().position(|(l, _)| (x_of(*l) - pos.x).abs() <= 6.0 && pos.y >= bar.bottom() + 3.0) {
                 return Some(Marker::Color(i));
             }
-            if !sink.midpoints() {
+            if !midpoints {
                 return None;
             }
             return (0..sorted.len().saturating_sub(1))
@@ -926,6 +985,7 @@ fn stop_strip(app: &mut PhotocraftApp, ui: &mut egui::Ui, sink: Sink, f: Fill) {
         ui.data_mut(|d| d.insert_temp(selection_key, m));
     }
     let dragging: Option<Marker> = ui.data(|d| d.get_temp(key));
+    let mut preview = None;
     if let (Some(m), Some(pos)) = (dragging, resp.interact_pointer_pos()) {
         let off = if pos.y > bar.bottom() + 28.0 || pos.y < bar.top() - 26.0 { 1.0 } else { 0.0 };
         let loc = loc_of(pos.x);
@@ -940,70 +1000,32 @@ fn stop_strip(app: &mut PhotocraftApp, ui: &mut egui::Ui, sink: Sink, f: Fill) {
             }
         };
         if resp.dragged() {
-            match sink {
-                Sink::Layer(id) => app.gradient.panel = Some((id, cmds::STOP, sink.params(edit))),
-                Sink::Preset => app.gradient.preset_stop = Some(edit),
-            }
+            preview = Some(edit);
         }
     }
     if resp.drag_stopped() {
         ui.data_mut(|d| d.remove::<Marker>(key));
-        match sink {
-            Sink::Layer(_) => {
-                if let Some((_, cmd, p)) = app.gradient.panel.take() {
-                    let selection = selection_after_edit(&f, &p, selected);
-                    if app.run(cmd, p).is_ok()
-                        && let Some(marker) = selection
-                    {
-                        ui.data_mut(|d| d.insert_temp(selection_key, marker));
-                    }
-                }
-            }
-            Sink::Preset => {
-                if let Some(p) = app.gradient.preset_stop.take() {
-                    let selection = selection_after_edit(&f, &p, selected);
-                    if app.run(sink.cmd(), p).is_ok()
-                        && let Some(marker) = selection
-                    {
-                        ui.data_mut(|d| d.insert_temp(selection_key, marker));
-                    }
-                }
-            }
-        }
-        return;
+        return preview.or_else(|| pending.cloned()).map(StopAction::Commit);
     }
     if resp.double_clicked()
         && let Some(pos) = resp.interact_pointer_pos()
         && let Some(Marker::Color(i)) = hit(pos)
     {
         ui.data_mut(|d| d.insert_temp(selection_key, Marker::Color(i)));
-        match sink {
-            Sink::Layer(id) => edit_stop_color(app, id, i),
-            Sink::Preset => preset_stop_color(app, i),
-        }
-        return;
+        return Some(StopAction::Color(i));
     }
     if resp.clicked()
         && let Some(pos) = resp.interact_pointer_pos()
     {
         if let Some(marker) = hit(pos) {
             ui.data_mut(|d| d.insert_temp(selection_key, marker));
-            return;
+            return None;
         }
         let loc = loc_of(pos.x);
-        let opacity = pos.y < bar.center().y;
-        let p = if opacity {
-            sink.params(json!({"action": "add", "kind": "opacity", "location": loc}))
-        } else {
-            sink.params(json!({"action": "add", "location": loc}))
-        };
-        let selection = selection_after_edit(&f, &p, selected);
-        if app.run(sink.cmd(), p).is_ok()
-            && let Some(marker) = selection
-        {
-            ui.data_mut(|d| d.insert_temp(selection_key, marker));
-        }
+        let p = if pos.y < bar.center().y { json!({"action": "add", "kind": "opacity", "location": loc}) } else { json!({"action": "add", "location": loc}) };
+        return Some(StopAction::Commit(p));
     }
+    preview.map(StopAction::Preview)
 }
 
 #[cfg(test)]
@@ -1254,6 +1276,27 @@ mod tests {
     }
 
     #[test]
+    fn changing_live_gradient_opacity_updates_selected_fill_layer() {
+        let mut app = app_with_gradient("linear");
+        drag(&mut app, [20.0, 60.0], [180.0, 60.0]);
+        let past = app.session.active().unwrap().history.past_len();
+        // A scrub is live on every frame and one undo step.
+        for pct in [70.0, 55.0, 40.0] {
+            app.ui.tool_options.fill_opacity = pct;
+            opacity_changed(&mut app, Some(7));
+        }
+        opacity_changed(&mut app, None);
+        let st = app.session.active().unwrap();
+        assert!((st.doc.layers.last().unwrap().opacity - 0.4).abs() < 1e-6);
+        assert_eq!(st.history.past_len(), past + 1, "one undo step, none for an unchanged value");
+        // Classic mode paints pixels: the options bar leaves the layer alone.
+        app.ui.tool_options.gradient_classic = true;
+        app.ui.tool_options.fill_opacity = 80.0;
+        opacity_changed(&mut app, None);
+        assert!((app.session.active().unwrap().doc.layers.last().unwrap().opacity - 0.4).abs() < 1e-6);
+    }
+
+    #[test]
     fn preview_shows_the_drag_before_commit() {
         let mut app = app_with_gradient("radial");
         crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 100.0, y: 60.0, pressure: 1.0 }, mods());
@@ -1389,5 +1432,43 @@ mod tests {
         app.run("layer.setProps", json!({"layer": id.0, "visible": false})).unwrap();
         assert!(active_gradient(&app).is_none(), "the canvas widget skips a hidden layer");
         assert!(selected_gradient(&app).is_some(), "the editor still edits it");
+    }
+
+    /// #4577: the tessellator snaps the checkerboard's rects to whole pixels but leaves the ramp's
+    /// mesh where it was laid out, so at a half-pixel offset the ramp stopped a pixel short of the
+    /// checker and a row of it showed under the gradient. The ramp must cover the checker exactly.
+    #[test]
+    fn the_ramp_covers_its_checkerboard_at_half_pixel_offsets() {
+        let ctx = egui::Context::default();
+        for ppp in [1.0, 2.0] {
+            ctx.set_pixels_per_point(ppp);
+            let r = Rect::from_min_size(pos2(10.0 + 0.5 / ppp, 7.0 + 0.5 / ppp), vec2(96.0, 20.0));
+            // The new scale applies from the next frame.
+            ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+            let mut painted_at = 0.0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                painted_at = ui.ctx().pixels_per_point();
+                paint_ramp(ui.painter(), r, |u| [u, u, u, 1.0]);
+            });
+            out.textures_delta.clear();
+            assert_eq!(painted_at, ppp);
+            let checker = out
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Rect(rs) if rs.fill == Color32::from_gray(250) => Some(rs.rect),
+                    _ => None,
+                })
+                .expect("the checkerboard's base rect");
+            let ramp = out
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Mesh(m) => Some(m.calc_bounds()),
+                    _ => None,
+                })
+                .expect("the ramp mesh");
+            assert_eq!(ramp, checker.round_to_pixels(ppp), "{ppp}x: the ramp covers every pixel of the checker");
+        }
     }
 }
