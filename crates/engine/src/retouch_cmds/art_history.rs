@@ -292,7 +292,8 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let opacity = ranged(p, "opacity", 100.0, 0.0, 100.0)? / 100.0;
     let flow = ranged(p, "flow", 100.0, 0.0, 100.0)? / 100.0;
     let area = ranged(p, "area", 50.0, 0.0, 100.0)?;
-    let tolerance = ranged(p, "tolerance", 50.0, 0.0, 100.0)? / 100.0;
+    // Percent of the channel range; 0 (paint everywhere) is the default, as in Photoshop.
+    let tolerance = ranged(p, "tolerance", 0.0, 0.0, 100.0)? / 100.0;
     let style = style_of(p)?;
     let mode = blend_param(p, CMD)?;
     let (stroke, id) = parse_brush(s, p, CMD)?;
@@ -318,6 +319,8 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(err("stroke too large"));
     }
 
+    // Every dab under the tolerance: a no-op stroke, with no history step.
+    let mut all_skipped = false;
     let dmg = run_stroke(s, "Art History Brush", id, p, |_, surf, sel, lock| {
         let fmt = surf.format();
         let src = if src_surface.format() == fmt { src_surface.clone() } else { src_surface.convert(fmt) };
@@ -331,12 +334,20 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let sel_mask = selection_mask(sel, outer);
         let n = stamp_region(&mut dest, &src_reg, &dabs, hardness, opacity, flow, tolerance, halo, sel_mask.as_deref(), lock, alpha_index(&fmt), mode, fmt)?;
-        if n == 0 && tolerance <= 0.0 {
-            return Err(err("no stroke points"));
+        if n == 0 {
+            if tolerance <= 0.0 {
+                return Err(err("no stroke points"));
+            }
+            all_skipped = true;
+            return Err(err("every dab was under the tolerance"));
         }
         dest.write(surf);
         Ok(bounds)
-    })?;
+    });
+    let dmg = match dmg {
+        Err(_) if all_skipped => return Ok(json!({ "damage": Value::Null })),
+        r => r?,
+    };
     Ok(json!({ "damage": damage_json(dmg) }))
 }
 
@@ -411,6 +422,30 @@ mod tests {
             }
             assert!(s.redo());
         }
+    }
+
+    #[test]
+    fn default_tolerance_paints_a_moderate_history_edit() {
+        let mut s = session(48, 32, 8, "rgb");
+        paint_layer(&mut s, |_, _| [0.5, 0.5, 0.5, 1.0]);
+        paint_layer(&mut s, |_, _| [0.6, 0.6, 0.6, 1.0]);
+        let steps = s.active().unwrap().history.past_len();
+        let p = json!({"points": [[8, 16], [40, 16]], "size": 12, "hardness": 100, "style": "tightMedium", "state": 1});
+        s.execute("paint.artHistoryBrush", p).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+        assert!(rgba(&s, 24, 16)[0] < 0.55, "{:?}", rgba(&s, 24, 16));
+    }
+
+    #[test]
+    fn stroke_under_the_tolerance_records_no_step() {
+        let mut s = session(48, 32, 8, "rgb");
+        paint_layer(&mut s, |_, _| [0.5, 0.5, 0.5, 1.0]);
+        paint_layer(&mut s, |_, _| [0.6, 0.6, 0.6, 1.0]);
+        let steps = s.active().unwrap().history.past_len();
+        let r = stroke(&mut s, json!({"state": 1, "tolerance": 50})).unwrap();
+        assert!(r["damage"].is_null(), "{r}");
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
+        assert!((rgba(&s, 24, 16)[0] - 0.6).abs() < 0.01);
     }
 
     #[test]

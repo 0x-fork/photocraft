@@ -1436,7 +1436,7 @@ mod tests {
         h.get_by_label("Tolerance");
         assert_eq!(h.state().ui.tool_options.art_history_style, "tightMedium");
         assert_eq!(h.state().ui.tool_options.art_history_area, 50.0);
-        assert_eq!(h.state().ui.tool_options.art_history_tolerance, 50.0);
+        assert_eq!(h.state().ui.tool_options.art_history_tolerance, 0.0);
     }
 
     #[test]

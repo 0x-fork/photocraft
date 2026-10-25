@@ -582,7 +582,9 @@ fn dab_intersects(dab: &Dab, tile: (i32, i32, i32, i32)) -> bool {
     x0 < tile.2 && x1 > tile.0 && y0 < tile.3 && y1 > tile.1
 }
 
-/// Mean `|src − dest|` over the dab's covered pixels (working-space peak is 1). `None` if nothing is covered.
+/// Mean `|src − dest|` over the dab's covered pixels and colour channels (working-space peak is 1,
+/// so a tolerance of 50% is `0.5`). Alpha is left out unless it is the only channel. `None` if
+/// nothing is covered.
 fn dab_mean_diff(p: &StampParams<'_>, dab: &Dab) -> Option<f32> {
     let (x0, y0, x1, y1) = dab_bounds(dab)?;
     let mut sampled = vec![0.0f32; p.ch];
@@ -600,15 +602,17 @@ fn dab_mean_diff(p: &StampParams<'_>, dab: &Dab) -> Option<f32> {
                 continue;
             }
             let nch = p.ch.min(dst.len()).min(sampled.len());
-            if nch == 0 {
+            let skip_alpha = p.alpha.filter(|&a| a < nch && nch > 1);
+            let ncolour = nch - usize::from(skip_alpha.is_some());
+            if ncolour == 0 {
                 continue;
             }
             let mut mad = 0.0f32;
-            for i in 0..nch {
+            for i in (0..nch).filter(|&i| Some(i) != skip_alpha) {
                 let Some((&s, &d)) = sampled.get(i).zip(dst.get(i)) else { continue };
                 mad += (s - d).abs();
             }
-            sum += mad / nch as f32;
+            sum += mad / ncolour as f32;
             count = count.saturating_add(1);
         }
     }
@@ -652,8 +656,13 @@ pub fn stamp(p: &mut StampParams<'_>) -> Result<u32, StampError> {
         // share destination pixels, so they can run independently; we still apply them in order
         // here so overlapping dabs stay deterministic.
         for tile in overlapping {
-            let src_rect = (tile.0.saturating_sub(halo), tile.1.saturating_sub(halo), tile.2.saturating_add(halo), tile.3.saturating_add(halo));
             let (bx0, by0, bx1, by1) = bounds;
+            let src_rect = (
+                tile.0.saturating_sub(halo).max(bx0.saturating_sub(1)),
+                tile.1.saturating_sub(halo).max(by0.saturating_sub(1)),
+                tile.2.saturating_add(halo).min(bx1.saturating_add(1)),
+                tile.3.saturating_add(halo).min(by1.saturating_add(1)),
+            );
             let dest_rect = (tile.0.max(bx0), tile.1.max(by0), tile.2.min(bx1), tile.3.min(by1));
             written = written.saturating_add(stamp_dab_on_rect(p, dab, dest_rect, src_rect)?);
         }
@@ -790,6 +799,23 @@ mod tests {
     }
 
     #[test]
+    fn oversized_halo_is_clipped_without_changing_pixels() {
+        for ch in [1, 4, 5] {
+            let (w, h, src, dest0, dab) = fixture(ch);
+            let mut reference = dest0.clone();
+            let halo = halo_radius(40.0, Style::LooseMedium).unwrap();
+            let expected = stamp_run(w, h, ch, &src, &mut reference, &dab, 0, halo);
+            assert!(expected > 0);
+            for tile in [0, 64] {
+                let mut dest = dest0.clone();
+                let written = stamp_run(w, h, ch, &src, &mut dest, &dab, tile, i32::MAX);
+                assert_eq!(written, expected);
+                assert_eq!(dest, reference);
+            }
+        }
+    }
+
+    #[test]
     fn short_halo_disagrees_with_untiled_reference() {
         let (w, h, src, dest0, dab) = fixture(4);
         let halo = halo_radius(40.0, Style::LooseMedium).unwrap();
@@ -876,6 +902,41 @@ mod tests {
         assert!(n > 0);
         let i = (24 * w + 24) * ch;
         assert!((dest[i] - 0.9).abs() < 1.0e-5, "{}", dest[i]);
+    }
+
+    #[test]
+    fn tolerance_ignores_unchanged_alpha() {
+        // Colour moved by 0.3 and alpha did not: the 0.25 threshold must not see a 0.225 average.
+        let (w, h, ch) = (48usize, 48usize, 4);
+        let src = fill(w, h, ch, |_, _, c| if c == 3 { 1.0 } else { 0.6 });
+        let dest0 = fill(w, h, ch, |_, _, c| if c == 3 { 1.0 } else { 0.3 });
+        let dab = Dab { x: 24.0, y: 24.0, theta: 0.0, radius: 8.0, pressure: 1.0 };
+        for (tolerance, paints) in [(0.25, true), (0.35, false)] {
+            let mut dest = dest0.clone();
+            let mut p = StampParams {
+                dest: &mut dest,
+                dest_w: w,
+                dest_h: h,
+                dest_origin: (0, 0),
+                src: &src,
+                src_w: w,
+                src_h: h,
+                src_origin: (0, 0),
+                ch,
+                dabs: std::slice::from_ref(&dab),
+                hardness: 1.0,
+                opacity: 1.0,
+                flow: 1.0,
+                tolerance,
+                tile: 0,
+                halo: 4,
+                selection: None,
+                lock_transparent: false,
+                alpha: Some(3),
+            };
+            let n = stamp(&mut p).unwrap();
+            assert_eq!(n > 0, paints, "tolerance {tolerance}");
+        }
     }
 
     #[test]

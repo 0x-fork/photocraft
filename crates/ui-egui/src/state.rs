@@ -798,7 +798,7 @@ pub struct ToolOptions {
     pub art_history_style: String,
     #[serde(default = "fifty")]
     pub art_history_area: f32,
-    #[serde(default = "fifty")]
+    #[serde(default)]
     pub art_history_tolerance: f32,
 }
 
@@ -1009,7 +1009,7 @@ impl Default for ToolOptions {
             eyedropper_ring: true,
             art_history_style: default_art_history_style(),
             art_history_area: 50.0,
-            art_history_tolerance: 50.0,
+            art_history_tolerance: 0.0,
         }
     }
 }
