@@ -853,6 +853,9 @@ fn paths_list(s: &Session) -> Result<Value> {
     let knots = |p: &Path| p.subpaths.iter().map(|s| s.knots.len()).sum::<usize>();
     let layer = d.active_layer.and_then(|id| doc.layer(id)).and_then(|l| match &l.content {
         LayerContent::Shape(sh) => Some(json!({ "kind": "shape", "layer": l.id.0, "name": format!("{} Shape Path", l.name), "knots": knots(&sh.path) })),
+        // Type on a path: Photoshop's Type Path, which Direct Selection edits (#9114).
+        LayerContent::Text(t) if crate::type_extra_cmds::type_path(t).is_some() => crate::type_extra_cmds::type_path(t)
+            .map(|p| json!({ "kind": "typePath", "layer": l.id.0, "name": format!("{} Type Path", l.name), "knots": knots(&p) })),
         _ => {
             l.vector_mask.as_ref().map(|v| json!({ "kind": "vectorMask", "layer": l.id.0, "name": format!("{} Vector Mask", l.name), "knots": knots(&v.path) }))
         }

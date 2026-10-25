@@ -163,10 +163,12 @@ pub fn shows(app: &PhotocraftApp, mods: Modifiers) -> bool {
         || matches!(app.ui.tool, Tool::AddAnchorPoint | Tool::DeleteAnchorPoint | Tool::ConvertPoint)
 }
 
-/// The active paths, front first: the targeted vector mask or the active shape layer's path, then
-/// the work path. The Pen's Auto Add/Delete edits these (`anchor_tools::pen_auto`).
+/// The active paths, front first: the targeted vector mask, the active shape layer's path or the
+/// active type layer's Type Path (#9114), then the work path. The Pen's Auto Add/Delete edits these
+/// (`anchor_tools::pen_auto`).
 pub(crate) fn active_paths(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
-    let layer = crate::vector_ui::targeted_vector_mask(app).or_else(|| crate::vector_ui::active_shape_path(app));
+    let layer =
+        crate::vector_ui::targeted_vector_mask(app).or_else(|| crate::vector_ui::active_shape_path(app)).or_else(|| crate::vector_ui::active_type_path(app));
     let work = app.session.active().and_then(|st| st.doc.work_path.clone());
     layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect()
 }

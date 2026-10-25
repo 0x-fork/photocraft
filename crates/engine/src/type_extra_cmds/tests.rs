@@ -314,6 +314,41 @@ fn type_attaches_to_a_path_and_releases_it() {
     assert!(matches!(text(&s, id).shape, TextShape::Path { .. }));
 }
 
+/// #9114: type on a path follows its own path when the path is edited (Direct Selection's
+/// `path.*` commands with `"name": "layer"`), as Photoshop's Type Path does; the Paths list names
+/// it, an edit is one undo step, and an edit that leaves no path is refused.
+#[test]
+fn type_follows_its_path_when_the_path_is_edited() {
+    let mut s = session(8);
+    let id = text_layer(&mut s, "Hello path");
+    s.edit("path", |doc, _| {
+        doc.work_path = Some(Path::new(vec![Subpath::polyline(&[(150.0, 10.0), (150.0, 110.0)])]));
+        Ok(())
+    })
+    .unwrap();
+    s.execute("type.attachToPath", json!({"start": 4})).unwrap();
+    // In document space, the type path is where the work path was.
+    let path = crate::type_extra_cmds::type_path(text(&s, id)).unwrap();
+    let ends: Vec<(f64, f64)> = path.subpaths[0].knots.iter().map(|k| (k.anchor.x, k.anchor.y)).collect();
+    assert!(ends.iter().zip([(150.0, 10.0), (150.0, 110.0)]).all(|(a, b)| (a.0 - b.0).abs() < 1e-6 && (a.1 - b.1).abs() < 1e-6), "{ends:?}");
+    let listed = s.execute("path.list", json!({})).unwrap();
+    assert_eq!(listed["layerPath"]["kind"], "typePath", "{listed}");
+    // Swing the path's end to the right: the type now runs down and to the right.
+    let before = ink(&s, id);
+    let r = s.execute("path.moveAnchors", json!({"name": "layer", "layer": id.0, "anchors": [[0, 1]], "move": [120, 0]})).unwrap();
+    assert_eq!(r["name"], "layer");
+    let after = ink(&s, id);
+    assert!(after.width() > before.width() + 20, "{before:?} → {after:?}");
+    assert!(matches!(text(&s, id).shape, TextShape::Path { start, .. } if start == 4.0), "where the type starts is kept");
+    // The work path it came from is untouched; Undo puts the type path back.
+    assert_eq!(s.active().unwrap().doc.work_path.as_ref().unwrap().subpaths[0].knots[1].anchor.x, 150.0);
+    assert!(s.undo());
+    assert_eq!(ink(&s, id), before);
+    // An edit that would leave fewer than two points is refused and changes nothing.
+    assert!(s.execute("path.deleteAnchor", json!({"name": "layer", "layer": id.0, "subpath": 0, "knot": 0})).is_err());
+    assert_eq!(ink(&s, id), before);
+}
+
 /// The Type tool's click on a path: `"at"` starts the type where the path passes nearest the
 /// click, and the paragraph alignment is kept about that point, as in Photoshop.
 #[test]
