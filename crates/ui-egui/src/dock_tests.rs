@@ -94,7 +94,7 @@ fn harness(app: PhotocraftApp, size: egui::Vec2, theme: ThemeKind) -> Harness<'s
             if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                 return;
             }
-            crate::panels::right_dock(app, ui);
+            crate::panels::dock_area(app, ui);
             egui::CentralPanel::default().show(ui, |_| {});
         },
         app,
@@ -922,7 +922,7 @@ fn dock_strips_fit_and_the_chevron_menu_switches_tabs() {
                 if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                     return;
                 }
-                crate::panels::right_dock(app, ui);
+                crate::panels::dock_area(app, ui);
                 egui::CentralPanel::default().show(ui, |_| {});
             },
             app,

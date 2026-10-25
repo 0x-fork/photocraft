@@ -35,7 +35,7 @@ fn harness(app: PhotocraftApp, theme: ThemeKind) -> Harness<'static, PhotocraftA
             if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                 return;
             }
-            crate::panels::right_dock(app, ui);
+            crate::panels::dock_area(app, ui);
             egui::CentralPanel::default().show(ui, |_| {});
         },
         app,

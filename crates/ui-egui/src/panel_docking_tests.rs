@@ -110,7 +110,7 @@ fn harness(app: PhotocraftApp, size: egui::Vec2) -> Harness<'static, PhotocraftA
                 ready = true;
                 return;
             }
-            crate::panels::right_dock(app, ui);
+            crate::panels::dock_area(app, ui);
             egui::CentralPanel::default().show(ui, |_| {});
         },
         app,
@@ -132,36 +132,119 @@ fn drag(h: &mut Harness<'static, PhotocraftApp>, from: Pos2, to: Pos2) {
     h.run_steps(3);
 }
 
+/// The canvas's rect: from the area's start to the dock column's inner edge.
+fn canvas_rect(h: &Harness<'static, PhotocraftApp>) -> egui::Rect {
+    let hits = craft_ui::docking::DockArea::<String>::hit_rects(&h.ctx, area_id());
+    let divider = hits
+        .iter()
+        .find(|(hit, _)| matches!(hit, craft_ui::docking::Hit::Divider(craft_ui::docking::Divider::Column(_))))
+        .map(|(_, rect)| *rect)
+        .expect("the dock column's edge is drawn");
+    egui::Rect::from_min_max(egui::pos2(0.0, divider.top()), egui::pos2(divider.left(), divider.bottom()))
+}
+
+/// The panels of the root split's canvas side, which a drop beside the canvas splits.
+fn canvas_side(layout: &Layout<String>) -> Layout<String> {
+    let Some(Node::Split { first, .. }) = &layout.root else { panic!("the canvas is beside the dock: {layout:?}") };
+    Layout { root: Some(first.as_ref().clone()), floating: Vec::new() }
+}
+
 #[test]
-fn ordinary_panel_tab_drag_enters_shared_docking_and_can_redock_into_another_tab_group() {
+fn a_fresh_launch_draws_the_native_groups_beside_the_protected_canvas() {
     let mut h = harness(app(), vec2(1280.0, 800.0));
-    let source = h.query_all_by_label("Layers").find(|node| node.rect().height() <= 45.0).unwrap().rect().center();
-    drag(&mut h, source, egui::pos2(160.0, 140.0));
-    let layout = h.state().ui.docking.as_ref().map(|w| &w.layout).expect("ordinary tab drag starts shared docking");
-    assert!(layout.floating.iter().any(|g| g.contains("layers")), "{layout:?}");
+    assert!(h.state().ui.docking.is_none(), "drawing the default does not customize the workspace");
+    let layout = legacy(h.state());
+    assert!(valid(&layout));
+    assert_eq!(
+        root_groups(&layout),
+        [vec!["color", "swatches", "gradients", "patterns"], vec!["properties", "adjustments"], vec!["layers", "channels", "paths"]]
+    );
+    assert!(in_dock_column(&layout, "layers"), "the groups are a dock column: {layout:?}");
+    let canvas = canvas_rect(&h);
+    let tops: Vec<f32> = ["color", "properties", "layers"].iter().map(|panel| tab_rect(&h, panel).top()).collect();
+    assert!(tops.windows(2).all(|pair| pair[0] < pair[1]), "top to bottom: {tops:?}");
+    assert!(tab_rect(&h, "color").left() > canvas.right(), "the dock is at the end edge");
+    let hits = craft_ui::docking::DockArea::<String>::hit_rects(&h.ctx, area_id());
+    assert!(!hits.iter().any(|(hit, _)| *hit == craft_ui::docking::Hit::Tab(CANVAS.into())), "the canvas has no tab");
+    for command in ["window.panel.close", "window.panel.float"] {
+        assert!(h.state_mut().run(command, json!({"panel": CANVAS})).is_err(), "{command}");
+    }
+    h.state_mut().run("window.panel.move", json!({"panel":"layers","anchor":CANVAS,"zone":"center"})).unwrap_err();
+    assert!(h.state().ui.docking.is_none(), "a refused command leaves the default");
+
+    let mut studio = crate::PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    studio.ui.theme = crate::theme::ThemeKind::Studio;
+    let layout = legacy(&studio);
+    let window = layout.floating.first().expect("Studio floats Properties");
+    assert_eq!((window.id, window.panels().cloned().collect::<Vec<_>>()), (PROPERTIES_WINDOW, vec!["properties".to_string(), "adjustments".into()]));
+    assert_eq!(legacy(&studio).floating, layout.floating, "the same window every frame");
+
+    h.state_mut().ui.dock.set_collapsed(Group::Color, true);
+    h.run_steps(2);
+    assert!(collapsed_members(h.state(), &legacy(h.state())).contains("swatches"));
+    let color = tab_rect(&h, "color");
+    assert!(tab_rect(&h, "properties").top() - color.bottom() < 12.0, "a collapsed group shows only its tabs");
+}
+
+/// A panel no saved workspace has placed opens in its native group, or as that group in its
+/// native place in the dock column, not as a tab of whichever group comes first.
+#[test]
+fn a_panel_never_laid_out_opens_in_its_default_group_and_side() {
+    let mut app = app();
+    app.ui.docking = Some(Workspace::new(legacy(&app)));
+    app.run("window.panel.activate", json!({"panel":"navigator"})).unwrap();
+    let layout = lay(&app);
+    assert!(in_dock_column(layout, "navigator"), "{layout:?}");
+    assert_eq!(
+        root_groups(layout),
+        [vec!["color", "swatches", "gradients", "patterns"], vec!["properties", "adjustments"], vec!["navigator"], vec!["layers", "channels", "paths"]]
+    );
+    app.run("window.panel.activate", json!({"panel":"info"})).unwrap();
+    app.run("window.panel.activate", json!({"panel":"histogram"})).unwrap();
+    assert_eq!(group_members(lay(&app), "info"), ["navigator", "histogram", "info"]);
+    app.run("window.panel.activate", json!({"panel":"brushes"})).unwrap();
+    assert_eq!(root_groups(lay(&app)).last().unwrap(), &["brushes"]);
+}
+
+#[test]
+fn a_tab_dropped_on_the_canvas_opens_beside_it_and_redocks() {
+    let mut h = harness(app(), vec2(1280.0, 800.0));
+    let canvas = canvas_rect(&h);
+    let source = tab_rect(&h, "layers").center();
+    drag(&mut h, source, egui::pos2(canvas.left() + canvas.width() / 6.0, canvas.center().y));
+    let layout = lay(h.state());
+    assert!(valid(layout));
+    let beside = canvas_side(layout);
+    assert!(beside.contains(&"layers".to_string()) && beside.contains(&CANVAS.to_string()), "{layout:?}");
+    assert!(!in_dock_column(layout, "layers") && !layout.floating.iter().any(|window| window.contains("layers")));
+    assert!(tab_rect(&h, "layers").right() < hit_rect(&h, craft_ui::docking::Hit::Tab("color".into())).left());
+
     let source = tab_rect(&h, "layers").center();
     let destination = tab_rect(&h, "properties").center();
     drag(&mut h, source, destination);
     let layout = lay(h.state());
-    assert!(!layout.floating.iter().any(|g| g.contains("layers")));
-    assert!(valid(layout));
+    let mut members = group_members(layout, "layers");
+    members.sort();
+    assert_eq!(members, ["adjustments", "layers", "properties"]);
+    assert!(in_dock_column(layout, "layers") && valid(layout));
 }
 
 #[test]
-fn brushes_tab_drag_floats_and_can_redock_into_another_tab_group() {
+fn brushes_tab_drag_opens_beside_the_canvas_and_can_redock_into_another_tab_group() {
     let mut app = app();
     crate::menus::invoke(&mut app, &egui::Context::default(), "window.panel.brushes", json!({})).unwrap();
     let mut h = harness(app, vec2(1280.0, 800.0));
-    let source = h.query_all_by_label("Brushes").find(|node| node.rect().height() <= 45.0).unwrap().rect().center();
-    drag(&mut h, source, egui::pos2(160.0, 140.0));
-    let layout = h.state().ui.docking.as_ref().map(|w| &w.layout).expect("brushes drag starts shared docking");
-    assert!(layout.floating.iter().any(|group| group.contains("brushes")), "{layout:?}");
+    let canvas = canvas_rect(&h);
+    let source = tab_rect(&h, "brushes").center();
+    drag(&mut h, source, egui::pos2(canvas.center().x, canvas.top() + canvas.height() / 6.0));
+    let layout = lay(h.state());
+    assert!(canvas_side(layout).contains(&"brushes".to_string()), "{layout:?}");
 
     let source = tab_rect(&h, "brushes").center();
     let destination = tab_rect(&h, "layers").center();
     drag(&mut h, source, destination);
     let layout = lay(h.state());
-    assert!(!layout.floating.iter().any(|group| group.contains("brushes")));
+    assert!(in_dock_column(layout, "brushes"));
     assert!(valid(layout));
 }
 
@@ -217,7 +300,7 @@ fn capture_custom_panel_docking_visual_fixtures() {
                             ready = true;
                             return;
                         }
-                        crate::panels::right_dock(app, ui);
+                        crate::panels::dock_area(app, ui);
                         egui::CentralPanel::default().show(ui, |ui| {
                             ui.label("Custom panel workspace");
                         });
@@ -248,7 +331,7 @@ fn floating_group_titles_are_opaque_in_studio_themes() {
                 ready = true;
                 return;
             }
-            crate::panels::right_dock(app, ui);
+            crate::panels::dock_area(app, ui);
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(255, 0, 255))).show(ui, |_| {});
         },
         app,
@@ -275,7 +358,7 @@ fn escape_cancels_the_first_drag_without_replacing_the_legacy_workspace() {
     h.run_steps(1);
     h.event(Event::PointerMoved(source - vec2(90.0, 0.0)));
     h.run_steps(2);
-    assert!(h.state().ui.docking.is_some());
+    assert!(h.state().ui.docking.is_none(), "a drag changes nothing before its drop");
     h.event(Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
     h.run_steps(1);
     assert!(h.state().ui.docking.is_none());
@@ -307,13 +390,12 @@ fn serialized_layout_actions_cover_geometry_reorder_accordion_and_atomic_rejecti
         assert_eq!(app.ui.docking, before);
         assert_eq!(app.ui.docking_returns, hidden);
     }
-    app.ui.docking = Some(Workspace::new(Layout {
-        root: Some(Node::Stack { entries: vec![craft_ui::docking::StackEntry { panel: "layers".into(), open: true, height: Some(100.0) }] }),
-        floating: Vec::new(),
-    }));
+    let stack = Node::Stack { entries: vec![craft_ui::docking::StackEntry { panel: "layers".into(), open: true, height: Some(100.0) }] };
+    app.ui.docking = Some(Workspace::new(Layout { root: Some(with_canvas(stack, 300.0)), floating: Vec::new() }));
     app.run("window.panel.layout", json!({"action":{"SetStackOpen":{"panel":"layers","open":false}}})).unwrap();
     app.run("window.panel.layout", json!({"action":{"ResizeStack":{"panel":"layers","height":150}}})).unwrap();
-    let Some(Node::Stack { entries }) = &lay(&app).root else { panic!("expected stack") };
+    let Some(Node::Split { second, .. }) = &lay(&app).root else { panic!("expected the canvas split") };
+    let Node::Stack { entries } = second.as_ref() else { panic!("expected stack") };
     assert!(!entries[0].open);
     assert_eq!(entries[0].height, Some(150.0));
 }
@@ -378,7 +460,7 @@ fn populated_canvas_keeps_a_real_opacity_edit_after_floating_and_redocking() {
             crate::panels::title_bar(app, ui);
             crate::panels::options_bar(app, ui);
             crate::panels::toolbar(app, ui);
-            crate::panels::right_dock(app, ui);
+            crate::panels::dock_area(app, ui);
             egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
         },
         app,
@@ -572,8 +654,9 @@ fn legacy_dock_width_is_consumed_by_custom_renderer_and_clamped_to_existing_rang
     for (requested, expected) in [(410.0, 410.0), (700.0, 700.0), (900.0, 880.0), (20.0, 250.0)] {
         assert_eq!(control_set(h.state_mut(), &ctx, json!({"dockWidth":requested}))["ok"], true);
         h.run_steps(2);
-        let state = egui::containers::panel::PanelState::load(&h.ctx, egui::Id::new("shared-panel-dock")).unwrap();
-        assert!((state.outer_rect.width() - expected).abs() < 1.0, "{} / {expected}", state.outer_rect.width());
+        let Some(Node::Split { second, .. }) = &lay(h.state()).root else { panic!("expected the canvas split") };
+        let Node::Dock { columns, .. } = second.as_ref() else { panic!("expected the dock") };
+        assert!((columns[0].width - expected).abs() < 1.0, "{} / {expected}", columns[0].width);
         assert!(h.ctx.data(|data| data.get_temp::<f32>(crate::panels::dock_width_id())).is_none());
     }
 }

@@ -2465,15 +2465,18 @@ impl eframe::App for PhotocraftApp {
         if (chrome && self.ui.panels.toolbar) || tabbed_in {
             panels::toolbar(self, ui);
         }
-        if (chrome && self.ui.panels.dock) || tabbed_in {
-            panels::right_dock(self, ui);
+        // craft-ui's layout holds the canvas as its protected `canvas` panel.
+        let docking = (chrome && self.ui.panels.dock) || tabbed_in;
+        if docking {
+            panels::dock_area(self, ui);
+        } else {
+            let t = theme::Tokens::get(&ctx);
+            let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| {
+                canvas::document_area(self, ui);
+            });
+            panels::properties_window(self, &ctx);
         }
-        let t = theme::Tokens::get(&ctx);
-        let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| {
-            canvas::document_area(self, ui);
-        });
-        panels::properties_window(self, &ctx);
         brush_panel::window(self, &ctx);
         preset_panels::windows(self, &ctx);
         gradient_ui::editor_window(self, &ctx);
