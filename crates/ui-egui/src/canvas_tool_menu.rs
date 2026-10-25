@@ -2177,10 +2177,8 @@ mod tests {
         assert!(menu.crop.is_some() && !menu.pasteboard, "with a crop pending, its menu also outside the image");
     }
 
-    #[test]
-    fn esc_closes_only_the_crop_menu() {
-        let mut app = crop_app();
-        let frame = draw_crop(&mut app);
+    /// A harness in the app's order: shortcuts (the crop's Esc and ↵ among them), then the canvas.
+    fn shortcut_harness(mut app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
         app.sync_views();
         let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui_state(
             |ui, app: &mut PhotocraftApp| {
@@ -2188,7 +2186,6 @@ mod tests {
                 if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                     return;
                 }
-                // The app's order: shortcuts (the crop's Esc among them), then the canvas.
                 crate::shortcuts::handle(app, &ctx);
                 egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
             },
@@ -2196,6 +2193,14 @@ mod tests {
         );
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::default());
         h.run_steps(4);
+        h
+    }
+
+    #[test]
+    fn esc_closes_only_the_crop_menu() {
+        let mut app = crop_app();
+        let frame = draw_crop(&mut app);
+        let mut h = shortcut_harness(app);
         let center = h.state().last_canvas_rect.center();
         right_click(&mut h, center, Modifiers::NONE);
         assert!(h.state().ui.canvas_tool_menu.as_ref().is_some_and(|m| m.crop.is_some()));
@@ -2204,6 +2209,120 @@ mod tests {
         assert!(h.state().ui.canvas_tool_menu.is_none(), "Esc closes the menu");
         assert_eq!(h.state().ui.crop_rect, Some(frame), "and only the menu: the crop is not cancelled");
         assert!(crate::crop_ui::pending(h.state()));
+    }
+
+    /// ↵ under the open crop menu doesn't commit the crop beneath it.
+    #[test]
+    fn enter_under_the_crop_menu_does_not_crop() {
+        let mut app = crop_app();
+        let frame = draw_crop(&mut app);
+        let mut h = shortcut_harness(app);
+        let size = h.state().session.active().map(|s| s.doc.size);
+        let center = h.state().last_canvas_rect.center();
+        right_click(&mut h, center, Modifiers::NONE);
+        assert!(h.state().ui.canvas_tool_menu.as_ref().is_some_and(|m| m.crop.is_some()));
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(h.state().session.active().map(|s| s.doc.size), size, "↵ under the menu doesn't crop");
+        assert_eq!(h.state().ui.crop_rect, Some(frame));
+        assert!(crate::crop_ui::pending(h.state()));
+    }
+
+    /// A right-click while the left button drags the crop frame opens no menu over the drag, on
+    /// the image or outside it (no pasteboard menu either), and the menu opens again once the left
+    /// button is up, though egui ended that drag without a release of its own.
+    #[test]
+    fn no_crop_menu_while_the_left_button_drags_the_frame() {
+        let mut app = crop_app();
+        draw_crop(&mut app);
+        let mut h = harness(app);
+        let rect = h.state().last_canvas_rect;
+        let (center, outside) = (rect.center(), rect.min + vec2(5.0, 5.0));
+        let left = |pos, pressed| egui::Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        h.event(egui::Event::PointerMoved(center));
+        h.run_steps(1);
+        h.event(left(center, true));
+        h.run_steps(1);
+        for k in 1..=4 {
+            h.event(egui::Event::PointerMoved(center + vec2(8.0 * k as f32, 0.0)));
+            h.run_steps(1);
+        }
+        assert!(h.state().crop.drag.is_some(), "the left button drags the frame");
+        let held = center + vec2(32.0, 0.0);
+        right_click(&mut h, held, Modifiers::NONE);
+        assert!(h.state().ui.canvas_tool_menu.is_none(), "no crop menu over the drag");
+        right_click(&mut h, outside, Modifiers::NONE);
+        assert!(h.state().ui.canvas_tool_menu.is_none(), "nor the pasteboard menu outside the image");
+        h.event(egui::Event::PointerMoved(held));
+        h.event(left(held, false));
+        h.run_steps(2);
+        right_click(&mut h, center, Modifiers::NONE);
+        assert!(h.state().ui.canvas_tool_menu.as_ref().is_some_and(|m| m.crop.is_some()), "with the button up the menu opens");
+    }
+
+    /// The left button down with no crop gesture under way (a press egui doesn't take for a drag
+    /// yet, or one whose release was lost to an Alt+Tab or a cancelled touch) doesn't keep the
+    /// crop menu shut.
+    #[test]
+    fn a_left_button_down_without_a_crop_drag_keeps_the_crop_menu() {
+        let mut app = crop_app();
+        draw_crop(&mut app);
+        let mut h = harness(app);
+        let center = h.state().last_canvas_rect.center();
+        h.event(egui::Event::PointerMoved(center));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: center, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+        assert!(h.ctx.input(|i| i.pointer.primary_down()) && h.state().crop.drag.is_none(), "down, dragging nothing");
+        right_click(&mut h, center, Modifiers::NONE);
+        assert!(h.state().ui.canvas_tool_menu.as_ref().is_some_and(|m| m.crop.is_some()), "the crop menu opens");
+    }
+
+    /// Nor does a right-click open a menu over a Straighten line the left button still draws.
+    #[test]
+    fn no_crop_menu_while_the_left_button_draws_a_straighten_line() {
+        let mut app = crop_app();
+        draw_crop(&mut app);
+        crate::crop_straighten::toggle(&mut app);
+        let mut h = harness(app);
+        let center = h.state().last_canvas_rect.center();
+        let left = |pos, pressed| egui::Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        h.event(egui::Event::PointerMoved(center));
+        h.run_steps(1);
+        h.event(left(center, true));
+        h.run_steps(1);
+        for k in 1..=4 {
+            h.event(egui::Event::PointerMoved(center + vec2(8.0 * k as f32, 4.0)));
+            h.run_steps(1);
+        }
+        assert!(h.state().crop.straighten.line.is_some() && h.state().crop.drag.is_none(), "the left button draws a Straighten line");
+        right_click(&mut h, center + vec2(32.0, 4.0), Modifiers::NONE);
+        assert!(h.state().ui.canvas_tool_menu.is_none(), "no menu over the line");
+    }
+
+    /// A finger held still on a pending crop (a touch screen's press-and-hold right-click) opens
+    /// the crop menu, though the touch counts as the primary button down.
+    #[test]
+    fn a_finger_held_on_a_pending_crop_opens_the_crop_menu() {
+        let mut app = crop_app();
+        let frame = draw_crop(&mut app);
+        let mut h = harness(app);
+        let at = h.state().last_canvas_rect.center();
+        let touch = |phase| egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(1), phase, pos: at, force: None };
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        h.input_mut().events.extend([egui::Event::PointerMoved(at), touch(egui::TouchPhase::Start), button(true)]);
+        h.step();
+        // Held past egui's max_click_duration (0.8 s) without moving.
+        for _ in 0..120 {
+            if h.state().ui.canvas_tool_menu.is_some() {
+                break;
+            }
+            h.step();
+        }
+        assert!(h.state().ui.canvas_tool_menu.as_ref().is_some_and(|m| m.crop.is_some()), "the held finger opens the crop menu");
+        h.input_mut().events.extend([touch(egui::TouchPhase::End), button(false)]);
+        h.run_steps(2);
+        assert_eq!(h.state().ui.crop_rect, Some(frame), "the hold leaves the frame alone");
     }
 
     #[test]

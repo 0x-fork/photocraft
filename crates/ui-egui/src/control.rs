@@ -1137,6 +1137,11 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                         }
                         continue;
                     }
+                    // No menu over the agent's own crop frame or Straighten line still being
+                    // dragged, also the first one on the default frame (nothing pending yet).
+                    if app.ui.tool == crate::state::Tool::Crop && (app.crop.drag.is_some() || app.crop.straighten.line.is_some()) {
+                        continue;
+                    }
                     if app.ui.tool == crate::state::Tool::Crop && crate::crop_ui::pending(app) {
                         if down {
                             crate::canvas_tool_menu::open_crop(app, ctx, app.ui.tool, screen_point(app, x, y));
@@ -2016,6 +2021,45 @@ mod tests {
         assert_eq!(call(&mut app, &ctx, "ui.context.choose", json!({"id":"crop.commit"}))["ok"], true);
         let size = app.session.active().unwrap().doc.size;
         assert_eq!([f64::from(size.width), f64::from(size.height)], [frame[2] - frame[0], frame[3] - frame[1]], "cropped to the frame");
+    }
+
+    /// An agent's right-click while its own crop frame drag is still down opens no menu over it;
+    /// after the drag's release it does.
+    #[test]
+    fn agent_right_click_during_its_crop_drag_opens_no_menu() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.sync_views();
+        app.ui.tool = crate::state::Tool::Crop;
+        app.ui.tool_options.crop_shield.classic_mode = true;
+        app.ui.extras.snap = false;
+        crate::crop_ui::ensure_frame(&mut app);
+        let pointer = |app: &mut PhotocraftApp, button: &str, events: Value| {
+            assert_eq!(call(app, &ctx, "ui.pointer", json!({"tool": "Crop", "button": button, "events": events}))["ok"], true);
+        };
+        // The first drag on the default frame (nothing pending yet): no pasteboard menu outside the image.
+        pointer(&mut app, "left", json!([{"kind":"down","x":4,"y":4},{"kind":"move","x":16,"y":12},{"kind":"move","x":28,"y":20}]));
+        assert!(app.crop.drag.is_some() && !crate::crop_ui::pending(&app), "the first frame is still being drawn");
+        pointer(&mut app, "secondary", json!([{"kind":"down","x":-8,"y":-8},{"kind":"up","x":-8,"y":-8}]));
+        assert!(app.ui.canvas_tool_menu.is_none(), "no pasteboard menu over the first drag");
+        pointer(&mut app, "left", json!([{"kind":"up","x":28,"y":20}]));
+        // A second drag, on the drawn frame, still down.
+        pointer(&mut app, "left", json!([{"kind":"down","x":16,"y":12},{"kind":"move","x":18,"y":14}]));
+        assert!(app.crop.drag.is_some() && crate::crop_ui::pending(&app), "the frame drag is still down");
+        let right_click = json!([{"kind":"down","x":16,"y":12},{"kind":"up","x":16,"y":12}]);
+        pointer(&mut app, "secondary", right_click.clone());
+        assert!(app.ui.canvas_tool_menu.is_none(), "no menu over the drag");
+        pointer(&mut app, "left", json!([{"kind":"up","x":18,"y":14}]));
+        pointer(&mut app, "secondary", right_click.clone());
+        assert!(app.ui.canvas_tool_menu.as_ref().is_some_and(|m| m.crop.is_some()), "after the release it opens");
+        // Nor over a Straighten line still being drawn.
+        app.ui.canvas_tool_menu = None;
+        crate::crop_straighten::toggle(&mut app);
+        pointer(&mut app, "left", json!([{"kind":"down","x":6,"y":6},{"kind":"move","x":20,"y":8}]));
+        assert!(app.crop.straighten.line.is_some(), "the Straighten line is still down");
+        pointer(&mut app, "secondary", right_click);
+        assert!(app.ui.canvas_tool_menu.is_none(), "no menu over the Straighten line");
     }
 
     #[test]
