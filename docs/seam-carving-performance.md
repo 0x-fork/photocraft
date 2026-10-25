@@ -139,6 +139,29 @@ channel), the energy and the stored directions, plus protection and an 8-byte in
   that case 1.3–1.5× slower than before. No other input it tried was slower.
 - **wasm** builds run the same code on one thread.
 
+## P28's recorded number is stale (2026-10-22, #8526)
+
+`perf/baseline.json` records P28 (Content-Aware Scale on 24 MP to 90 % width) as 954 192 ms from the
+2026-10-05 baseline, which is why `perf/budgets.toml` carries `enforce = false` for that row. The
+seam-search proxies and the per-seam energy update landed after that capture:
+
+| Tree | 6000 × 4000 → 5400, 4 ch |
+|---|---:|
+| `f5d2bcb` (the 2026-10-05 baseline commit) | 266 039 ms |
+| `1104b6f` (main with #8526, before #5236) | 2 559 ms |
+
+`f5d2bcb` has no `PROXY_SHRINK_MIN_HEIGHT`: it carves at full height with a full energy recompute per
+seam. The 954 s in the baseline was that code on a machine whose recorded load average was 226–290
+on 14 cores. The two `bench_seam` runs above are 104× apart (266 039 ms against 2 559 ms); that is the
+seam-search core alone, and it is not the same measurement as the row's 954 s, which also includes a
+document read and writeback the timer above excludes.
+
+The row itself is not flipped to `enforce = true` here: the budget is set for the macOS/aarch64
+machine class and only a run on that class can vouch for it. The carving core was 2.56 s at
+24 MP on a 4-core laptop CPU before #5236; the budgeted machine is faster, but the row also includes the document
+read and writeback this measurement excludes. Flip it in the PR whose nightly run shows the row
+under 3 s, and delete this paragraph with it.
+
 ## The shrink proxy's column map (2026-10-22, #8526)
 
 Main had dropped the proxy search's per-pixel original-column map in favour of counting the columns
