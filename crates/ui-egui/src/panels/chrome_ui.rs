@@ -5,6 +5,7 @@ use egui::{RichText, Sense, Stroke, vec2};
 use photocraft_doc::{Document, LayerContent};
 use serde::{Deserialize, Serialize};
 
+use crate::render_path::CpuReason;
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons, widgets};
 
@@ -188,21 +189,42 @@ pub fn status_bar_pro(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     status_message(app, ui, &t);
 }
 
-/// The active document's layers don't fit the GPU memory budget (`perf.gpuLayerFit`): edits that
-/// redraw the whole document do it on the CPU, so say so in the status bar until they fit again.
-/// Clicking it opens Preferences › Performance, where GPU Memory raises the budget.
-pub fn gpu_memory_status(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let Some(doc) = app.session.active().map(|st| st.doc.id.0) else { return };
-    let Some(fit) = app.perf.gpu_layer_fit.filter(|f| f.doc == doc && !f.fits()) else { return };
+/// What the status bar says about the active document's render path: its label, tooltip and
+/// the command a click runs, or None on the GPU.
+pub(crate) fn render_path_label(app: &PhotocraftApp) -> Option<(&'static str, String, &'static str)> {
+    let doc = app.session.active().map(|st| st.doc.id.0)?;
+    let reason = app.render_path.current(doc);
+    // The measured fit (also on a switch to a document whose canvas is current) or the reason
+    // of the last full refresh: edits that redraw the whole document do it on the CPU, so say
+    // so until they fit again; GPU Memory in Preferences › Performance raises the budget.
+    let fit = app.perf.gpu_layer_fit.filter(|f| f.doc == doc && !f.fits()).map(|f| (f.needed, f.budget));
+    let over = match reason {
+        Some(&CpuReason::OverBudget { needed, budget }) => fit.or(Some((needed, budget))),
+        _ => fit,
+    };
+    if let Some((needed, budget)) = over {
+        let tip = crate::i18n::fmt(
+            tl!(
+                "The layers need {needed} of GPU memory and may hold {budget}, so edits that redraw the whole document do it on the CPU. Click to set GPU Memory."
+            ),
+            &[("needed", &fmt_bytes(needed)), ("budget", &fmt_bytes(budget))],
+        );
+        return Some((tl!("GPU Memory Full"), tip, "edit.preferences.performance"));
+    }
+    let reason = reason?;
+    let tip = crate::i18n::fmt(tl!("Drawn on the CPU: {reason}. Click for System Info."), &[("reason", &reason.to_string())]);
+    Some((tl!("CPU Rendering"), tip, "help.systemInfo"))
+}
+
+/// The active document is drawn on the CPU (`render_path`): say so in the status bar, with the
+/// reason in the tooltip. "GPU Memory Full" opens Preferences › Performance; any other reason,
+/// "CPU Rendering", opens Help › System Info.
+pub fn render_path_status(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let Some((label, tip, command)) = render_path_label(app) else { return };
     let t = Tokens::get(ui.ctx());
-    let resp = ui
-        .add(egui::Label::new(RichText::new(tl!("GPU Memory Full")).color(t.warning).size(12.0)).sense(Sense::click()))
-        .on_hover_text(crate::i18n::fmt(
-            tl!("The layers need {needed} of GPU memory and may hold {budget}, so edits that redraw the whole document do it on the CPU. Click to set GPU Memory."),
-            &[("needed", &fmt_bytes(fit.needed)), ("budget", &fmt_bytes(fit.budget))],
-        ));
+    let resp = ui.add(egui::Label::new(RichText::new(label).color(t.warning).size(12.0)).sense(Sense::click())).on_hover_text(tip);
     if resp.clicked() {
-        crate::shortcut_dispatch::dispatch(app, ui.ctx(), "edit.preferences.performance");
+        crate::shortcut_dispatch::dispatch(app, ui.ctx(), command);
     }
 }
 

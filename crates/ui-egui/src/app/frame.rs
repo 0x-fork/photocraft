@@ -165,6 +165,8 @@ impl PhotocraftApp {
         }
         let t0 = gpu_canvas::now_ms();
         self.perf.frame_refresh_ms = 0.0;
+        // A software adapter or CPU mode chosen at startup is every document's reason.
+        render_path::frame(self);
         self.stroke_trace.cpu_prev(frame.info().cpu_usage);
         // A text field's right-click menu, before any field is drawn (text_field_menu.rs).
         text_field_menu::show(&ctx);

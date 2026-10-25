@@ -43,7 +43,7 @@ pub struct Refresh {
     /// document under-reports by more than the few per cent of a warm one.
     pub gpu: Option<photocraft_gpu::GpuTiming>,
     /// Why the wgpu compositor wasn't used.
-    pub fallback: Option<String>,
+    pub fallback: Option<CpuReason>,
 }
 
 /// How the app creates its wgpu device: egui's defaults clamped to the adapter's supported limits,

@@ -236,6 +236,10 @@ fn update(app: &mut PhotocraftApp, idx: usize) -> Option<&AdjustPreview> {
     }
     if app.adjust_preview.as_ref().is_none_or(|p| (p.doc, p.session) != (doc_id, session)) {
         let doc = st.doc.clone();
+        // A target the layer path can't preview falls to the CPU proxy: say why (#7487).
+        if !channel_target && let Some(why) = unsupported(&doc, target) {
+            crate::render_path::note(app, doc_id.0, crate::render_path::Path::Cpu(crate::render_path::CpuReason::AdjustPreview(why)));
+        }
         let base = if channel_target { None } else { base_document(&doc, target).ok().filter(|b| cheap(app, b)).map(Arc::new) };
         let region = if base.is_some() { region(&doc, target) } else { Rect::EMPTY };
         app.adjust_preview = Some(AdjustPreview {

@@ -300,6 +300,25 @@ fn ineligible_dialogs_keep_the_proxy_preview() {
     assert!(!on_layer(&mut app, 0));
 }
 
+/// The proxy preview of a clipped target records why it doesn't preview through the layer
+/// instead of dropping the reason (#7487).
+#[test]
+fn a_clipped_adjustment_preview_records_why_it_uses_the_proxy() {
+    let (doc, _) = document(ColorMode::Rgb, SampleType::U8, false);
+    let clipped = doc.layers[2].id;
+    let mut app = app_with(doc, clipped);
+    crate::adjust_dialog::open(&mut app, "image.adjustments.curves").unwrap();
+    assert!(!on_layer(&mut app, 0));
+    let doc = app.session.active().unwrap().doc.id.0;
+    assert_eq!(app.render_path.current(doc), Some(&crate::render_path::CpuReason::AdjustPreview("the target is clipped")));
+    let path = crate::render_path::inspect(&app);
+    assert_eq!(path["current"]["kind"], "adjustPreview");
+    assert!(path["current"]["detail"].as_str().is_some_and(|d| d.contains("the target is clipped")), "{path}");
+    // Asked again with nothing changed: no new entry.
+    assert!(!on_layer(&mut app, 0));
+    assert_eq!(app.render_path.history().count(), 1);
+}
+
 #[test]
 fn proxy_factor_follows_the_zoom() {
     assert_eq!(proxy_factor(1.0), 1);

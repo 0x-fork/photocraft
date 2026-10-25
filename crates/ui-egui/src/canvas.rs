@@ -332,6 +332,13 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // A flipped or pixel-aspect-corrected view draws through the CPU path (the GPU canvas shader
         // has no mirroring or non-square pixels). Rotation stays on the GPU: it is a view uniform.
         let gpu_ok = crate::gpu_canvas::gpu_view_ok(flip, view.rotation, aspect);
+        if app.gpu.is_some() {
+            if gpu_ok {
+                crate::render_path::view_ok(app, doc.id.0);
+            } else {
+                crate::render_path::note(app, doc.id.0, crate::render_path::Path::Cpu(crate::render_path::CpuReason::ViewTransform));
+            }
+        }
         if app.gpu.is_some()
             && gpu_ok
             && let Some((k, key, preview_size)) = ensure_adjust_proxy(app, idx, render_zoom)
