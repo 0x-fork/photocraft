@@ -723,6 +723,9 @@ pub struct PhotocraftApp {
     /// A live stroke just committed with its own pixels: the canvas caches that showed it
     /// refresh only what it drew after the step they showed (`canvas::damage_since`).
     committed_stroke: Option<canvas::CommittedStroke>,
+    /// Whether the last retouching stroke's commit took the pixels its live stroke drew
+    /// (`"fromLive"`) instead of rendering the stroke again (`retouch_ui::finish_stroke`).
+    pub(crate) retouch_from_live: bool,
     /// Footprint trail of a retouching drag (see `stroke_trail`).
     trail: Option<stroke_trail::Trail>,
     /// Remove tool strokes waiting to be applied together (Remove after each stroke off), the
@@ -1035,6 +1038,7 @@ impl PhotocraftApp {
             tool_override: None,
             live_stroke: None,
             committed_stroke: None,
+            retouch_from_live: false,
             trail: None,
             remove_pending: Vec::new(),
             remove_pending_target: None,
