@@ -221,11 +221,14 @@ fn relative_path(raw: &str) -> Result<PathBuf, AutomationError> {
     Ok(PathBuf::from(raw))
 }
 
+/// At least every name cap-std refuses to open on Windows (`COM0`–`COM9`, `COM¹`–`COM³`, the same
+/// for `LPT`, spaces before the extension ignored), so nothing written is unreadable (#9424).
 fn is_windows_device_name(component: &str) -> bool {
-    let stem = component.split('.').next().unwrap_or(component).to_ascii_uppercase();
+    let stem = component.split('.').next().unwrap_or(component).trim_end().to_ascii_uppercase();
+    let port = |n: &str| matches!(n, "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³");
     matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$")
-        || stem.strip_prefix("COM").is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
-        || stem.strip_prefix("LPT").is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+        || stem.strip_prefix("COM").is_some_and(port)
+        || stem.strip_prefix("LPT").is_some_and(port)
 }
 
 fn path_error(path: &str, reason: &str) -> AutomationError {
@@ -672,6 +675,33 @@ mod tests {
         ] {
             assert!(workspace.read(path).is_err(), "read accepted {path:?}");
             assert!(workspace.write(path, b"x").is_err(), "write accepted {path:?}");
+        }
+    }
+
+    #[test]
+    fn every_device_name_cap_std_refuses_to_open_is_refused_before_any_write() {
+        // cap-std refuses these when it opens a file on Windows, so a file written under one of
+        // them could not be read back (#9424).
+        let (inside, _, workspace) = roots("devices");
+        std::fs::create_dir(inside.join("sub")).unwrap();
+        for path in
+            ["COM0.txt", "LPT0", "COM¹.png", "com².png", "COM³", "LPT¹.txt", "LPT².txt", "lpt³", "NUL .png", "Aux  .txt", "sub/CON .psd", "COM¹/frame.png"]
+        {
+            let error = workspace.write(path, b"x").unwrap_err().to_string();
+            assert!(error.contains("reserved device names"), "write {path:?}: {error}");
+            let error = workspace.read(path).unwrap_err().to_string();
+            assert!(error.contains("reserved device names"), "read {path:?}: {error}");
+        }
+        for dir in ["COM¹", "LPT0", "sub/PRN .x"] {
+            let error = workspace.export_sequence(dir).err().map(|e| e.to_string()).unwrap_or_default();
+            assert!(error.contains("reserved device names"), "export {dir:?}: {error}");
+        }
+        assert_eq!(std::fs::read_dir(&inside).unwrap().count(), 1, "only `sub` may exist");
+        assert_eq!(std::fs::read_dir(inside.join("sub")).unwrap().count(), 0);
+        // Look-alikes are ordinary names.
+        for path in ["COM10.txt", "COM¹0.txt", "LPT00", "console.txt", "NULL.txt", "nul_.txt", " NUL.txt"] {
+            workspace.write(path, b"x").unwrap_or_else(|e| panic!("write {path:?}: {e}"));
+            assert_eq!(workspace.read(path).unwrap(), b"x", "{path:?}");
         }
     }
 
