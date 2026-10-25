@@ -435,7 +435,7 @@ fn dragging_a_tab_onto_another_group_moves_only_that_panel() {
 
     drag(&mut h, source, destination);
 
-    let layout = h.state().ui.docking.as_ref().expect("moving one native tab promotes to the shared layout");
+    let layout = &h.state().ui.docking.as_ref().expect("moving one native tab promotes to the shared layout").layout;
     fn tabs<'a>(node: &'a craft_ui::docking::Node<String>, panel: &str) -> Option<&'a [String]> {
         match node {
             craft_ui::docking::Node::Tabs { panels, .. } if panels.iter().any(|id| id == panel) => Some(panels),
@@ -468,7 +468,7 @@ fn dragging_a_reordered_tab_onto_another_group_moves_that_panel() {
 
     drag(&mut h, source, destination);
 
-    let layout = h.state().ui.docking.as_ref().expect("moving one native tab promotes to the shared layout");
+    let layout = &h.state().ui.docking.as_ref().expect("moving one native tab promotes to the shared layout").layout;
     fn tabs<'a>(node: &'a craft_ui::docking::Node<String>, panel: &str) -> Option<&'a [String]> {
         match node {
             craft_ui::docking::Node::Tabs { panels, .. } if panels.iter().any(|id| id == panel) => Some(panels),

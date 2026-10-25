@@ -160,6 +160,9 @@ pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<
         "window.workspace.lockWorkspace" => {
             let on = params.get("on").and_then(Value::as_bool).unwrap_or(!app.session.prefs().workspace_locked);
             app.session.prefs.edit(|p| p.workspace_locked = on);
+            if let Some(workspace) = app.ui.docking.as_mut() {
+                workspace.locked = on;
+            }
             Ok(json!({"locked": on}))
         }
         "window.workspace.newWorkspace" if no_params(params) => {
@@ -210,7 +213,7 @@ fn new_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String> {
         return Err(format!("\"{name}\" is a built-in workspace"));
     }
     let prefs = app.session.prefs().clone();
-    let mut ws = json!({"panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock, "timelineOpen": app.ui.timeline.open, "docking": app.ui.docking, "dockingHidden": app.ui.docking_hidden, "dockingCollapsed": app.ui.docking_collapsed});
+    let mut ws = json!({"panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock, "timelineOpen": app.ui.timeline.open, "docking": app.ui.docking, "dockingReturns": app.ui.docking_returns, "dockingCollapsed": app.ui.docking_collapsed});
     // The icon rail and menu bar flags belong to an embedding app's session, not to a saved
     // layout: a workspace never brings back a window without its menus.
     if let Some(panels) = ws.get_mut("panels").and_then(Value::as_object_mut) {

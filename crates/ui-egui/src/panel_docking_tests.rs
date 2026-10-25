@@ -6,40 +6,63 @@ fn app() -> PhotocraftApp {
     PhotocraftApp::new(photocraft_engine::Session::new(), Default::default())
 }
 
+fn lay(app: &PhotocraftApp) -> &Layout<String> {
+    &app.ui.docking.as_ref().expect("a customized workspace").layout
+}
+
+fn hidden(app: &PhotocraftApp, panel: &str) -> bool {
+    app.ui.docking.as_ref().is_some_and(|workspace| workspace.hidden.iter().any(|(id, _)| id == panel))
+}
+
+fn hit_rect(h: &Harness<'static, PhotocraftApp>, hit: craft_ui::docking::Hit<String>) -> egui::Rect {
+    let hits = craft_ui::docking::DockArea::<String>::hit_rects(&h.ctx, area_id());
+    hits.iter().find(|(drawn, _)| *drawn == hit).map(|(_, rect)| *rect).unwrap_or_else(|| panic!("{hit:?} is not drawn"))
+}
+
+fn tab_rect(h: &Harness<'static, PhotocraftApp>, panel: &str) -> egui::Rect {
+    hit_rect(h, craft_ui::docking::Hit::Tab(panel.to_owned()))
+}
+
+fn floating_rect(h: &Harness<'static, PhotocraftApp>, panel: &str) -> egui::Rect {
+    let window = lay(h.state()).floating.iter().find(|window| window.contains(&panel.to_owned())).unwrap();
+    let layer = craft_ui::docking::DockArea::<String>::floating_layer(area_id(), window).unwrap();
+    h.ctx.memory(|memory| memory.area_rect(layer.id)).unwrap()
+}
+
 #[test]
 fn panel_commands_group_split_reorder_float_and_restore_without_duplicate_ownership() {
     let mut app = app();
     app.run("window.panel.move", json!({"panel":"swatches", "anchor":"layers", "zone":"top"})).unwrap();
     app.run("window.panel.move", json!({"panel":"properties", "anchor":"swatches", "before":"swatches"})).unwrap();
-    let before_float = app.ui.docking.clone().unwrap();
+    let before_float = lay(&app).clone();
     app.run("window.panel.float", json!({"panel":"properties", "x":50,"y":70,"width":330,"height":410})).unwrap();
-    assert!(app.ui.docking.as_ref().unwrap().floating.iter().any(|g| g.panels == ["properties"]));
+    assert!(lay(&app).floating.iter().any(|g| g.panels().map(String::as_str).eq(["properties"])));
     app.run("window.panel.dock", json!({"panel":"properties"})).unwrap();
-    assert_eq!(app.ui.docking.as_ref().unwrap(), &before_float);
+    assert_eq!(lay(&app), &before_float);
     app.run("window.panel.close", json!({"panel":"properties"})).unwrap();
-    assert!(!app.ui.docking.as_ref().unwrap().contains(&"properties".into()));
+    assert!(!lay(&app).contains(&"properties".into()));
     app.run("window.panel.activate", json!({"panel":"properties"})).unwrap();
-    assert_eq!(app.ui.docking.as_ref().unwrap(), &before_float);
-    let layout = app.ui.docking.as_ref().unwrap();
+    assert_eq!(lay(&app), &before_float);
+    let layout = lay(&app);
     assert!(valid(layout));
     let unique: std::collections::HashSet<_> = layout.panels().into_iter().collect();
     assert_eq!(unique.len(), layout.panels().len());
     let saved = serde_json::to_value(&app.ui).unwrap();
     let restored: crate::state::UiState = serde_json::from_value(saved).unwrap();
     assert_eq!(restored.docking, app.ui.docking);
-    assert_eq!(restored.docking_hidden, app.ui.docking_hidden);
+    assert_eq!(restored.docking_returns, app.ui.docking_returns);
 }
 
 #[test]
 fn floating_panel_rail_toggle_closes_the_float_window() {
     let mut app = app();
     app.run("window.panel.float", json!({"panel":"properties","x":50,"y":70,"width":330,"height":410})).unwrap();
-    assert!(app.ui.docking.as_ref().unwrap().floating.iter().any(|g| g.panels.contains(&"properties".into())));
+    assert!(lay(&app).floating.iter().any(|g| g.contains("properties")));
 
     rail_click(&mut app, Group::Properties);
 
-    assert!(app.ui.docking.as_ref().unwrap().floating.iter().all(|g| !g.panels.contains(&"properties".into())));
-    assert!(app.ui.docking.as_ref().unwrap().contains(&"adjustments".into()));
+    assert!(lay(&app).floating.iter().all(|g| !g.contains("properties")));
+    assert!(lay(&app).contains(&"adjustments".into()));
     assert!(app.ui.panels.properties, "the docked Adjustments tab keeps the group visible");
 }
 
@@ -48,15 +71,15 @@ fn brushes_menu_action_uses_the_shared_docking_layout() {
     let mut app = app();
     let before = app.ui.docking.clone();
     assert!(crate::menus::invoke(&mut app, &egui::Context::default(), "window.panel.brushes", json!({})).is_ok());
-    let layout = app.ui.docking.as_ref().expect("brushes panel must be registered in docking");
+    let layout = app.ui.docking.as_ref().map(|w| &w.layout).expect("brushes panel must be registered in docking");
     assert!(layout.contains(&"brushes".to_string()));
     assert!(app.ui.panels.brushes);
     assert_ne!(app.ui.docking, before);
 
     app.run("window.panel.float", json!({"panel":"brushes"})).unwrap();
-    assert!(app.ui.docking.as_ref().unwrap().floating.iter().any(|group| group.panels.contains(&"brushes".into())));
+    assert!(lay(&app).floating.iter().any(|group| group.contains("brushes")));
     app.run("window.panel.dock", json!({"panel":"brushes"})).unwrap();
-    assert!(!app.ui.docking.as_ref().unwrap().floating.iter().any(|group| group.panels.contains(&"brushes".into())));
+    assert!(!lay(&app).floating.iter().any(|group| group.contains("brushes")));
 }
 
 #[test]
@@ -71,10 +94,10 @@ fn invalid_panel_requests_are_atomic_and_do_not_enter_a_custom_workspace() {
         ("window.panel.float", json!({"panel":"layers","x":"invalid"})),
     ] {
         let old = app.ui.docking.clone();
-        let hidden = app.ui.docking_hidden.clone();
+        let hidden = app.ui.docking_returns.clone();
         assert!(app.run(id, params).is_err(), "{id}");
         assert_eq!(app.ui.docking, old);
-        assert_eq!(app.ui.docking_hidden, hidden);
+        assert_eq!(app.ui.docking_returns, hidden);
     }
 }
 
@@ -114,13 +137,13 @@ fn ordinary_panel_tab_drag_enters_shared_docking_and_can_redock_into_another_tab
     let mut h = harness(app(), vec2(1280.0, 800.0));
     let source = h.query_all_by_label("Layers").find(|node| node.rect().height() <= 45.0).unwrap().rect().center();
     drag(&mut h, source, egui::pos2(160.0, 140.0));
-    let layout = h.state().ui.docking.as_ref().expect("ordinary tab drag starts shared docking");
-    assert!(layout.floating.iter().any(|g| g.panels.contains(&"layers".into())), "{layout:?}");
-    let source = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"layers".to_string()))).unwrap().rect.center();
-    let destination = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"properties".to_string()))).unwrap().rect.center();
+    let layout = h.state().ui.docking.as_ref().map(|w| &w.layout).expect("ordinary tab drag starts shared docking");
+    assert!(layout.floating.iter().any(|g| g.contains("layers")), "{layout:?}");
+    let source = tab_rect(&h, "layers").center();
+    let destination = tab_rect(&h, "properties").center();
     drag(&mut h, source, destination);
-    let layout = h.state().ui.docking.as_ref().unwrap();
-    assert!(!layout.floating.iter().any(|g| g.panels.contains(&"layers".into())));
+    let layout = lay(h.state());
+    assert!(!layout.floating.iter().any(|g| g.contains("layers")));
     assert!(valid(layout));
 }
 
@@ -131,14 +154,14 @@ fn brushes_tab_drag_floats_and_can_redock_into_another_tab_group() {
     let mut h = harness(app, vec2(1280.0, 800.0));
     let source = h.query_all_by_label("Brushes").find(|node| node.rect().height() <= 45.0).unwrap().rect().center();
     drag(&mut h, source, egui::pos2(160.0, 140.0));
-    let layout = h.state().ui.docking.as_ref().expect("brushes drag starts shared docking");
-    assert!(layout.floating.iter().any(|group| group.panels.contains(&"brushes".into())), "{layout:?}");
+    let layout = h.state().ui.docking.as_ref().map(|w| &w.layout).expect("brushes drag starts shared docking");
+    assert!(layout.floating.iter().any(|group| group.contains("brushes")), "{layout:?}");
 
-    let source = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"brushes".to_string()))).unwrap().rect.center();
-    let destination = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"layers".to_string()))).unwrap().rect.center();
+    let source = tab_rect(&h, "brushes").center();
+    let destination = tab_rect(&h, "layers").center();
     drag(&mut h, source, destination);
-    let layout = h.state().ui.docking.as_ref().unwrap();
-    assert!(!layout.floating.iter().any(|group| group.panels.contains(&"brushes".into())));
+    let layout = lay(h.state());
+    assert!(!layout.floating.iter().any(|group| group.contains("brushes")));
     assert!(valid(layout));
 }
 
@@ -150,13 +173,13 @@ fn saved_workspace_restores_the_custom_tree_and_hidden_panel_placement() {
     app.run("window.panel.float", json!({"panel":"properties","x":50,"y":80})).unwrap();
     app.run("window.panel.close", json!({"panel":"swatches"})).unwrap();
     let layout = app.ui.docking.clone();
-    let hidden = app.ui.docking_hidden.clone();
+    let hidden = app.ui.docking_returns.clone();
     crate::menus::invoke(&mut app, &ctx, "window.workspace.newWorkspace", json!({"name":"Custom docking"})).unwrap();
     crate::menus::invoke(&mut app, &ctx, "window.workspace.essentials", json!({})).unwrap();
     assert!(app.ui.docking.is_none());
     crate::menus::invoke(&mut app, &ctx, "window.workspace.select", json!({"name":"Custom docking"})).unwrap();
     assert_eq!(app.ui.docking, layout);
-    assert_eq!(app.ui.docking_hidden, hidden);
+    assert_eq!(app.ui.docking_returns, hidden);
 }
 
 #[test]
@@ -203,7 +226,7 @@ fn capture_custom_panel_docking_visual_fixtures() {
                 );
                 harness.input_mut().max_texture_side = Some(8192);
                 harness.run_steps(5);
-                assert!(valid(harness.state().ui.docking.as_ref().unwrap()));
+                assert!(valid(lay(harness.state())));
                 harness.render().unwrap().save(directory.join(format!("photocraft-shared-docking-{}-{width}-{scale}x.png", theme.id()))).unwrap();
             }
         }
@@ -231,7 +254,7 @@ fn floating_group_titles_are_opaque_in_studio_themes() {
         app,
     );
     h.run_steps(5);
-    let area = h.ctx.memory(|m| m.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string())))).unwrap();
+    let area = floating_rect(&h, "swatches");
     let image = h.render().unwrap();
     let ppp = image.width() as f32 / 1280.0;
     let strip = egui::Rect::from_min_size(area.min, vec2(area.width(), 40.0)).shrink(2.0);
@@ -266,19 +289,14 @@ fn serialized_layout_actions_cover_geometry_reorder_accordion_and_atomic_rejecti
     let mut app = app();
     app.run("window.panel.move", json!({"panel":"swatches","anchor":"layers","zone":"top"})).unwrap();
     app.run("window.panel.layout", json!({"action":{"ResizeSplit":{"path":[],"size":{"Ratio":0.35}}}})).unwrap();
-    assert!(
-        matches!(app.ui.docking.as_ref().unwrap().root, Some(Node::Split { size: craft_ui::layout::SplitSize::Ratio(value), .. }) if (value - 0.35).abs() < 0.001)
-    );
+    assert!(matches!(lay(&app).root, Some(Node::Split { size: craft_ui::layout::SplitSize::Ratio(value), .. }) if (value - 0.35).abs() < 0.001));
     app.run("window.panel.float", json!({"panel":"properties"})).unwrap();
     app.run("window.panel.layout", json!({"action":{"MoveFloating":{"panel":"properties","rect":[44,66,360,450]}}})).unwrap();
-    assert_eq!(
-        app.ui.docking.as_ref().unwrap().floating.iter().find(|group| group.panels.iter().any(|p| p == "properties")).unwrap().rect,
-        [44.0, 66.0, 360.0, 450.0]
-    );
+    assert_eq!(lay(&app).floating.iter().find(|group| group.contains(&"properties".to_string())).unwrap().rect, [44.0, 66.0, 360.0, 450.0]);
     app.run("window.panel.layout", json!({"action":{"Move":{"panel":"properties","anchor":"swatches","placement":{"Tab":{"before":"swatches"}}}}})).unwrap();
-    assert_eq!(group_members_for_test(app.ui.docking.as_ref().unwrap(), "swatches"), ["properties", "swatches"]);
+    assert_eq!(group_members(lay(&app), "swatches"), ["properties", "swatches"]);
     let before = app.ui.docking.clone();
-    let hidden = app.ui.docking_hidden.clone();
+    let hidden = app.ui.docking_returns.clone();
     for action in [
         json!({"MoveFloating":{"panel":"properties","rect":[0,0,-5,30]}}),
         json!({"ResizeSplit":{"path":[true,true,true],"size":{"Ratio":0.2}}}),
@@ -287,29 +305,17 @@ fn serialized_layout_actions_cover_geometry_reorder_accordion_and_atomic_rejecti
     ] {
         assert!(app.run("window.panel.layout", json!({"action":action})).is_err());
         assert_eq!(app.ui.docking, before);
-        assert_eq!(app.ui.docking_hidden, hidden);
+        assert_eq!(app.ui.docking_returns, hidden);
     }
-    app.ui.docking = Some(Layout {
+    app.ui.docking = Some(Workspace::new(Layout {
         root: Some(Node::Stack { entries: vec![craft_ui::docking::StackEntry { panel: "layers".into(), open: true, height: Some(100.0) }] }),
         floating: Vec::new(),
-    });
+    }));
     app.run("window.panel.layout", json!({"action":{"SetStackOpen":{"panel":"layers","open":false}}})).unwrap();
     app.run("window.panel.layout", json!({"action":{"ResizeStack":{"panel":"layers","height":150}}})).unwrap();
-    let Some(Node::Stack { entries }) = &app.ui.docking.as_ref().unwrap().root else { panic!("expected stack") };
+    let Some(Node::Stack { entries }) = &lay(&app).root else { panic!("expected stack") };
     assert!(!entries[0].open);
     assert_eq!(entries[0].height, Some(150.0));
-}
-
-fn group_members_for_test(layout: &Layout<String>, panel: &str) -> Vec<String> {
-    let mut pending: Vec<_> = layout.root.iter().collect();
-    while let Some(node) = pending.pop() {
-        match node {
-            Node::Tabs { panels, .. } if panels.iter().any(|p| p == panel) => return panels.clone(),
-            Node::Split { first, second, .. } => pending.extend([first.as_ref(), second.as_ref()]),
-            _ => {}
-        }
-    }
-    Vec::new()
 }
 
 #[test]
@@ -317,7 +323,7 @@ fn customization_retains_native_collapsed_groups_until_their_tab_is_activated() 
     let mut app = app();
     app.ui.dock.set_collapsed(Group::Color, true);
     app.run("window.panel.float", json!({"panel":"properties"})).unwrap();
-    let layout = app.ui.docking.as_ref().unwrap();
+    let layout = lay(&app);
     assert!(collapsed_members(&app, layout).contains("swatches"));
     let saved = serde_json::to_value(&app.ui).unwrap();
     let restored: crate::state::UiState = serde_json::from_value(saved).unwrap();
@@ -379,7 +385,7 @@ fn populated_canvas_keeps_a_real_opacity_edit_after_floating_and_redocking() {
     );
     h.input_mut().max_texture_side = Some(8192);
     h.run_steps(5);
-    let floating = h.ctx.memory(|m| m.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"properties".to_string())))).unwrap();
+    let floating = floating_rect(&h, "properties");
     let mut sliders: Vec<_> = h.ctx.viewport(|vp| {
         vp.prev_pass
             .widgets
@@ -404,10 +410,10 @@ fn populated_canvas_keeps_a_real_opacity_edit_after_floating_and_redocking() {
         std::fs::create_dir_all(directory).unwrap();
         h.render().unwrap().save(directory.join("photocraft-populated-opacity-floating.png")).unwrap();
     }
-    let from = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"properties".to_string()))).unwrap().rect.center();
-    let to = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"layers".to_string()))).unwrap().rect.center();
+    let from = tab_rect(&h, "properties").center();
+    let to = tab_rect(&h, "layers").center();
     drag(&mut h, from, to);
-    assert!(h.state().ui.docking.as_ref().unwrap().floating.iter().all(|group| !group.panels.iter().any(|panel| panel == "properties")));
+    assert!(lay(h.state()).floating.iter().all(|group| !group.contains(&"properties".to_string())));
     assert_eq!(h.state().session.active().unwrap().doc.layer(layer).unwrap().opacity, opacity);
     if let Some(directory) = &directory {
         h.render().unwrap().save(directory.join("photocraft-populated-opacity-redocked.png")).unwrap();
@@ -442,7 +448,7 @@ fn changing_workspace_during_a_drag_cancels_the_stale_gesture() {
 
 #[test]
 fn first_legacy_drag_workspace_switch_preserves_custom_and_legacy_destinations() {
-    let layout_state = |app: &PhotocraftApp| json!({"panels":app.ui.panels,"dock":app.ui.dock,"tabs":app.ui.dock_tabs,"layout":app.ui.docking,"hidden":app.ui.docking_hidden,"collapsed":app.ui.docking_collapsed,"timeline":app.ui.timeline.open});
+    let layout_state = |app: &PhotocraftApp| json!({"panels":app.ui.panels,"dock":app.ui.dock,"tabs":app.ui.dock_tabs,"layout":app.ui.docking,"hidden":app.ui.docking_returns,"collapsed":app.ui.docking_collapsed,"timeline":app.ui.timeline.open});
     for customized_destination in [true, false] {
         for cancellation in ["release", "escape", "focus-loss"] {
             let mut app = app();
@@ -463,7 +469,7 @@ fn first_legacy_drag_workspace_switch_preserves_custom_and_legacy_destinations()
             h.run_steps(1);
             assert!(h.state().ui.docking.is_some());
             let origin = egui::Id::new("photocraft-panel-docking").with("legacy-origin");
-            assert!(h.ctx.data_mut(|data| data.get_temp::<LegacyDrag>(origin)).unwrap().layout.is_none());
+            assert!(h.ctx.data_mut(|data| data.get_temp::<LegacyDrag>(origin)).unwrap().workspace.is_none());
             let ctx = h.ctx.clone();
             let command = if customized_destination { "window.workspace.select" } else { "window.workspace.painting" };
             crate::menus::invoke(h.state_mut(), &ctx, command, json!({"name":"Destination"})).unwrap();
@@ -522,12 +528,12 @@ fn current_main_hidden_tabs_migrate_by_name_and_selected_identity() {
         restored.ui.theme = theme;
         crate::dock::apply(&mut restored, &saved);
         restored.run("window.panel.float", json!({"panel":"properties"})).unwrap();
-        let layout = restored.ui.docking.as_ref().unwrap();
+        let layout = lay(&restored);
         assert!(!layout.contains(&"swatches".into()) && !layout.contains(&"paths".into()));
         assert!(panel_active(layout, "color"));
-        assert!(restored.ui.docking_hidden.contains_key("swatches") && restored.ui.docking_hidden.contains_key("paths"));
+        assert!(hidden(&restored, "swatches") && hidden(&restored, "paths"));
         restored.run("window.panel.swatches", json!({"show":true})).unwrap();
-        assert!(panel_active(restored.ui.docking.as_ref().unwrap(), "swatches"));
+        assert!(panel_active(lay(&restored), "swatches"));
     }
 }
 
@@ -538,12 +544,12 @@ fn legacy_control_updates_authoritative_custom_visibility_and_selection_atomical
     app.run("window.panel.float", json!({"panel":"properties"})).unwrap();
     let ctx = egui::Context::default();
     assert_eq!(control_set(&mut app, &ctx, json!({"dockTabs":{"layers":1}}))["ok"], true);
-    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "channels"));
+    assert!(panel_active(lay(&app), "channels"));
     assert_eq!(control_set(&mut app, &ctx, json!({"panels":{"layers":false}}))["ok"], true);
-    assert!(PANELS.iter().filter(|p| p.2 == Group::Layers).all(|p| !app.ui.docking.as_ref().unwrap().contains(&p.0.into())));
+    assert!(PANELS.iter().filter(|p| p.2 == Group::Layers).all(|p| !lay(&app).contains(&p.0.into())));
     assert!(!app.ui.panels.layers);
     assert_eq!(control_set(&mut app, &ctx, json!({"panels":{"layers":true},"dockTabs":{"layers":2}}))["ok"], true);
-    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "paths"));
+    assert!(panel_active(lay(&app), "paths"));
     let before = serde_json::to_value(&app.ui).unwrap();
     for request in [
         json!({"panels":{"color":false},"dockTabs":{"layers":999}}),
@@ -578,10 +584,10 @@ fn explicit_reveal_activates_existing_tab_and_expands_custom_group() {
     app.run("window.panel.move", json!({"panel":"properties","anchor":"layers"})).unwrap();
     app.run("window.panel.group", json!({"panel":"layers","operation":"collapse"})).unwrap();
     app.run("window.panel.layers", json!({"show":true})).unwrap();
-    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "layers"));
-    assert!(!collapsed_members(&app, app.ui.docking.as_ref().unwrap()).contains("layers"));
+    assert!(panel_active(lay(&app), "layers"));
+    assert!(!collapsed_members(&app, lay(&app)).contains("layers"));
     app.run("window.panel.layers", json!({"show":true})).unwrap();
-    assert!(app.ui.docking.as_ref().unwrap().contains(&"layers".into()));
+    assert!(lay(&app).contains(&"layers".into()));
     let before = app.ui.docking.clone();
     assert!(app.run("window.panel.layers", json!({"show":"yes"})).is_err());
     assert_eq!(app.ui.docking, before);
@@ -609,30 +615,30 @@ fn pro_color_field_fills_a_tall_custom_group() {
 fn a_new_adjustment_layer_activates_properties_in_a_custom_workspace() {
     let mut app = app();
     app.run("window.panel.activate", json!({"panel":"adjustments"})).unwrap();
-    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "adjustments"));
+    assert!(panel_active(lay(&app), "adjustments"));
     app.run("file.new", json!({"width":64,"height":64})).unwrap();
     app.run("layer.newAdjustmentLayer.curves", json!({})).unwrap();
-    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "properties"));
+    assert!(panel_active(lay(&app), "properties"));
 }
 
 #[test]
 fn custom_group_commands_preserve_members_and_workspace_timeline() {
     let mut app = app();
     app.run("window.panel.move", json!({"panel":"properties","anchor":"layers"})).unwrap();
-    let members = group_members(app.ui.docking.as_ref().unwrap(), "layers");
+    let members = group_members(lay(&app), "layers");
     app.run("window.panel.group", json!({"panel":"layers","operation":"up"})).unwrap();
-    assert_eq!(group_members(app.ui.docking.as_ref().unwrap(), "layers"), members);
+    assert_eq!(group_members(lay(&app), "layers"), members);
     app.ui.timeline.open = true;
     app.run("window.panel.group", json!({"panel":"layers","operation":"collapse"})).unwrap();
-    let saved = json!({"panels":app.ui.panels,"dock":app.ui.dock,"dockTabs":app.ui.dock_tabs,"docking":app.ui.docking,"dockingHidden":app.ui.docking_hidden,"dockingCollapsed":app.ui.docking_collapsed,"timelineOpen":true});
+    let saved = json!({"panels":app.ui.panels,"dock":app.ui.dock,"dockTabs":app.ui.dock_tabs,"docking":app.ui.docking,"dockingReturns":app.ui.docking_returns,"dockingCollapsed":app.ui.docking_collapsed,"timelineOpen":true});
     let mut restored = self::app();
     crate::dock::apply(&mut restored, &saved);
     assert_eq!(restored.ui.docking, app.ui.docking);
     assert!(restored.ui.timeline.open);
-    assert!(collapsed_members(&restored, restored.ui.docking.as_ref().unwrap()).contains("layers"));
+    assert!(collapsed_members(&restored, lay(&restored)).contains("layers"));
     app.run("window.panel.group", json!({"panel":"layers","operation":"close"})).unwrap();
-    assert!(members.iter().all(|id| !app.ui.docking.as_ref().unwrap().contains(id)));
-    assert!(members.iter().all(|id| app.ui.docking_hidden.contains_key(id)));
+    assert!(members.iter().all(|id| !lay(&app).contains(id)));
+    assert!(members.iter().all(|id| hidden(&app, id)));
     app.session.prefs.edit(|p| p.workspace_locked = true);
     let before = serde_json::to_value(&app.ui).unwrap();
     assert!(app.run("window.panel.group", json!({"panel":"color","operation":"close"})).is_err());
@@ -649,7 +655,7 @@ fn customized_panel_menus_and_rail_remain_reachable_after_float_and_restore() {
     let mut h = harness(app, vec2(1280.0, 800.0));
     assert!(h.query_all_by_label("Panel menu").count() > 0);
     assert!(h.query_all_by_label("Color & Swatches").count() > 0);
-    let floating = h.ctx.memory(|memory| memory.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string())))).unwrap();
+    let floating = floating_rect(&h, "swatches");
     let first = h.query_all_by_label("Panel menu").find(|node| floating.contains_rect(node.rect())).unwrap().rect().center();
     h.hover_at(first);
     for pressed in [true, false] {
@@ -682,7 +688,7 @@ fn floated_color_panel_menu_picks_the_mode() {
     let mut app = app();
     app.run("window.panel.float", json!({"panel":"color","x":20,"y":40})).unwrap();
     let mut h = harness(app, vec2(1280.0, 800.0));
-    let floating = h.ctx.memory(|memory| memory.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"color".to_string())))).unwrap();
+    let floating = floating_rect(&h, "color");
     let button = h.query_all_by_label("Panel menu").find(|node| floating.contains_rect(node.rect())).unwrap().rect().center();
     h.hover_at(button);
     for pressed in [true, false] {
@@ -739,13 +745,13 @@ fn custom_workspace_saves_shared_layout_and_timeline_without_embedding_flags() {
 fn closing_and_reopening_a_whole_group_retains_its_return_position_and_tab_order() {
     let mut app = app();
     app.run("window.panel.float", json!({"panel":"properties"})).unwrap();
-    let before = app.ui.docking.clone().unwrap();
+    let before = lay(&app).clone();
     let members = group_members(&before, "layers");
     app.run("window.panel.group", json!({"panel":"layers","operation":"close"})).unwrap();
     for panel in &members {
         app.run("window.panel.activate", json!({"panel":panel})).unwrap();
     }
-    let after = app.ui.docking.as_ref().unwrap();
+    let after = lay(&app);
     assert_eq!(group_members(after, "layers"), members);
     assert_eq!(root_groups(after), root_groups(&before));
     assert!(valid(after));
@@ -757,11 +763,11 @@ fn floating_group_grip_redocks_all_tabs_as_one_atomic_move() {
     app.run("window.panel.float", json!({"panel":"swatches","x":30,"y":60})).unwrap();
     app.run("window.panel.move", json!({"panel":"patterns","anchor":"swatches"})).unwrap();
     let mut h = harness(app, vec2(1280.0, 800.0));
-    let from = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("move-group", Some(&"swatches".to_string())))).unwrap().rect.center();
-    let to = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"layers".to_string()))).unwrap().rect.center();
+    let from = hit_rect(&h, craft_ui::docking::Hit::DragBar("swatches".into())).center();
+    let to = tab_rect(&h, "layers").center();
     drag(&mut h, from, to);
-    let layout = h.state().ui.docking.as_ref().unwrap();
-    assert!(layout.floating.iter().all(|group| !group.panels.iter().any(|id| id == "swatches" || id == "patterns")));
+    let layout = lay(h.state());
+    assert!(layout.floating.iter().all(|group| !group.contains(&"swatches".to_string()) && !group.contains(&"patterns".to_string())));
     let members = group_members(layout, "layers");
     let swatches = members.iter().position(|id| id == "swatches").unwrap();
     assert_eq!(members.get(swatches + 1).map(String::as_str), Some("patterns"));
@@ -778,10 +784,10 @@ fn mixed_theme_and_legacy_selection_projects_the_selected_panel_in_the_new_theme
     app.run("window.panel.float", json!({"panel":"properties"})).unwrap();
     let ctx = egui::Context::default();
     assert_eq!(control_set(&mut app, &ctx, json!({"theme":"studio","dockTabs":{"color":0}}))["ok"], true);
-    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "swatches"));
+    assert!(panel_active(lay(&app), "swatches"));
     assert_eq!(app.ui.dock_tabs.color, 0);
     assert_eq!(control_set(&mut app, &ctx, json!({"theme":"proMedium","dockTabs":{"color":0}}))["ok"], true);
-    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "color"));
+    assert!(panel_active(lay(&app), "color"));
     assert_eq!(app.ui.dock_tabs.color, 0);
 }
 
@@ -818,4 +824,45 @@ fn the_dock_can_be_as_wide_as_the_window_allows() {
         let range = crate::panels::dock_width_range(window);
         assert_eq!((*range.start(), *range.end()), (crate::panels::DOCK_MIN_WIDTH, max), "{window}");
     }
+}
+
+/// A workspace file written by main before workspaces had a version: a bare `docking` layout
+/// with one-group floating windows, `dockingHidden` (closed panels and a floated panel's dock
+/// place) and `dockingCollapsed`.
+#[test]
+fn main_workspace_file_keeps_its_arrangement_and_saves_as_a_workspace() {
+    let saved: Value = serde_json::from_str(include_str!("../tests/fixtures/main-docking-workspace.json")).unwrap();
+    let mut app = app();
+    app.ui.theme = crate::theme::ThemeKind::ProMedium;
+    crate::dock::apply(&mut app, &saved);
+    let workspace = app.ui.docking.clone().expect("the custom layout loads");
+    assert_eq!(workspace.version, 1);
+    let layout = &workspace.layout;
+    assert_eq!(root_groups(layout), [vec!["swatches"], vec!["color", "gradients", "patterns"], vec!["history", "actions"], vec!["layers", "channels"]]);
+    assert!(panel_active(layout, "actions") && panel_active(layout, "color"));
+    let window = layout.floating.first().unwrap();
+    assert_eq!((window.rect, group_members(layout, "adjustments")), ([420.0, 150.0, 320.0, 440.0], vec!["properties".into(), "adjustments".into()]));
+    let hidden: Vec<_> = workspace.hidden.iter().map(|(panel, at)| (panel.as_str(), at.anchor.as_deref())).collect();
+    assert_eq!(hidden, [("layerComps", Some("actions")), ("paths", Some("channels"))]);
+    assert_eq!(app.ui.docking_returns.get("properties").and_then(|at| at.anchor.as_deref()), Some("layers"));
+    assert!(collapsed_members(&app, layout).contains("history"));
+
+    let written = crate::dock::snapshot(&app);
+    assert!(written.get("dockingHidden").is_none());
+    assert_eq!(written["docking"]["version"], 2);
+    assert_eq!(written["docking"]["layout"]["floating"][0]["panels"], json!(["properties", "adjustments"]));
+    let mut reloaded = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    crate::dock::apply(&mut reloaded, &written);
+    let again = reloaded.ui.docking.as_ref().unwrap();
+    assert_eq!((&again.layout, &again.hidden), (&workspace.layout, &workspace.hidden));
+    assert_eq!((&reloaded.ui.docking_returns, &reloaded.ui.docking_collapsed), (&app.ui.docking_returns, &app.ui.docking_collapsed));
+
+    app.session.prefs.edit(|prefs| prefs.workspace_locked = true);
+    assert!(app.run("window.panel.move", json!({"panel":"swatches","anchor":"layers"})).is_err(), "Lock Workspace still applies");
+    app.session.prefs.edit(|prefs| prefs.workspace_locked = false);
+    app.run("window.panel.activate", json!({"panel":"paths"})).unwrap();
+    assert_eq!(group_members(lay(&app), "paths"), ["layers", "channels", "paths"]);
+    app.run("window.panel.dock", json!({"panel":"properties"})).unwrap();
+    let location = lay(&app).location(&"properties".to_string()).unwrap();
+    assert_eq!((location.floating, location.anchor.as_deref()), (None, Some("layers")), "a floated panel docks back where it was");
 }
