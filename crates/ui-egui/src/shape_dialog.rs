@@ -202,13 +202,15 @@ pub fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) 
             }
             let mut linked = f.get("linkRadii").and_then(Value::as_bool).unwrap_or(true);
             let mut changed = None;
+            // `radii` is [top-left, top-right, bottom-right, bottom-left].
+            let corners = [tl!("Top Left"), tl!("Top Right"), tl!("Bottom Right"), tl!("Bottom Left")];
             ui.horizontal(|ui| {
                 label(ui, tl!("Radius:"));
                 ui.vertical(|ui| {
                     for row in [[0usize, 1], [3, 2]] {
                         ui.horizontal(|ui| {
                             for i in row {
-                                if crate::widgets::value_field(ui, &mut radii[i], 0.0..=10000.0, "px", 72.0).accessible_name(tl!("Radius:")).changed() {
+                                if crate::widgets::value_field(ui, &mut radii[i], 0.0..=10000.0, "px", 72.0).accessible_name(corners[i]).changed() {
                                     changed = Some(i);
                                 }
                             }

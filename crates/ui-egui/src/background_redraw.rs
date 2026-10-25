@@ -43,6 +43,30 @@ const KEEP: usize = 2;
 /// [`GpuCanvas::refresh`] kind of a redraw served from a [`Kept`] composite.
 pub(crate) const KEPT: &str = "kept";
 
+/// Tests hold the redraw worker before it draws a batch, so an edit lands while blocks are still
+/// to come. A real run never waits: a fast machine draws a test document before its next frame,
+/// leaving nothing drawn "before" the edit.
+#[cfg(test)]
+static HOLD: AtomicBool = AtomicBool::new(false);
+
+/// Hold the redraw worker until the guard drops.
+#[cfg(test)]
+pub(crate) fn hold_redraws() -> HoldRedraws {
+    HOLD.store(true, Ordering::SeqCst);
+    HoldRedraws
+}
+
+/// Releases [`hold_redraws`], including while a test unwinds.
+#[cfg(test)]
+pub(crate) struct HoldRedraws;
+
+#[cfg(test)]
+impl Drop for HoldRedraws {
+    fn drop(&mut self) {
+        HOLD.store(false, Ordering::SeqCst);
+    }
+}
+
 /// One finished block, as texels of the canvas texture.
 struct Piece {
     block: usize,
@@ -393,6 +417,11 @@ fn draw(
     ctx: &egui::Context,
 ) {
     for batch in todo.chunks(BATCH) {
+        // A test may hold the worker here; a cancelled redraw must still exit, not wait for release.
+        #[cfg(test)]
+        while HOLD.load(Ordering::SeqCst) && !stop.load(Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         if stop.load(Ordering::Relaxed) {
             return;
         }

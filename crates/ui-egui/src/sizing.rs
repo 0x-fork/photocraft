@@ -406,7 +406,7 @@ fn canvas_size(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             ("black".to_string(), tl!("Black")),
             ("transparent".to_string(), tl!("Transparent")),
         ];
-        if crate::widgets::dropdown(ui, "cs-ext", tl!("Size"), &mut cur, &opts, 140.0) {
+        if crate::widgets::dropdown(ui, "cs-ext", tl!("Canvas extension color:"), &mut cur, &opts, 140.0) {
             f.insert("extensionColor".into(), json!(cur));
         }
     });
@@ -534,6 +534,24 @@ mod tests {
         assert_eq!((num(&d.fields, "width"), num(&d.fields, "height"), num(&d.fields, "resolution")), (200.0, 100.0, 72.0));
         assert_eq!(d.fields.get("__constrain"), Some(&json!(true)));
         assert!(app.ui.dialogs.iter().any(|x| x.id == id), "reset leaves the dialog open");
+    }
+
+    #[test]
+    fn canvas_extension_dropdown_is_named_for_its_setting() {
+        use egui::accesskit::Role;
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::{NodeT, Queryable};
+
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 100, "height": 50})).unwrap();
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(|ui, app: &mut PhotocraftApp| crate::dialogs::show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        open(h.state_mut(), "image.canvasSize").unwrap();
+        h.run_steps(3);
+        let labels: Vec<String> = h.query_all_by_role(Role::ComboBox).filter_map(|n| n.accesskit_node().label()).collect();
+        assert!(labels.iter().any(|label| label == "Canvas extension color:"), "{labels:?}");
+        assert!(!labels.iter().any(|label| label == "Size"), "the dialog's Size label names a different field: {labels:?}");
     }
 
     /// #6019: on an Indexed Color document the dialog opens on, and offers only, Automatic and Nearest Neighbor.

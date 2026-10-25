@@ -6,13 +6,23 @@ use serde_json::json;
 
 #[test]
 fn all_registered_languages_render_camera_raw_and_switch_without_resetting_view_or_filter() {
-    // Required central-font acceptance must not pass only because the host supplies Hindi.
+    // On Linux some scripts arrive through the background Fontconfig lookup. Kittest's strict
+    // missing-glyph policy must not race that scan: wait for it exactly as the i18n live tests do.
+    #[cfg(target_os = "linux")]
+    assert!(photocraft_ui_egui::cjk_fonts::wait_for_fontconfig_cjk_scan(), "Fontconfig CJK lookup did not finish within 10 seconds");
+    // Required central-font acceptance must not pass only because the host supplies Hindi,
+    // or because a Windows runner happens to have Japanese fonts: every non-Latin script this
+    // test renders comes from a real face in the central manifest. The all-language loop then
+    // checks the actual translated labels under egui_kittest's strict missing-glyph policy.
     if std::env::var_os("CRAFT_FONTS_REQUIRED").is_some() {
-        let faces: Vec<_> = photocraft_text::craft_fonts::CRAFT_FONTS.iter().filter(|f| f.family == "Noto Sans Devanagari").collect();
-        assert_eq!(faces.len(), 1, "the central default manifest supplies one Devanagari face");
-        assert_eq!(faces[0].style, "Regular");
-        assert_eq!(faces[0].scripts, ["Deva"]);
-        assert!(!faces[0].bytes.is_empty());
+        for (family, script) in [("BIZ UDPGothic", "Jpan"), ("Noto Sans CJK SC", "Hans"), ("NanumGothic", "Kore"), ("Noto Sans Devanagari", "Deva")] {
+            let faces: Vec<_> = photocraft_text::craft_fonts::CRAFT_FONTS
+                .iter()
+                .filter(|f| f.family == family && f.style == "Regular" && f.scripts.contains(&script))
+                .collect();
+            assert_eq!(faces.len(), 1, "the central default manifest supplies one {family} {script} Regular face");
+            assert!(!faces[0].bytes.is_empty(), "{family} {script} has an empty face");
+        }
     }
     let _gpu = photocraft_testkit::gpu_lock();
     for lang in i18n::Lang::all() {

@@ -1506,7 +1506,7 @@ fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, adapters: Option<&Va
             let options = prefs::choices("performance.gpuBackend").unwrap_or(&[]);
             let labels: Vec<String> = options.iter().map(|o| choice_label(o)).collect();
             let pairs: Vec<(String, &str)> = options.iter().map(|o| o.to_string()).zip(labels.iter().map(String::as_str)).collect();
-            crate::widgets::dropdown(ui, "graphics-backend", tl!("Graphics"), &mut current, &pairs, 220.0);
+            crate::widgets::dropdown(ui, "graphics-backend", tl!("GPU Backend"), &mut current, &pairs, 220.0);
             obj.insert("gpuBackend".into(), json!(current));
         });
         if !prefs::is_hidden("performance.gpuAdapter") {
@@ -1534,7 +1534,7 @@ fn graphics_adapter_row(ui: &mut egui::Ui, adapters: Option<&Value>, obj: &mut M
     pairs.extend(names.iter().cloned().zip(labels.iter().map(String::as_str)));
     ui.horizontal(|ui| {
         ui.label(tl!("GPU adapter"));
-        crate::widgets::dropdown_literal(ui, "graphics-adapter", tl!("Graphics"), &mut current, &pairs, 320.0);
+        crate::widgets::dropdown_literal(ui, "graphics-adapter", tl!("GPU adapter"), &mut current, &pairs, 320.0);
     });
     ui.label(RichText::new(tl!("Applies at next launch.")).color(Tokens::get(ui.ctx()).text_faint));
     obj.insert("gpuAdapter".into(), json!(current));
@@ -2744,6 +2744,28 @@ mod tests {
         h.get_by_label("Limits each open document's pixels plus History. Oldest undo states are discarded when the limit is exceeded.");
         h.get_by_label("Applies immediately when saved. Memory is not reserved in advance.");
         assert_eq!(h.state()["memoryUsageMb"], 50000);
+    }
+
+    #[test]
+    fn graphics_dropdowns_are_named_for_their_settings() {
+        use egui::accesskit::Role;
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::{NodeT, Queryable};
+
+        let obj = json!({"gpuBackend": "auto", "gpuAdapter": ""}).as_object().unwrap().clone();
+        let mut h = Harness::builder()
+            .with_size(vec2(700.0, 500.0))
+            .with_context_setup(|ctx| PhotocraftApp::setup_context(ctx, crate::theme::ThemeKind::ALL[0]))
+            .build_ui_state(|ui, obj| gpu_status_rows(ui, None, None, obj), obj);
+        h.run_steps(2);
+        h.get_by_label("Advanced").click();
+        h.run_steps(2);
+        let labels: Vec<String> = h.query_all_by_role(Role::ComboBox).filter_map(|n| n.accesskit_node().label()).collect();
+        assert!(labels.iter().any(|label| label == "GPU Backend"), "{labels:?}");
+        if cfg!(target_os = "linux") {
+            assert!(labels.iter().any(|label| label == "GPU adapter"), "{labels:?}");
+        }
+        assert!(!labels.iter().any(|label| label == "Graphics"), "the section title names neither control: {labels:?}");
     }
 
     #[test]

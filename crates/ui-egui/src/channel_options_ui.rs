@@ -143,9 +143,10 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             crate::color_picker_ui::request(f, &crate::color_picker_ui::title_for(what));
         }
         ui.add_space(12.0);
-        ui.label(if spot { tl!("Solidity:") } else { tl!("Opacity:") });
+        let caption = if spot { tl!("Solidity:") } else { tl!("Opacity:") };
+        ui.label(caption);
         let mut pct = f.get("opacity").and_then(Value::as_f64).unwrap_or(50.0) as f32;
-        if crate::widgets::value_field(ui, &mut pct, 0.0..=100.0, "%", 64.0).accessible_name(tl!("Opacity:")).changed() {
+        if crate::widgets::value_field(ui, &mut pct, 0.0..=100.0, "%", 64.0).accessible_name(caption).changed() {
             f.insert("opacity".into(), json!(pct.round()));
         }
     });
@@ -244,7 +245,7 @@ pub fn new_spot_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         ui.add_space(12.0);
         ui.label(tl!("Solidity:"));
         let mut pct = f.get("solidity").and_then(Value::as_f64).unwrap_or(0.0) as f32;
-        if crate::widgets::value_field(ui, &mut pct, 0.0..=100.0, "%", 64.0).accessible_name(tl!("Opacity:")).changed() {
+        if crate::widgets::value_field(ui, &mut pct, 0.0..=100.0, "%", 64.0).accessible_name(tl!("Solidity:")).changed() {
             f.insert("solidity".into(), json!(pct.round()));
         }
     });

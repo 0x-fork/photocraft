@@ -873,19 +873,11 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
         fonts.families.entry(FontFamily::Monospace).or_default().insert(0, mono);
     }
     // The optional craft-fonts input carries Japanese, Simplified Chinese, Korean, Arabic, Thai and
-    // other faces. Register them up front: the lazy loader cannot react before the first frame
-    // shapes (and a headless frame panics on a missing glyph rather than drawing tofu).
-    if cjk.eager_craft_fonts {
-        for (i, f) in photocraft_text::craft_fonts::CRAFT_FONTS.iter().enumerate() {
-            if f.bytes.is_empty() {
-                continue;
-            }
-            let name = format!("craft-font-{i}");
-            fonts.font_data.insert(name.clone(), Arc::new(FontData::from_static(f.bytes)));
-            fonts.families.entry(FontFamily::Proportional).or_default().push(name.clone());
-            fonts.families.entry(FontFamily::Monospace).or_default().push(name);
-        }
-    }
+    // other faces. `cjk_fonts` installs a per-character font provider for them, so a broad
+    // Simplified Chinese face is not put in the family stack ahead of the Japanese or Korean face,
+    // and a locale without a Traditional Chinese craft face leaves Han to the system font. (A
+    // single linear per-family chain still decides a glyph once a broad face is discovered; see
+    // `cjk_fonts`.)
     // Named weights fall back to the default stack for missing glyphs.
     let fallback: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     for (fam, primary) in [("medium", medium), ("semibold", semibold)] {
@@ -929,6 +921,11 @@ fn ui_font_size(ctx: &egui::Context) -> UiFontSize {
     ctx.data(|d| d.get_temp::<UiFontSize>(ui_fonts_id())).unwrap_or_default()
 }
 
+/// The Interface > UI Font Size multiplier for the current context (including the default Small).
+pub(crate) fn ui_font_scale(ctx: &egui::Context) -> f32 {
+    font_scale(ui_font_size(ctx))
+}
+
 fn font_scale(size: UiFontSize) -> f32 {
     match size {
         UiFontSize::Tiny => 10.0 / 12.0,
@@ -952,6 +949,7 @@ pub(crate) fn set_ui_font_size(ctx: &egui::Context, size: UiFontSize) {
         return;
     }
     ctx.data_mut(|d| d.insert_temp(ui_fonts_id(), size));
+    crate::cjk_fonts::set_craft_font_scale(ctx, font_scale(size));
     ctx.request_repaint();
 }
 
