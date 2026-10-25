@@ -231,7 +231,7 @@ Paragraph; the rest open as in-app floating windows.
 | Menu bar from the keyboard: Alt / F10 focus the bar, ← → ↓ ↩ drive it, Alt+letter opens a menu, underlined mnemonics run items | done | `menu_keys.rs`, #4988; macOS uses the native bar |
 | Every preference takes effect | partial | 46 of 149 do nothing (scorecard) |
 | UI scale presets | missing | UI-217-9, #2492 |
-| History snapshots: camera button, snapshot rows (click returns and selects, rename, delete; the trash deletes the selected snapshot, and a snapshot or state dragged onto it, #5324), `history.*Snapshot` commands | partial | `history_cmds.rs`, `snapshot_rows` in `panels.rs`; New Snapshot dialog, first snapshot and History Options to come (#2966) |
+| History snapshots: camera button, New Snapshot dialog (⌥-click: Name, From), the first snapshot (the document as opened), snapshot rows (click returns and selects, rename, delete; the trash deletes the selected snapshot, and a snapshot or state dragged onto it, #5324), `history.*Snapshot` commands | partial | `history_cmds.rs`, `snapshot_rows` in `panels.rs`, `snapshot_dialog.rs`; the snapshot History Options and History Brush sources to come (#2966) |
 | Themes: Photoshop's four greys | partial | five themes; #2661 |
 | Document tabs: overflow, context menu, reorder | done | UI-217-6; middle-click close #2570 |
 | Layers panel: wheel steps blend modes, drop on New/Trash | partial | UI-217-14 |
@@ -286,6 +286,7 @@ Paragraph; the rest open as in-app floating windows.
 | 2026-10-12 | minor | Layers panel: Clip Thumbnails to Layer Bounds frames each layer's pixels instead of the canvas (#4281) |
 | 2026-10-12 | minor | Guides: ⌥-click turns a guide through the click; double-click opens Preferences › Guides, Grid & Slices |
 | 2026-10-13 | minor | Smart filter rows can be dragged up or down their stack to reorder the filters |
+| 2026-10-12 | minor | History snapshots: the New Snapshot dialog (⌥-click the camera), and the first snapshot of the document as opened as the panel's top row (#2966) |
 | 2026-10-13 | minor | On-canvas corner radius widgets on live rectangles (TOOL-214-12) |
 | 2026-10-13 | minor | Curvature Pen edits the active path: drag anchors, click a segment to add, double-click smooth/corner, cursor badges |
 | 2026-10-11 | minor | Pen ⇧ 45° done: ⇧-click puts the next anchor on the nearest 45° ray, ⇧-drag turns its handles in 45° steps (TOOL-214-10 done, #3751) |
