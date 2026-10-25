@@ -219,6 +219,10 @@ fn ref_adjusted(l: &Layer, adj: &Adjustment, clipped: &[Layer], p: Cmyka, x: i32
         a = ref_clip(clipped, a, x, y);
     }
     let k = l.opacity * l.fill_opacity * ref_mask(l, x, y);
+    if l.blend == BlendMode::Dissolve {
+        // Opacity and mask are the chance the pixel takes the adjustment fully.
+        return if k > 0.0 && crate::dissolve_noise(x, y) < k { [a[0], a[1], a[2], a[3], p[4]] } else { p };
+    }
     let mut o = p;
     for c in 0..4 {
         o[c] = p[c] + (ref_blend(l.blend, p[c], a[c]) - p[c]) * k;
@@ -233,7 +237,7 @@ fn ref_clip(clipped: &[Layer], mut content: Cmyka, x: i32, y: i32) -> Cmyka {
             content = ref_adjusted(c, adj, &[], content, x, y);
         } else if content[4] > 0.0 {
             let a = content[4];
-            let r = over_layer(c, [content[0], content[1], content[2], content[3], 1.0], ref_own(c, x, y), c.opacity * c.fill_opacity, None);
+            let r = over_layer(c, [content[0], content[1], content[2], content[3], 1.0], ref_own(c, x, y), c.opacity * c.fill_opacity, Some((x, y)));
             content = [r[0], r[1], r[2], r[3], a];
         }
     }
@@ -1696,4 +1700,101 @@ fn rgb_colours_become_ink_through_the_document_profile() {
     overlay.layers.push(l);
     assert!(!supports(&overlay) && split::supports(&overlay));
     check(&overlay, "colour overlay");
+}
+
+/// The split route and the exact path give the same inks for `s`, alpha included.
+fn assert_split_matches_exact(s: &Spec) {
+    let mut d = doc(s.w as u32, s.h as u32);
+    d.layers = s.layers.iter().map(build).collect();
+    assert!(supports(&d) && split::supports(&d));
+    let via = split_render(&d);
+    let exact = render_cmyk(&d, via.rect).unwrap_or_else(|| panic!("supported"));
+    for (i, (g, w)) in via.px.iter().zip(&exact.px).enumerate() {
+        assert!((0..5).all(|c| (g[c] - w[c]).abs() <= 1e-5), "pixel {i}: {g:?} vs {w:?}");
+    }
+}
+
+fn raster_spec(blend: BlendMode, fill: (Rect, Cmyka), opacity: f32, clipped: bool) -> LayerSpec {
+    LayerSpec::Pixels { kind: Kind::Raster, blend, fills: vec![fill], opacity, fill: 1.0, clipped, visible: true, mask: None }
+}
+
+fn group_spec(children: Vec<LayerSpec>, pass_through: bool) -> LayerSpec {
+    LayerSpec::Group { children, pass_through, blend: BlendMode::Normal, opacity: 1.0, fill: 1.0, mask: None }
+}
+
+/// A clipped Dissolve layer shows each pixel fully or not at all on the exact path too, as on the
+/// RGB compositor (#9033; it used to mix like Normal: K 0.81 where the noise hides the layer).
+#[test]
+fn a_clipped_dissolve_layer_dissolves_on_the_exact_path() {
+    let s = Spec {
+        w: 4,
+        h: 5,
+        layers: vec![group_spec(
+            vec![
+                raster_spec(BlendMode::Normal, (Rect::new(0, 0, 2, 1), [0.0, 0.0, 0.0, 1.0, 1.0]), 1.0, false),
+                raster_spec(BlendMode::Dissolve, (Rect::new(0, 0, 1, 1), [0.0, 0.0, 0.0, 0.0, 1.0]), 0.189_737_02, true),
+            ],
+            false,
+        )],
+    };
+    assert_split_matches_exact(&s);
+}
+
+/// A Dissolve adjustment layer takes each pixel fully or not at all on the exact path too (#9033;
+/// it used to mix by opacity: cyan 0.267 where the noise picks the adjusted 0.298).
+#[test]
+fn a_dissolve_adjustment_dissolves_on_the_exact_path() {
+    let levels = AdjSpec::Levels { channel: 0, levels: [0.0, 0.6, 0.3, 0.0, 0.7] };
+    let adjust = LayerSpec::Pixels {
+        kind: Kind::Adjust(levels),
+        blend: BlendMode::Dissolve,
+        fills: vec![(Rect::new(0, 0, 1, 1), [0.0; 5])],
+        opacity: 0.897_210_9,
+        fill: 1.0,
+        clipped: false,
+        visible: true,
+        mask: None,
+    };
+    let s = Spec {
+        w: 3,
+        h: 2,
+        layers: vec![
+            group_spec(vec![raster_spec(BlendMode::Normal, (Rect::new(0, 0, 1, 1), [0.0, 0.0, 0.0, 0.0, 1.0]), 1.0, false)], false),
+            group_spec(vec![adjust], true),
+        ],
+    };
+    assert_split_matches_exact(&s);
+}
+
+/// After an adjustment layer, the display route ([`crate::native`]) rounds to the document's
+/// levels like the export path and the RGB compositor, at any opacity (#9033: in a pass-through
+/// group its coverage stayed at 41.32% where the others store 105/255).
+#[test]
+fn every_cmyk_route_rounds_after_an_adjustment_layer() {
+    for opacity in [0.0, 0.5] {
+        let adjust = LayerSpec::Pixels {
+            kind: Kind::Adjust(AdjSpec::Invert),
+            blend: BlendMode::Normal,
+            fills: vec![(Rect::new(0, 0, 1, 1), [0.0; 5])],
+            opacity,
+            fill: 1.0,
+            clipped: false,
+            visible: true,
+            mask: None,
+        };
+        let s = Spec {
+            w: 8,
+            h: 5,
+            layers: vec![group_spec(vec![raster_spec(BlendMode::Normal, (Rect::new(0, 0, 1, 1), [0.0, 0.0, 0.0, 0.0, 1.0]), 1.0, false), adjust], true)],
+        };
+        let mut d = doc(s.w as u32, s.h as u32);
+        d.layers = s.layers.iter().map(build).collect();
+        if let LayerContent::Group(g) = &mut d.layers[0].content {
+            g.children[0].fill_opacity = 0.413_248_66;
+        }
+        let rect = Rect::new(0, 0, 1, 1);
+        let display = crate::render(&d, rect).px[0][3];
+        let export = render_cmyk(&d, rect).unwrap_or_else(|| panic!("supported")).px[0][4];
+        assert_eq!((display, export), (105.0 / 255.0, 105.0 / 255.0), "opacity {opacity}");
+    }
 }

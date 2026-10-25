@@ -35,11 +35,13 @@ pub fn transform_params(layer: u64, b: [i32; 4], w: Option<f32>, h: Option<f32>,
 
 /// A number field that reports a value once committed (drag released, Enter, focus lost). `label` is its own
 /// label and the one stacked with it in the same column ("W" over "X"), which share a centre.
-fn field(ui: &mut egui::Ui, id: &str, label: (&str, &str), current: f32, width: f32, u: LenUnit, extent: f64) -> Option<f32> {
+// The explicit accessible name accompanies the existing numeric-field parameters.
+#[expect(clippy::too_many_arguments)]
+fn field(ui: &mut egui::Ui, id: &str, label: (&str, &str), name: &str, current: f32, width: f32, u: LenUnit, extent: f64) -> Option<f32> {
     stacked_label(ui, tl!(label.0), &[tl!(label.0), tl!(label.1)], LABEL_W, 2.0);
     let key = ui.make_persistent_id(("layer-props-field", id));
     let mut v = ui.data(|d| d.get_temp::<f32>(key)).unwrap_or_else(|| u.shown(f64::from(current), extent));
-    let resp = widgets::value_field(ui, &mut v, -300_000.0..=300_000.0, u.unit.suffix(), width);
+    let resp = widgets::value_field(ui, &mut v, -300_000.0..=300_000.0, u.unit.suffix(), width).accessible_name(tl!(name));
     if resp.dragged() || resp.has_focus() {
         ui.data_mut(|d| d.insert_temp(key, v));
         return None;
@@ -129,31 +131,31 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
         let u = LenUnit::of(app);
         let (dw, dh) = app.session.active().map_or((1.0, 1.0), |s| (f64::from(s.doc.size.width), f64::from(s.doc.size.height)));
         if section(ui, "transform", tl!("Transform")) {
-            let link_key = egui::Id::new("layer-props-link");
+            let link_key = egui::Id::unique("layer-props-link");
             let linked = ui.data(|d| d.get_temp::<bool>(link_key)).unwrap_or(true);
             let bb = [b.x0, b.y0, b.x1, b.y1];
             // Two label+field columns with the link toggle between them, filling the panel.
             let w = ((ui.available_width() - 2.0 * (LABEL_W + LABEL_GAP) - LINK_W - 2.0 * LABEL_GAP) / 2.0).max(36.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = LABEL_GAP;
-                if let Some(v) = field(ui, "w", ("W", "X"), b.width() as f32, w, u, dw) {
+                if let Some(v) = field(ui, "w", ("W", "X"), "Width", b.width() as f32, w, u, dw) {
                     run.extend(transform_params(layer.id.0, bb, Some(v), None, linked).map(|p| ("edit.transform".to_string(), p)));
                 }
                 if crate::icons::button(ui, if linked { "link" } else { "unlink" }, LINK_W, linked, tl!("Link width and height")).clicked() {
                     ui.data_mut(|d| d.insert_temp(link_key, !linked));
                 }
-                if let Some(v) = field(ui, "h", ("H", "Y"), b.height() as f32, w, u, dh) {
+                if let Some(v) = field(ui, "h", ("H", "Y"), "Height", b.height() as f32, w, u, dh) {
                     run.extend(transform_params(layer.id.0, bb, None, Some(v), linked).map(|p| ("edit.transform".to_string(), p)));
                 }
             });
             ui.add_space(ROW_GAP);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = LABEL_GAP;
-                if let Some(v) = field(ui, "x", ("X", "W"), b.x0 as f32, w, u, dw) {
+                if let Some(v) = field(ui, "x", ("X", "W"), "X", b.x0 as f32, w, u, dw) {
                     run.push(("layer.translate".into(), json!({"layer": layer.id.0, "dx": (v - b.x0 as f32).round() as i32, "dy": 0})));
                 }
                 ui.add_space(LINK_W + LABEL_GAP);
-                if let Some(v) = field(ui, "y", ("Y", "H"), b.y0 as f32, w, u, dh) {
+                if let Some(v) = field(ui, "y", ("Y", "H"), "Y", b.y0 as f32, w, u, dh) {
                     run.push(("layer.translate".into(), json!({"layer": layer.id.0, "dx": 0, "dy": (v - b.y0 as f32).round() as i32})));
                 }
             });
@@ -215,7 +217,7 @@ fn align_and_distribute(app: &PhotocraftApp, ui: &mut egui::Ui, run: &mut Vec<(S
             }
             align_glyph(ui, r, kind, if on { t.icon } else { t.text_faint });
             let tip = crate::i18n::fmt(tl!("Align {what}"), &[("what", tl!(&label))]);
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, &tip));
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, on, &tip));
             if resp.on_hover_text(tip).clicked() {
                 run.push((id, json!({})));
             }

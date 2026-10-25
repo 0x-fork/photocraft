@@ -141,13 +141,13 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
     opts.extend(photocraft_engine::artboard_cmds::PRESETS.iter().map(|(n, _, _)| (n.to_string(), *n)));
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(tl!("Size")).color(t.text_dim).size(12.0));
-        if crate::widgets::dropdown(ui, &key("preset"), &mut preset, &opts, 150.0) && !preset.is_empty() {
+        if crate::widgets::dropdown(ui, &key("preset"), tl!("Preset"), &mut preset, &opts, 150.0) && !preset.is_empty() {
             edit = Some(json!({"layer": layer.id.0, "preset": preset}));
         }
     });
     let num = |ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>| -> bool {
         ui.label(egui::RichText::new(tl!(&label)).color(t.text_dim).size(12.0));
-        crate::widgets::value_field(ui, v, range, "px", 64.0).changed()
+        crate::widgets::value_field(ui, v, range, "px", 64.0).accessible_name(if label == "W" { tl!("Width") } else { tl!("Height") }).changed()
     };
     let r = a.rect;
     ui.horizontal(|ui| {
@@ -178,7 +178,7 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
             ("transparent".to_string(), tl!("Transparent")),
             ("custom".to_string(), tl!("Other…")),
         ];
-        if crate::widgets::dropdown(ui, &key("bg"), &mut bg, &opts, 120.0) {
+        if crate::widgets::dropdown(ui, &key("bg"), tl!("Background"), &mut bg, &opts, 120.0) {
             let mut params = json!({"layer": layer.id.0, "background": bg});
             if bg == "custom" {
                 let hex = match a.background {
