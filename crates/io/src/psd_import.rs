@@ -876,14 +876,18 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
     psd_to_document_decoded(file, ctl, None)
 }
 
-/// Whether `file` stores its spot planes the way earlier PhotoCraft versions (releases 0.1.0 to
-/// 0.11.1) wrote them: straight (the maximum = solid ink), the opposite of Photoshop, which
+/// Whether `file` stores spot planes the way earlier PhotoCraft versions (releases 0.1.0 to
+/// 0.16.0) wrote them: straight (the maximum = solid ink), the opposite of Photoshop, which
 /// stores 0 = solid ink in every PSD and TIFF it saves. Their files are recognised by three
 /// things together:
 ///
 /// - DisplayInfo (1077) marks at least one spot channel;
-/// - there is no Alpha Identifiers resource (1053). Photoshop has written it in every file with
-///   an extra channel since version 6, and PhotoCraft writes it now, but no earlier PhotoCraft did;
+/// - there is no Alpha Identifiers resource (1053), or one that lists fewer channels than the
+///   file has ([`photoshop_identified_channels`]). Photoshop has written it, one identifier per
+///   extra channel, in every file with an extra channel since version 6, and PhotoCraft writes it
+///   now. No earlier PhotoCraft wrote one of its own, but each kept the 1053 of a Photoshop file
+///   it opened (a transparent document's `[0]`, for one) and wrote it back unchanged, after the
+///   channels added in it, which it stored straight;
 /// - the version info (1057) is byte for byte what those versions wrote: writer "Adobe Photoshop"
 ///   with reader "Adobe Photoshop CS6", both NUL-terminated (0.1.0 to 0.7.0), or reader "Adobe
 ///   Photoshop 2026" without a NUL (0.8.2 on), with either merged-data flag.
@@ -891,7 +895,8 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
 /// Any other file is read in Photoshop's polarity. psd-tools' `cmyk-spot.psd`, for one, also has
 /// spots and no 1053, but names psd-tools in 1057 and stores Photoshop's polarity. A Photoshop
 /// file that an earlier PhotoCraft opened and saved again kept Photoshop's 1053 and its planes as
-/// Photoshop stored them, so it is read in Photoshop's polarity too.
+/// Photoshop stored them, so it is read in Photoshop's polarity too; when channels were added
+/// there, only the planes after the ones the kept 1053 lists are read straight.
 ///
 /// Keeping these files' ink is the only reason this exists: deleting it (and its one caller)
 /// reads every file in Photoshop's polarity, at the cost of inverting the spot ink of PSDs saved
@@ -901,7 +906,15 @@ pub(crate) fn earlier_photocraft_spot_planes(file: &PsdFile) -> bool {
     use photocraft_psd::resources::VersionInfo;
 
     let marks_spot = file.resource(crate::channel_map::DISPLAY_INFO).is_some_and(|r| crate::channel_map::display_info_marks_spot(&r.data));
-    if !marks_spot || file.resource(crate::channel_map::ALPHA_IDENTIFIERS).is_some() {
+    let identifies_every_channel = match file.header.color_mode.color_channels() {
+        Some(color) => {
+            let channels = file.header.channels.saturating_sub(color).saturating_sub(u16::from(file.merged_has_alpha()));
+            photoshop_identified_channels(file) >= usize::from(channels)
+        }
+        // Multichannel has no fixed number of colour channels to count from.
+        None => file.resource(crate::channel_map::ALPHA_IDENTIFIERS).is_some(),
+    };
+    if !marks_spot || identifies_every_channel {
         return false;
     }
     let Some(r) = file.resource(ids::VERSION_INFO) else { return false };
@@ -915,6 +928,15 @@ pub(crate) fn earlier_photocraft_spot_planes(file: &PsdFile) -> bool {
         (UnicodeString::new("Adobe Photoshop"), UnicodeString::new("Adobe Photoshop 2026")),
     ];
     v.version == 1 && v.file_version == 1 && writers.iter().any(|(writer, reader)| v.writer == *writer && v.reader == *reader)
+}
+
+/// How many extra channels, after the merged transparency, the Alpha Identifiers resource (1053)
+/// lists: its identifiers other than 0, which Photoshop gives the merged transparency (first, and
+/// in some files with no transparency plane at all). 0 without a 1053. In a file from an earlier
+/// PhotoCraft ([`earlier_photocraft_spot_planes`]) these are the channels of the Photoshop file
+/// it opened, stored as Photoshop stored them; the channels after them were added there.
+pub(crate) fn photoshop_identified_channels(file: &PsdFile) -> usize {
+    file.resource(crate::channel_map::ALPHA_IDENTIFIERS).map_or(0, |r| r.data.as_chunks::<4>().0.iter().filter(|id| **id != [0; 4]).count())
 }
 
 /// Whether the import reads the merged composite: for a flattened or multichannel file (it *is*
@@ -1244,10 +1266,10 @@ pub(crate) fn psd_to_document_decoded_integrity(
         let names = names.get(skip..).unwrap_or_default();
         // Which planes hold spot ink in Photoshop's polarity (0 = solid): the DisplayInfo records
         // the channel options are read from below, the transparency's first when `skip` is 1.
-        // A file from an earlier PhotoCraft stores them straight and is read as it was written.
-        let photoshop_spots = if earlier_photocraft_spot_planes(file) {
-            Vec::new()
-        } else if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO) {
+        // A file from an earlier PhotoCraft stores them straight and is read as it was written,
+        // past the channels of the Photoshop file it opened, if any.
+        let straight_from = if earlier_photocraft_spot_planes(file) { photoshop_identified_channels(file) } else { usize::MAX };
+        let photoshop_spots = if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO) {
             crate::channel_map::spot_flags(&r.data, true, skip)
         } else if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO_OLD) {
             crate::channel_map::spot_flags(&r.data, false, skip)
@@ -1260,7 +1282,7 @@ pub(crate) fn psd_to_document_decoded_integrity(
                 break;
             };
             let mut raw = be_to_ne_plane(p, depth, n);
-            if photoshop_spots.get(k).copied().unwrap_or(false) {
+            if k < straight_from && photoshop_spots.get(k).copied().unwrap_or(false) {
                 crate::channel_map::photoshop_spot_plane(&mut raw, depth);
             }
             let mut s = Surface::new(cx.mask_fmt);
@@ -1454,7 +1476,7 @@ mod tests {
         doc.channels.iter().map(|c| c.spot.is_some()).collect()
     }
 
-    /// `doc` (opaque, 8 or 16-bit) saved the way PhotoCraft 0.1.0 to 0.11.1 saved it: spot planes
+    /// `doc` (opaque, 8 or 16-bit) saved the way PhotoCraft 0.1.0 to 0.16.0 saved it: spot planes
     /// straight (the maximum = solid ink), no 1053, and `version_info` as resource 1057. `padded`
     /// lays DisplayInfo out in the 14-byte records of 0.1.0 to 0.7.0.
     fn as_earlier_photocraft_saved(doc: &Document, version_info: Vec<u8>, padded: bool) -> Vec<u8> {
@@ -1483,7 +1505,7 @@ mod tests {
         file.to_bytes().unwrap()
     }
 
-    /// PSDs that PhotoCraft 0.1.0 to 0.11.1 saved with spot channels store them straight. They
+    /// PSDs that PhotoCraft 0.1.0 to 0.16.0 saved with spot channels store them straight. They
     /// open with the ink they had in those versions (which read every plane straight), whichever
     /// 1057 they carry. Saved again, they get Photoshop's polarity and a 1053, and reopen with the
     /// same ink. (A 0.1.0 to 0.7.0 file's padded records misread every channel's options after
@@ -1592,5 +1614,86 @@ mod tests {
         doc.channels.retain(|c| c.spot.is_none());
         let alpha_only = PsdFile::from_bytes(&as_earlier_photocraft_saved(&doc, version_info_2026(true), false)).unwrap();
         assert!(!earlier_photocraft_spot_planes(&alpha_only), "alpha channels only");
+    }
+
+    /// `doc` as an earlier PhotoCraft saved a Photoshop file it had opened with the first `kept`
+    /// of `doc`'s channels: it wrote back the Photoshop file's 1053, `stale_ids`, unchanged and
+    /// those channels' planes as Photoshop stored them (it had read and written them straight),
+    /// and stored the channels added after them straight.
+    fn as_earlier_photocraft_resaved(doc: &Document, stale_ids: &[u32], kept: usize) -> Vec<u8> {
+        let mut file = crate::psd_export::document_to_psd(doc);
+        file.resources.retain(|r| r.id != crate::channel_map::ALPHA_IDENTIFIERS && r.id != ids::VERSION_INFO);
+        file.resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, stale_ids.iter().flat_map(|id| id.to_be_bytes()).collect()));
+        file.resources.push(ImageResource::new(ids::VERSION_INFO, version_info_2026(true)));
+        let mut planes = file.decode_merged().unwrap();
+        let plane = planes.len() / usize::from(file.header.channels);
+        let first = usize::from(file.header.channels) - doc.channels.len();
+        for (k, c) in doc.channels.iter().enumerate().skip(kept) {
+            if c.spot.is_some() {
+                planes[(first + k) * plane..(first + k + 1) * plane].iter_mut().for_each(|b| *b = !*b);
+            }
+        }
+        file.image_data = ImageData::encode(Compression::Raw, &planes, &file.header).unwrap();
+        file.to_bytes().unwrap()
+    }
+
+    /// An earlier PhotoCraft kept the 1053 of a Photoshop file it opened and wrote it back
+    /// unchanged, so a spot channel added there sits behind a 1053 that doesn't list it: a
+    /// transparent Photoshop document's `[0]` (the white plate of a DTF print, added before
+    /// saving), the `[0, 3]` of one with a spot channel already, or a `[0]` kept through a
+    /// flatten that removed the transparency. The added spot is stored straight and keeps its
+    /// ink; the Photoshop file's own spot keeps Photoshop's polarity. Saved again, both reopen
+    /// the same.
+    #[test]
+    fn a_spot_added_behind_a_kept_alpha_identifiers_resource_keeps_its_ink() {
+        let transparent = |names: &[&str]| {
+            let mut doc = channels_document(SampleType::U8);
+            doc.layers = vec![Layer::raster("Layer 1", doc.pixel_format())];
+            doc.channels.retain(|c| names.contains(&c.name.as_str()));
+            doc
+        };
+        let mut flattened = channels_document(SampleType::U8);
+        flattened.channels.retain(|c| c.name == "Spot A");
+        let cases = [
+            ("transparent, one spot added", transparent(&["Spot A"]), vec![0], 0),
+            ("transparent, a Photoshop spot and one added", transparent(&["Spot A", "Spot B"]), vec![0, 3], 1),
+            ("flattened, one spot added", flattened, vec![0], 0),
+        ];
+        for (what, doc, stale_ids, kept) in cases {
+            let bytes = as_earlier_photocraft_resaved(&doc, &stale_ids, kept);
+            let file = PsdFile::from_bytes(&bytes).unwrap();
+            assert_eq!(file.merged_has_alpha(), what.starts_with("transparent"), "{what}");
+            assert!(earlier_photocraft_spot_planes(&file), "{what}");
+            let opened = crate::import("old.psd", &bytes).unwrap().document;
+            assert_eq!(ink(&opened), ink(&doc), "{what}: the ink earlier versions opened");
+            assert_eq!(spots(&opened), spots(&doc), "{what}");
+            let saved = crate::export(&opened, "old.psd", &crate::ExportOptions::default()).unwrap();
+            let again = crate::import("again.psd", &saved.bytes).unwrap().document;
+            assert_eq!(ink(&again), ink(&doc), "{what}: saved again");
+        }
+    }
+
+    /// A 1053 that lists every extra channel, as Photoshop and this version write it, keeps the
+    /// file in Photoshop's polarity, with PhotoCraft's (Photoshop 2026's) 1057 too: a transparent
+    /// file with a spot, and Photoshop's own `[0]` in a file without a transparency plane.
+    #[test]
+    fn a_complete_alpha_identifiers_resource_keeps_photoshop_polarity() {
+        let mut doc = channels_document(SampleType::U8);
+        doc.layers = vec![Layer::raster("Layer 1", doc.pixel_format())];
+        let bytes = as_earlier_photocraft_resaved(&doc, &[0, 3, 4, 5], 3);
+        let file = PsdFile::from_bytes(&bytes).unwrap();
+        assert!(file.merged_has_alpha());
+        assert!(!earlier_photocraft_spot_planes(&file));
+        assert_eq!(ink(&crate::import("ps.psd", &bytes).unwrap().document), ink(&doc));
+        let mut opaque = channels_document(SampleType::U8);
+        opaque.channels.clear();
+        let mut file = PsdFile::from_bytes(&as_earlier_photocraft_resaved(&opaque, &[0], 0)).unwrap();
+        file.resources.retain(|r| r.id != crate::channel_map::DISPLAY_INFO);
+        file.resources.push(ImageResource::new(
+            crate::channel_map::DISPLAY_INFO,
+            crate::channel_map::display_info(&channels_document(SampleType::U8).channels.iter().collect::<Vec<_>>(), false),
+        ));
+        assert_eq!(photoshop_identified_channels(&file), 0, "0 is the transparency's");
+        assert!(!earlier_photocraft_spot_planes(&file), "no channel left unlisted");
     }
 }

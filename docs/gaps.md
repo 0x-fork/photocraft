@@ -310,7 +310,7 @@ what an agent can't finish alone.
   .shc, .csh presets (.asl landed 2026-10-20) (FILE-215-15); C2PA (#1050).
 - **Detail:** [`file-format-parity.md`](file-format-parity.md).
 - **Progress (2026-10-23, #7415 split):** PSD stores and reads spot channels as Photoshop does (ink
-  0 = solid) and writes their identifiers (1053); PSDs from PhotoCraft 0.1.0–0.11.1, which stored
+  0 = solid) and writes their identifiers (1053); PSDs from PhotoCraft 0.1.0–0.16.0, which stored
   spot ink the other way round, keep their ink.
 - **Progress (2026-10-23, #7415):** TIFF writes and reads alpha and spot channels as extra samples
   with Photoshop's names, ink colours and solidity (FILE-215-7 done; FILE-215-17's TIFF part).
@@ -364,7 +364,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-23 | minor | G10: PSD stores and reads spot channels as Photoshop does (ink 0 = solid) with their identifiers (1053); PSDs from PhotoCraft 0.1.0–0.11.1 keep their ink (#7415 split, part 4); FILE-215-17 stays partial; estimate unchanged |
+| 2026-10-23 | minor | G10: PSD stores and reads spot channels as Photoshop does (ink 0 = solid) with their identifiers (1053); PSDs from PhotoCraft 0.1.0–0.16.0 keep their ink (#7415 split, part 4); FILE-215-17 stays partial; estimate unchanged |
 | 2026-10-23 | minor | G10: TIFF alpha and spot channels written and read as extra samples with Photoshop's channel resources, PSD output unchanged (#7415); FILE-215-7 leaves the list, FILE-215-17 narrows to RGB/CMYK spot preview and PDF Separation |
 | 2026-10-23 | minor | G10: Amiga IFF write landed (24-plane ILBM, Save As `.iff`) and 24-plane ILBMs open |
 | 2026-10-22 | minor | G17: Help › Check for Updates and an opt-out check once per launch (#5485), DIST-220-1 partial; estimate unchanged |
