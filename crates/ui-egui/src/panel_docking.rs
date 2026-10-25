@@ -62,7 +62,7 @@ const FLOAT_AREA: egui::Rect = egui::Rect::from_min_max(egui::pos2(376.0, 116.0)
 const FLOAT_SIZE: egui::Vec2 = egui::vec2(300.0, 400.0);
 
 fn area_id() -> egui::Id {
-    egui::Id::new("photocraft-panel-docking")
+    egui::Id::unique("photocraft-panel-docking")
 }
 
 #[cfg(test)]
