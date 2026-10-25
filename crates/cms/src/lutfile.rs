@@ -179,12 +179,15 @@ pub fn parse_cube(text: &str) -> Result<LutFile, LutError> {
 }
 
 /// Lustre `.3dl`: an optional shaper line of input values, then integer RGB rows with **blue**
-/// varying fastest; the output bit depth is inferred from the largest value.
+/// varying fastest; the output bit depth is inferred from the largest value, and is at least 12
+/// bits in a file without a header.
 pub fn parse_3dl(text: &str) -> Result<LutFile, LutError> {
     let mut rows: Vec<[f64; 3]> = Vec::new();
+    let mut header = false;
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
         if line.is_empty() || line.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            header |= !line.is_empty();
             continue;
         }
         let v: Vec<f64> = line.split_whitespace().filter_map(|s| s.parse().ok()).collect();
@@ -198,7 +201,9 @@ pub fn parse_3dl(text: &str) -> Result<LutFile, LutError> {
         return err(format!("{} rows is not a cube", rows.len()));
     }
     let max = rows.iter().flatten().fold(0.0f64, |a, &b| a.max(b));
-    let scale = if max <= 1.0 { 1.0 } else { [1023.0, 4095.0, 16383.0, 65535.0].into_iter().find(|&s| max <= s).unwrap_or(max) };
+    // Photoshop 27.11 reads a headerless table peaking at 255 or 1023 on the 12-bit scale (#9121).
+    let depths: &[f64] = if header { &[1023.0, 4095.0, 16383.0, 65535.0] } else { &[4095.0, 16383.0, 65535.0] };
+    let scale = if max <= 1.0 { 1.0 } else { depths.iter().copied().find(|&s| max <= s).unwrap_or(max) };
     let mut data = vec![0.0f32; n * n * n * 3];
     for (i, row) in rows.iter().enumerate() {
         let (r, g, b) = (i / (n * n), (i / n) % n, i % n);
@@ -447,6 +452,25 @@ DOMAIN_MAX 0.5 1 1
     fn cube_1d_size_multiplication_overflow_is_rejected() {
         let text = format!("LUT_1D_SIZE {}\n", usize::MAX);
         assert!(parse_cube(&text).is_err());
+    }
+
+    #[test]
+    fn three_dl_without_a_header_reads_low_nodes_as_12_bit() {
+        let table = |peak: u32| -> String {
+            let mut text = String::from("0 1023\n");
+            for i in 0..8 {
+                let on = |bit: u32| if i & bit != 0 { peak } else { 0 };
+                text.push_str(&format!("{} {} {}\n", on(4), on(2), on(1)));
+            }
+            text
+        };
+        for peak in [255, 1023, 4095] {
+            let white = parse_3dl(&table(peak)).unwrap().data[21..24].to_vec();
+            assert_eq!(white, [peak as f32 / 4095.0; 3], "peak {peak}");
+        }
+        // A header keeps the inferred 10-bit depth.
+        let white = parse_3dl(&format!("3DMESH\nMesh 1 10\n{}", table(1023))).unwrap().data[21..24].to_vec();
+        assert_eq!(white, [1.0; 3]);
     }
 
     #[test]
