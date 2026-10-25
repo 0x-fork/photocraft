@@ -1258,6 +1258,21 @@ mod tests {
     }
 
     #[test]
+    fn calibration_keeps_the_develop_off_the_per_pixel_gpu_stages() {
+        // The per-pixel stages (the Camera Raw dialog's GPU preview) don't run Calibration, so
+        // settings with it must fall back to the CPU develop instead of previewing without it.
+        for p in [
+            CameraRaw { shadow_tint: 40.0, ..Default::default() },
+            CameraRaw { calibration_hue: [0.0, 0.0, 30.0], whites: 20.0, ..Default::default() },
+            CameraRaw { calibration_sat: [-50.0, 0.0, 0.0], exposure: 0.5, ..Default::default() },
+        ] {
+            assert!(!p.spatial());
+            assert!(per_pixel(&p, 2, 2, false, Some((0.0, 1.0))).is_none(), "{p:?}");
+        }
+        assert!(per_pixel(&CameraRaw { exposure: 0.5, ..Default::default() }, 2, 2, false, None).is_some());
+    }
+
+    #[test]
     fn calibration_turns_primaries_keeps_neutrals_and_tints_shadows() {
         let w = calibration_weights(0.0);
         assert!((w[0] - 1.0).abs() < 1e-6, "pure red is all red primary: {w:?}");

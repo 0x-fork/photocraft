@@ -202,10 +202,11 @@ pub fn white_black_points(px: &[[f32; 4]], w: usize, h: usize, p: &CameraRaw) ->
 }
 
 /// Develop's stages for settings without spatial stages, on a `w × h` image; `points` are the
-/// image's [`white_black_points`]. `None` when `p` needs a spatial stage, or Whites or Blacks is
-/// set without `points`.
+/// image's [`white_black_points`]. `None` when `p` needs a spatial stage or Calibration (these
+/// stages don't run it), or Whites or Blacks is set without `points`. The points themselves
+/// leave Calibration out, so a caller may cache them across Calibration changes.
 pub fn per_pixel(p: &CameraRaw, w: usize, h: usize, float: bool, points: Option<(f32, f32)>) -> Option<PerPixel> {
-    if p.spatial() {
+    if p.spatial() || !p.calibration_neutral() {
         return None;
     }
     let identity = p.is_identity();
