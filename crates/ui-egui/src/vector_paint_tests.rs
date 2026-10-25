@@ -757,6 +757,52 @@ fn gradient_tab_keeps_the_stop_colour_after_a_preset_with_fewer_stops() {
     assert_eq!(after[1].0, before[1].0);
 }
 
+/// A swatch edit that only changes the gradient's settings (Reverse) keeps a CMYK document's
+/// stops as they are: before, every stop went out as sRGB RGBA and came back in the RGB model.
+#[test]
+fn gradient_tab_edit_keeps_cmyk_stops_in_their_model() {
+    let cmyk = |c: [f32; 4]| photocraft_doc::Color { mode: photocraft_doc::ColorMode::Cmyk, c, alpha: 1.0 };
+    let stops = vec![(0.0, cmyk([0.1, 0.2, 0.3, 0.9])), (1.0, cmyk([0.75, 0.0, 0.5, 0.0]))];
+    for (properties, label) in [(true, "Set shape stroke type"), (false, "Stroke color")] {
+        let mut app = app("cmyk", 8);
+        let stroke = json!({"width": 4, "color": {"gradient": {"stops": [[0.0, stops[0].1], [1.0, stops[1].1]]}}});
+        app.run("shape.create", json!({"rect": [20, 20, 60, 40], "stroke": stroke})).unwrap();
+        assert_eq!(gradient_stops(&shape(&app).stroke.as_ref().unwrap().paint).0, stops);
+        let mut h = harness(app, properties);
+        h.get_by_label(label).click();
+        h.run_steps(3);
+        h.get_by_label("Reverse").click();
+        h.run_steps(3);
+        let paint = shape(h.state()).stroke.clone().unwrap().paint;
+        assert!(matches!(paint, photocraft_doc::Fill::Gradient { reverse: true, .. }), "Properties={properties}: Reverse applied");
+        assert_eq!(gradient_stops(&paint).0, stops, "Properties={properties}: the stops keep their CMYK model and values");
+    }
+}
+
+/// Options bar with a strokeless shape selected and the stroke swatch's gradient chosen: giving
+/// the shape a stroke through the width field or the stroke type takes that gradient, as the next
+/// shape does, not a solid background colour.
+#[test]
+fn width_and_stroke_type_give_a_strokeless_shape_the_tool_stroke_gradient() {
+    for via_width in [true, false] {
+        let mut app = app("rgb", 8);
+        app.run("shape.create", json!({"rect": [20, 20, 80, 60], "fill": "#336699", "stroke": null})).unwrap();
+        set_tool_paint(&mut app, true, PaintChange::Gradient(test_gradient())).unwrap();
+        let mut h = harness(app, false);
+        if via_width {
+            stroke_width(&mut h, "5");
+        } else {
+            h.get_by_label("Stroke Options").click();
+            h.run_steps(3);
+            h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "Dotted").click();
+            h.run_steps(3);
+        }
+        let stroke = shape(h.state()).stroke.clone().expect("a stroke");
+        assert_eq!(stroke.paint, test_gradient(), "via_width={via_width}");
+        assert_eq!(stroke.width, if via_width { 5.0 } else { 3.0 });
+    }
+}
+
 /// An arrow-key step at 0 px on a strokeless shape must not add an invisible stroke.
 #[test]
 fn arrow_down_at_zero_width_keeps_a_strokeless_shape_strokeless() {

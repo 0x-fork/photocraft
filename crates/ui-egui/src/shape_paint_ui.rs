@@ -19,13 +19,14 @@ pub(crate) fn rgba_of(c: &photocraft_doc::Color) -> [f32; 4] {
     [r, g, b, c.alpha]
 }
 
-/// A solid or gradient paint exactly as `shape.create` / `shape.edit` take it: float RGBA and
-/// every gradient field, so a swatch edit (angle, style…) keeps the rest of the gradient. The
-/// swatches never hand it a pattern (they don't offer one).
+/// A solid or gradient paint exactly as `shape.create` / `shape.edit` take it: float RGBA, the
+/// gradient's stops as stored colours (a CMYK or Lab stop keeps its model) and every gradient
+/// field, so a swatch edit (angle, style…) keeps the rest of the gradient. The swatches never
+/// hand it a pattern (they don't offer one).
 pub(crate) fn paint_param(f: &photocraft_doc::Fill) -> Value {
     match f {
         photocraft_doc::Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => json!({"gradient": {
-            "stops": stops.iter().map(|(t, c)| json!([t, rgba_of(c)])).collect::<Vec<_>>(),
+            "stops": stops.iter().map(|(t, c)| json!([t, c])).collect::<Vec<_>>(),
             "angle": angle, "scale": scale * 100.0, "style": format!("{style:?}").to_ascii_lowercase(), "reverse": reverse,
             "opacityStops": opacity_stops, "midpoints": midpoints, "offset": [offset.0, offset.1], "dither": dither, "align": align,
         }}),

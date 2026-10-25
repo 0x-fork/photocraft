@@ -33,18 +33,47 @@ fn stroke_validation_rejects_hostile_values_without_editing_history() {
         json!({"color": {"gradient": {"stops": vec![json!([0.5, "#ff0000"]); 1025]}}}),
         json!({"color": {"gradient": {"opacityStops": vec![json!([0.5, 1.0]); 1025]}}}),
         json!({"color": {"gradient": {"midpoints": vec![0.5; 1025]}}}),
+        // A stop list that is not an array is an error, not the default black-to-white.
+        json!({"color": {"gradient": {"stops": "red"}}}),
+        json!({"color": {"gradient": {"opacityStops": {}}}}),
+        json!({"color": {"gradient": {"midpoints": 1}}}),
     ];
     for stroke in invalid {
         assert!(s.execute("shape.edit", json!({"layer": id, "stroke": stroke})).is_err(), "{stroke}");
         assert_eq!(s.active().unwrap().doc, before);
         assert_eq!(s.active().unwrap().history.past_len(), history);
         assert!(s.execute("shape.create", json!({"rect": [20, 20, 50, 30], "stroke": stroke})).is_err(), "{stroke}");
+        assert_eq!(s.active().unwrap().doc, before, "{stroke}: a rejected create adds no layer");
+        assert_eq!(s.active().unwrap().history.past_len(), history, "{stroke}: nor a history state");
     }
     assert!(s.execute("shape.edit", json!({"layer": id, "rect": [1e100, 0, 20, 20]})).is_err());
     assert_eq!(s.active().unwrap().doc, before);
     // The cap itself is accepted.
     let at_cap = json!({"color": {"gradient": {"opacityStops": vec![json!([0.5, 1.0]); 1024], "midpoints": vec![0.5; 1024]}}});
     s.execute("shape.edit", json!({"layer": id, "stroke": at_cap})).unwrap();
+}
+
+/// A gradient stop given as a stored `Color` keeps its colour model: a CMYK stop stays CMYK.
+#[test]
+fn gradient_stops_take_a_stored_color_and_keep_its_model() {
+    let mut s = session(100, 80, 8);
+    let id = s.execute("shape.create", json!({"rect": [20, 20, 50, 30], "stroke": {"width": 6}})).unwrap()["layer"].as_u64().unwrap();
+    let cmyk = Color { mode: photocraft_doc::ColorMode::Cmyk, c: [0.1, 0.2, 0.3, 0.9], alpha: 0.75 };
+    let stops = json!([[0.0, cmyk], [1.0, "#ffffff"]]);
+    s.execute("shape.edit", json!({"layer": id, "stroke": {"color": {"gradient": {"stops": stops}}}})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    let LayerContent::Shape(sh) = &doc.layer(LayerId(id)).unwrap().content else { panic!("a shape layer") };
+    let Fill::Gradient { stops, .. } = &sh.stroke.as_ref().unwrap().paint else { panic!("a gradient stroke") };
+    assert_eq!(stops[0], (0.0, cmyk));
+    assert_eq!(stops[1], (1.0, Color::WHITE), "hex stops still parse as before");
+    // A stored colour that isn't finite or has alpha past 1 is not a colour: the stop is dropped,
+    // as an unparseable hex stop is.
+    let bad = json!({"mode": "Cmyk", "c": [0.1, 0.2, 0.3, 0.9], "alpha": 2.0});
+    s.execute("shape.edit", json!({"layer": id, "stroke": {"color": {"gradient": {"stops": [[0.0, bad], [1.0, "#000000"]]}}}})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    let LayerContent::Shape(sh) = &doc.layer(LayerId(id)).unwrap().content else { panic!("a shape layer") };
+    let Fill::Gradient { stops, .. } = &sh.stroke.as_ref().unwrap().paint else { panic!("a gradient stroke") };
+    assert_eq!(stops.as_slice(), [(1.0, Color::BLACK)]);
 }
 
 /// A gradient stroke keeps every gradient field through `shape.edit`, and `shape.info` reports

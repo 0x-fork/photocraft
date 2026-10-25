@@ -163,6 +163,11 @@ pub(crate) fn color(v: &Value) -> Option<Color> {
                 _ => None,
             }
         }
+        // A stored `Color` (mode + components), so a CMYK or Lab gradient stop survives a
+        // read-modify-write through the shape swatches.
+        Value::Object(_) => serde_json::from_value::<Color>(v.clone())
+            .ok()
+            .filter(|c| c.c.iter().all(|x| x.is_finite()) && c.alpha.is_finite() && (0.0..=1.0).contains(&c.alpha)),
         _ => None,
     }
 }
@@ -271,9 +276,11 @@ fn parse_fill(v: &Value) -> std::result::Result<Option<Fill>, String> {
     }
     if let Some(g) = v.get("gradient") {
         // Stop lists are capped as `gradient.fill.stop` caps them: more is an error, not a cut.
-        let list = |key: &str, what: &str| match g.get(key).and_then(Value::as_array) {
-            Some(a) if a.len() > MAX_GRADIENT_STOPS => Err(format!("too many {what} (max {MAX_GRADIENT_STOPS})")),
-            a => Ok(a),
+        let list = |key: &str, what: &str| match g.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::Array(a)) if a.len() > MAX_GRADIENT_STOPS => Err(format!("too many {what} (max {MAX_GRADIENT_STOPS})")),
+            Some(Value::Array(a)) => Ok(Some(a)),
+            Some(_) => Err(format!("gradient `{key}` must be an array")),
         };
         let stops: Vec<(f32, Color)> = list("stops", "colour stops")?
             .map(|a| a.iter().filter_map(|s| Some((s.get(0)?.as_f64()? as f32, color(s.get(1)?)?))).collect())
@@ -1787,7 +1794,7 @@ pub(crate) fn leak(s: String) -> &'static str {
 
 pub fn specs() -> Vec<CommandSpec> {
     let stroke = r##""stroke":{"width":px,"color":"#rrggbb"|fill,"opacity":0..100,"align":"inside|center|outside","cap":"butt|round|square","join":"miter|round|bevel","miterLimit":n,"dashes":[multiples of width],"dashOffset":n}|null"##;
-    let fill = r##""fill":"#rrggbb"|[r,g,b,a]|{"gradient":{"stops":[[t,"#hex"|[r,g,b,a]]],"angle":deg,"scale":%,"style":"linear|radial|angle|reflected|diamond","reverse":bool,"opacityStops":[[t,0..1]]?,"midpoints":[0..1]?,"offset":[x,y]?,"dither":bool?,"align":bool?}}|{"pattern":name}|null (no fill)"##;
+    let fill = r##""fill":"#rrggbb"|[r,g,b,a]|{"gradient":{"stops":[[t,"#hex"|[r,g,b,a]|stored Color]],"angle":deg,"scale":%,"style":"linear|radial|angle|reflected|diamond","reverse":bool,"opacityStops":[[t,0..1]]?,"midpoints":[0..1]?,"offset":[x,y]?,"dither":bool?,"align":bool?}}|{"pattern":name}|null (no fill)"##;
     vec![
         spec!(
             "shape.create",

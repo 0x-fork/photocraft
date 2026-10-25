@@ -72,7 +72,7 @@ pub(crate) fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool
         if stroke.is_some() || width > 0.0 {
             let mut p = json!({"width": width});
             if stroke.is_none() {
-                p["color"] = json!(bg);
+                p["color"] = o.shape_stroke_gradient.as_ref().map_or_else(|| json!(bg), paint_param);
             }
             edit = Some(json!({"stroke": p, "coalesce": key("stroke-w")}));
         }
@@ -86,7 +86,7 @@ pub(crate) fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool
             p["width"] = json!(3.0);
         }
         if stroke.is_none() {
-            p["color"] = json!(bg);
+            p["color"] = o.shape_stroke_gradient.as_ref().map_or_else(|| json!(bg), paint_param);
         }
         edit = Some(json!({"stroke": p, "coalesce": change.coalesce}));
         o.shape_stroke = change.options;
