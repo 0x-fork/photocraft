@@ -1546,6 +1546,10 @@ pub struct UiState {
     /// Invalidates in-flight gestures when a workspace is replaced.
     #[serde(skip)]
     pub docking_generation: u64,
+    /// The saved `docking`, `dockingReturns` and `dockingCollapsed` of a workspace from a newer
+    /// version, which shows the default layout: saved again unchanged until the layout changes.
+    #[serde(skip)]
+    pub docking_kept: Option<serde_json::Map<String, serde_json::Value>>,
     /// Panels belonging to explicitly collapsed custom tab groups.
     #[serde(default)]
     pub docking_collapsed: Vec<String>,
@@ -1689,6 +1693,7 @@ impl Default for UiState {
             dock: Default::default(),
             docking: None,
             docking_returns: Default::default(),
+            docking_kept: None,
             docking_generation: 0,
             docking_collapsed: Vec::new(),
             docking_reveal: None,

@@ -197,6 +197,11 @@ fn with_card(mut layout: Layout<String>) -> Layout<String> {
     layout
 }
 
+/// The saved `docking` workspace is from a newer version than craft-ui reads.
+pub(crate) fn newer(saved: &Value) -> bool {
+    saved.get("docking").and_then(|docking| docking.get("version")).and_then(Value::as_u64).is_some_and(|version| version > u64::from(Workspace::VERSION))
+}
+
 fn legacy(app: &PhotocraftApp) -> Layout<String> {
     legacy_layout(app, false)
 }

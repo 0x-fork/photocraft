@@ -1082,3 +1082,23 @@ fn a_panel_window_the_os_moves_is_saved_once_it_keeps_still() {
     let native = app.session.prefs().panel_layout["docking"]["layout"]["floating"][0]["native"].clone();
     assert_eq!(native, json!([519.0, 100.0, 300.0, 200.0]), "saved once it keeps still");
 }
+
+#[test]
+fn a_workspace_from_a_newer_version_shows_the_default_and_stays_saved() {
+    let (mut app, _, _) = app_with_layers();
+    app.session.prefs.edit(|p| p.workspace.remember_workspace_changes = true);
+    let mut saved = snapshot(&app);
+    saved["docking"] = json!({"version": 99, "layout": {"root": null, "floating": []}, "future": true});
+    app.session.prefs.edit(|p| p.panel_layout = saved.clone());
+    restore(&mut app);
+    assert!(app.ui.docking.is_none(), "the default layout shows");
+    let ctx = egui::Context::default();
+    let frame = |app: &mut PhotocraftApp| ctx.run_ui(Default::default(), |ui| persist(app, ui.ctx())).textures_delta.clear();
+    frame(&mut app);
+    assert_eq!(app.session.prefs().panel_layout, saved, "an idle frame leaves it saved");
+
+    app.run("window.panel.close", json!({"panel": "layers"})).unwrap();
+    frame(&mut app);
+    let docking = &app.session.prefs().panel_layout["docking"];
+    assert_eq!(docking["version"], json!(craft_ui::docking::Workspace::<String>::VERSION), "a changed layout replaces it: {docking}");
+}
