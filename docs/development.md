@@ -49,22 +49,6 @@ cargo xtask parity                                         # Photoshop menu cove
 
 Image code is slow at `opt-level 0`, so the workspace profile builds dependencies at `opt-level 2`. Use `--release` for anything interactive. Test builds compile ui-egui itself at `opt-level 0` (`[profile.test.package.photocraft-ui-egui]` in `Cargo.toml`): it was one of the biggest test-build units, and its tests run no heavy pixel code of their own.
 
-Optional CPU models for Object Selection, Select Subject and Remove Background are enabled with
-`--features local-ml`. Weights remain separate, explicit downloads. See [local models](local-models.md)
-for Preferences, CLI, provenance and native runtime packaging details.
-
-The native `local-ml` feature also enables `ort`'s `download-binaries` feature. Its pinned
-ONNX Runtime 1.28 redistribution is fetched at **build time**, separately from Cargo crates
-and the optional learned weights. A fresh `local-ml` build therefore requires network access
-and is **not reproducible offline from Cargo.lock alone**. `cargo --offline` controls Cargo
-resolution; it does not supply that runtime archive. Default builds and wasm omit this
-dependency. Enabled distributors must ship the runtime licence and third-party notices;
-see [native runtime packaging](local-models.md#build-and-use). On Windows that prebuilt runtime
-needs a recent MSVC toolset: with MSVC 14.42 (Visual Studio 2022 17.12) the link fails with
-unresolved `__std_search_1`, `__std_remove_1` and similar; update the Visual Studio Build Tools.
-On Linux it needs glibc 2.38 and GCC 13's libstdc++ or newer (Ubuntu 24.04, not 22.04): older
-systems fail with unresolved `__isoc23_strtol` and `_M_replace_cold`.
-
 The dev profile builds PhotoCraft's crates with `debug = "line-tables-only"` and dependencies with no debug info: panic backtraces keep file and line in PhotoCraft code, and test binaries link about twice as fast. To inspect local variables in a debugger, build with `CARGO_PROFILE_DEV_DEBUG=true`.
 
 ### Faster test loops

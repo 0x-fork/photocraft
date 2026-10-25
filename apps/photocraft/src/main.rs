@@ -463,14 +463,6 @@ fn main() -> eframe::Result {
             };
             #[cfg(not(target_os = "linux"))]
             let session = Session::new();
-            #[cfg(feature = "local-ml")]
-            let session = {
-                let mut session = session;
-                if let Some(dir) = services::config_dir() {
-                    session.configure_local_models(dir.join("Models"));
-                }
-                session
-            };
             let mut app = PhotocraftApp::new(session, services);
             app.min_frame_ms = uncapped.then_some(1000.0 / 240.0);
             app.integrated_titlebar = cfg!(target_os = "macos");
@@ -803,9 +795,9 @@ mod tests {
     #[test]
     fn integrations_preferences_decide_the_control_port() {
         use photocraft_engine::prefs::Integrations;
-        let off = Integrations { allow_agent_control: false, control_port: 0, ..Default::default() };
-        let on = Integrations { allow_agent_control: true, control_port: 0, ..Default::default() };
-        let preferred = Integrations { allow_agent_control: true, control_port: 7878, ..Default::default() };
+        let off = Integrations { allow_agent_control: false, control_port: 0 };
+        let on = Integrations { allow_agent_control: true, control_port: 0 };
+        let preferred = Integrations { allow_agent_control: true, control_port: 7878 };
 
         // Nothing asked for, nothing listening.
         assert_eq!(super::control_port_for(None, &on), (None, None));
@@ -820,11 +812,11 @@ mod tests {
         let (port, warning) = super::control_port_for(Some(9000), &off);
         assert_eq!(port, None);
         assert!(warning.is_some_and(|w| w.contains("Allow Agent Control") && w.contains("9000")), "the refusal names the port");
-        let off_with_port = Integrations { allow_agent_control: false, control_port: 7878, ..Default::default() };
+        let off_with_port = Integrations { allow_agent_control: false, control_port: 7878 };
         assert_eq!(super::control_port_for(None, &off_with_port), (None, None), "off beats a preferred port");
 
         // A port a hand-edited file could hold, outside 1..=65535, is refused and named.
-        let huge = Integrations { allow_agent_control: true, control_port: 70_000, ..Default::default() };
+        let huge = Integrations { allow_agent_control: true, control_port: 70_000 };
         let (port, warning) = super::control_port_for(None, &huge);
         assert_eq!(port, None);
         assert!(warning.is_some_and(|w| w.contains("70000")), "the refusal names the value");
@@ -875,7 +867,7 @@ mod tests {
         assert_eq!(r.control_port, 0, "the bad port alone takes its default");
         // A bad Allow Agent Control alone takes its default.
         let r = read(r#"{"integrations":{"allowAgentControl":"no","controlPort":7878}}"#);
-        assert_eq!(r, photocraft_engine::prefs::Integrations { allow_agent_control: true, control_port: 7878, ..Default::default() });
+        assert_eq!(r, photocraft_engine::prefs::Integrations { allow_agent_control: true, control_port: 7878 });
         read(r#"{"integrations":{"allowAgentControl":false,"controlPort":-1}}"#);
         read(r#"{"integrations":{"allowAgentControl":false,"controlPort":4294967296}}"#);
         read(r#"{"integrations":"off"}"#);

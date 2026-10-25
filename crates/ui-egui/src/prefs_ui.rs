@@ -1236,7 +1236,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             f.insert("__gpuInfo".into(), json!(info));
             f.insert("__gpuAdapters".into(), json!(app.perf.gpu_info.adapters));
             let system = system_theme(app, ui.ctx());
-            prefs_body(app, ui, f, system);
+            prefs_body(ui, f, system);
         }
         "shortcuts" => shortcuts_body(app, ui, f),
         "presets" => presets_body(app, ui, f),
@@ -1349,9 +1349,6 @@ fn choice_label(v: &str) -> String {
         "ahd" => "AHD (adaptive homogeneity)".into(),
         "mhc" => "Malvar–He–Cutler".into(),
         "cpu" => "CPU (no GPU acceleration)".into(),
-        "classical" => "Classical (built in)".into(),
-        "birefnet-hr-matting" => "BiRefNet HR Matting".into(),
-        "sam2.1-large" => "SAM 2.1 Large".into(),
         v => humanize(v),
     }
 }
@@ -1390,7 +1387,7 @@ fn color_of(s: &str) -> Color32 {
 
 /// Search the same visible, editable preference labels used in the dialog.
 fn preference_matches(section: &str, key: &str, query: &str) -> bool {
-    let label = field_label(section, key);
+    let label = humanize(key);
     format!("{section}.{key}").to_lowercase().contains(query) || label.to_lowercase().contains(query) || tl!(&label).to_lowercase().contains(query)
 }
 
@@ -1412,7 +1409,7 @@ fn preference_sections(values: &Value, search: &str) -> Vec<(&'static str, &'sta
 }
 
 /// Preferences: section list on the left, the section's settings on the right.
-fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, system: Option<egui::Theme>) {
+fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>, system: Option<egui::Theme>) {
     let t = Tokens::get(ui.ctx());
     let mut section = f.get("section").and_then(Value::as_str).unwrap_or("general").to_string();
     let mut values = f.get("values").cloned().unwrap_or(Value::Null);
@@ -1484,13 +1481,7 @@ fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
                     ui.add_space(4.0);
                     ui.label(RichText::new(tl!("These settings aren't available in PhotoCraft yet.")).color(t.text_faint));
                 } else if let Some(obj) = values.get_mut(&section).and_then(Value::as_object_mut) {
-                    section_fields(
-                        ui,
-                        &section,
-                        obj,
-                        &order,
-                        PreferenceFieldOptions { lang, system, models: &app.session.local_model_status(), search: filter },
-                    );
+                    section_fields(ui, &section, obj, &order, lang, system, filter);
                     if section == "fileHandling" {
                         ui.label(
                             RichText::new(tl!("0 turns this threshold off; SVG groups nested deeper than 100 levels are always rasterized."))
@@ -1499,9 +1490,6 @@ fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
                     }
                     if section == "performance" {
                         gpu_status_rows(ui, f.get("__gpuInfo"), f.get("__gpuAdapters"), obj);
-                    }
-                    if section == "integrations" {
-                        local_model_rows(app, ui, obj);
                     }
                     ui.add_space(8.0);
                 }
@@ -1522,75 +1510,6 @@ fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
     if let Some((path, name)) = ctx_take_pick(ui) {
         crate::color_picker_ui::request_field(f, &format!("/values/{}", path.replace('.', "/")), &crate::color_picker_ui::title_for(&name));
     }
-}
-
-/// The catalogue and lifecycle come from the engine. Downloads/removals are immediate jobs;
-/// model choices are preferences, committed by the dialog's existing Apply/OK controls.
-fn local_model_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
-    // The Preferences grid can leave a wider layout than its visible scroll area. Bound this
-    // child to the clip rectangle so long translations wrap inside the actual dialog.
-    let width = ui.available_width().min((ui.clip_rect().right() - ui.next_widget_position().x - 8.0).max(1.0));
-    ui.scope(|ui| {
-        ui.set_max_width(width);
-        local_model_rows_inner(app, ui, obj);
-    });
-}
-
-fn local_model_rows_inner(app: &mut PhotocraftApp, ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
-    let t = Tokens::get(ui.ctx());
-    let status = app.session.local_model_status();
-    let available = status["available"].as_bool().unwrap_or(false);
-    ui.add_space(10.0);
-    ui.label(RichText::new(tl!("Local selection models")).font(crate::theme::semibold(12.5)).color(t.text));
-    ui.add(egui::Label::new(RichText::new(tl!("Models run on this device. Images stay on this device.")).color(t.text_dim)).wrap());
-    ui.add(egui::Label::new(RichText::new(tl!("Download a model before choosing it. Downloads do not change the current method.")).color(t.text_dim)).wrap());
-    if !available {
-        ui.add(egui::Label::new(RichText::new(tl!("Local models aren't available in this build or session.")).color(t.text_faint)).wrap());
-    }
-    ui.add_space(6.0);
-    for model in status["models"].as_array().into_iter().flatten() {
-        let id = model["id"].as_str().unwrap_or_default();
-        let label = model["label"].as_str().unwrap_or_default();
-        let installed = model["installed"].as_bool().unwrap_or(false);
-        let busy = model["busy"].as_bool().unwrap_or(false);
-        let mib = model["downloadBytes"].as_u64().unwrap_or(0).div_ceil(1024 * 1024);
-        ui.push_id(id, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(label).color(t.text));
-                ui.label(
-                    RichText::new(if busy {
-                        tl!("In use…")
-                    } else if installed {
-                        tl!("Downloaded")
-                    } else {
-                        tl!("Not downloaded")
-                    })
-                    .color(t.text_faint),
-                );
-            });
-            ui.add(egui::Label::new(RichText::new(tl!(model["purpose"].as_str().unwrap_or_default())).color(t.text_dim)).wrap());
-            ui.horizontal(|ui| {
-                let button = if installed { tl!("Remove download").to_string() } else { format!("{} ({mib} MiB)", tl!("Download")) };
-                let clicked = ui.add_enabled_ui(available && !busy, |ui| crate::widgets::secondary_button(ui, &button, 190.0).clicked()).inner;
-                if clicked {
-                    let command = if installed { "models.remove" } else { "models.download" };
-                    if app.run(command, json!({"id": id})).is_ok() && installed {
-                        let pref = if id == "sam2.1-large" { "objectModel" } else { "subjectModel" };
-                        obj.insert(pref.into(), json!("classical"));
-                    }
-                }
-                ui.hyperlink_to(model["license"].as_str().unwrap_or_default(), model["upstream"].as_str().unwrap_or_default());
-                ui.hyperlink_to(tl!("Model details"), model["exportSource"].as_str().unwrap_or_default());
-            });
-            ui.add_space(8.0);
-        });
-    }
-    ui.add(
-        egui::Label::new(
-            RichText::new(tl!("Large models can take time and use several GB of memory. Progress and Cancel appear in the status bar.")).color(t.text_faint),
-        )
-        .wrap(),
-    );
 }
 
 /// Preferences › Performance: what the app renders with now, and a reset of the GPU backend
@@ -1850,22 +1769,19 @@ fn interface_groups(ui: &mut egui::Ui, obj: &mut Map<String, Value>, keys: &[Str
         pref_group(ui, "Appearance", |ui| {
             grid("interface-appearance").show(ui, |ui| {
                 appearance_rows(ui, obj, system, rows);
-                field_rows(ui, "interface", obj, appearance, lang, &Value::Null);
+                field_rows(ui, "interface", obj, appearance, lang);
             });
         });
     }
     if !presentation.is_empty() {
         pref_group(ui, "Presentation", |ui| {
-            grid("interface-presentation").show(ui, |ui| field_rows(ui, "interface", obj, presentation, lang, &Value::Null));
+            grid("interface-presentation").show(ui, |ui| field_rows(ui, "interface", obj, presentation, lang));
         });
     }
     if !checks.is_empty() || !other.is_empty() {
         pref_group(ui, "Options", |ui| {
-            egui::Grid::new("prefs-grid-interface-checks")
-                .num_columns(2)
-                .spacing([0.0, 7.0])
-                .show(ui, |ui| field_rows(ui, "interface", obj, checks, lang, &Value::Null));
-            grid("interface-options").show(ui, |ui| field_rows(ui, "interface", obj, other, lang, &Value::Null));
+            egui::Grid::new("prefs-grid-interface-checks").num_columns(2).spacing([0.0, 7.0]).show(ui, |ui| field_rows(ui, "interface", obj, checks, lang));
+            grid("interface-options").show(ui, |ui| field_rows(ui, "interface", obj, other, lang));
         });
     }
 }
@@ -1877,27 +1793,6 @@ const PICK_ID: &str = "prefs-pick-color";
 /// The colour swatch clicked this frame, if any: (preference path, label).
 fn ctx_take_pick(ui: &egui::Ui) -> Option<(String, String)> {
     ui.ctx().data_mut(|d| d.remove_temp::<(String, String)>(egui::Id::new(PICK_ID)))
-}
-
-fn field_label(section: &str, key: &str) -> String {
-    match (section, key) {
-        ("integrations", "subjectModel") => "Subject / background removal".into(),
-        ("integrations", "objectModel") => "Object selection".into(),
-        _ => humanize(key),
-    }
-}
-
-fn model_choice_available(status: &Value, option: &str) -> bool {
-    option == "classical"
-        || (status["available"].as_bool().unwrap_or(false)
-            && status["models"].as_array().into_iter().flatten().any(|m| m["id"].as_str() == Some(option) && m["installed"].as_bool() == Some(true)))
-}
-
-struct PreferenceFieldOptions<'a> {
-    lang: crate::i18n::Lang,
-    system: Option<egui::Theme>,
-    models: &'a Value,
-    search: &'a str,
 }
 
 /// Whether `section.key` gets a generic row for this search (`query`, lowercased; empty matches
@@ -1921,8 +1816,15 @@ fn field_visible(section: &str, obj: &Map<String, Value>, k: &str, query: &str) 
 
 /// Generic editor for a section's fields: checkboxes, dropdowns for choices, colour swatches,
 /// number fields with the preference's range, text fields.
-fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, order: &[String], options: PreferenceFieldOptions<'_>) {
-    let PreferenceFieldOptions { lang, system, models, search } = options;
+fn section_fields(
+    ui: &mut egui::Ui,
+    section: &str,
+    obj: &mut Map<String, Value>,
+    order: &[String],
+    lang: crate::i18n::Lang,
+    system: Option<egui::Theme>,
+    search: &str,
+) {
     let query = search.to_lowercase();
     let mut keys: Vec<String> = order.iter().filter(|k| obj.contains_key(*k)).cloned().collect();
     keys.extend(obj.keys().filter(|k| !order.contains(k)).cloned());
@@ -1937,7 +1839,7 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
         memory_usage_row(ui, obj);
     }
     keys.retain(|k| field_visible(section, obj, k, &query));
-    egui::Grid::new(("prefs-grid", section)).num_columns(2).spacing([14.0, 7.0]).show(ui, |ui| field_rows(ui, section, obj, keys, lang, models));
+    egui::Grid::new(("prefs-grid", section)).num_columns(2).spacing([14.0, 7.0]).show(ui, |ui| field_rows(ui, section, obj, keys, lang));
 }
 
 /// Explain the per-document RAM limit separately from the graphics-memory preference.
@@ -1976,12 +1878,12 @@ fn read_at_launch(path: &str) -> bool {
 }
 
 /// One grid row per setting in `keys` (already filtered by `field_visible`).
-fn field_rows(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, keys: Vec<String>, lang: crate::i18n::Lang, models: &Value) {
+fn field_rows(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, keys: Vec<String>, lang: crate::i18n::Lang) {
     let t = Tokens::get(ui.ctx());
     for k in keys {
         let path = format!("{section}.{k}");
         let v = obj.get(&k).cloned().unwrap_or(Value::Null);
-        let human = field_label(section, &k);
+        let human = humanize(&k);
         let label = tl!(&human).to_string();
         match &v {
             Value::Bool(b) => {
@@ -2007,14 +1909,7 @@ fn field_rows(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, ke
             }
             Value::String(s) if prefs::choices(&path).is_some() => {
                 ui.label(RichText::new(tl!(&label)).color(t.text_dim));
-                let opts: Vec<&str> = prefs::choices(&path)
-                    .unwrap_or(&[])
-                    .iter()
-                    .copied()
-                    .filter(|v| {
-                        !matches!(path.as_str(), "integrations.subjectModel" | "integrations.objectModel") || *v == s || model_choice_available(models, v)
-                    })
-                    .collect();
+                let opts = prefs::choices(&path).unwrap_or(&[]);
                 let labels: Vec<String> = opts.iter().map(|o| pref_choice_label(&path, o)).collect();
                 let pairs: Vec<(String, &str)> = opts.iter().map(|o| o.to_string()).zip(labels.iter().map(String::as_str)).collect();
                 let mut cur = s.clone();
@@ -2876,18 +2771,9 @@ mod tests {
         use egui_kittest::{Harness, kittest::Queryable};
         let values = json!({"memoryUsageMb":50000}).as_object().unwrap().clone();
         assert!(!field_visible("performance", &values, "memoryUsageMb", ""));
-        let mut h = Harness::builder().with_size(vec2(680.0, 350.0)).build_ui_state(
-            |ui, values| {
-                section_fields(
-                    ui,
-                    "performance",
-                    values,
-                    &["memoryUsageMb".into()],
-                    PreferenceFieldOptions { lang: crate::i18n::Lang::EN, system: None, models: &json!({"available":false}), search: "" },
-                )
-            },
-            values,
-        );
+        let mut h = Harness::builder()
+            .with_size(vec2(680.0, 350.0))
+            .build_ui_state(|ui, values| section_fields(ui, "performance", values, &["memoryUsageMb".into()], crate::i18n::Lang::EN, None, ""), values);
         h.run_steps(2);
         h.get_by_label("Memory Usage");
         h.get_by_label("Per-document RAM limit (MB)");
@@ -2982,47 +2868,8 @@ mod tests {
         assert!(contains("placeholder", "type"));
         assert!(contains("performance", "performance"));
         assert!(contains("interface.uiScale", "interface"));
-        // The model choices exist only in builds that can run local models.
-        assert_eq!(contains("BACKGROUND REMOVAL", "integrations"), prefs::NATIVE_MODELS);
-        assert_eq!(contains("Object selection", "integrations"), prefs::NATIVE_MODELS);
-        assert_eq!(contains("integrations.subjectModel", "integrations"), prefs::NATIVE_MODELS);
         assert!(preference_sections(&values, "this setting does not exist").is_empty());
         assert_eq!(preference_sections(&values, "").len(), SECTIONS.len());
-    }
-
-    #[test]
-    fn searched_model_preferences_render_only_the_matching_method_without_changing_choices() {
-        use egui_kittest::{Harness, kittest::Queryable};
-        if !prefs::NATIVE_MODELS {
-            return; // Hidden without local models (unimplemented_preferences_are_hidden_from_the_dialog).
-        }
-        for code in ["en", "el"] {
-            let lang = crate::i18n::Lang::from_pref(code);
-            let _scope = crate::i18n::language_scope(lang);
-            for (visible, hidden) in [("Subject / background removal", "Object selection"), ("Object selection", "Subject / background removal")] {
-                let query = crate::i18n::tr(lang, visible);
-                let values = prefs::Preferences::default().to_json();
-                assert!(preference_sections(&values, query).iter().any(|(id, _)| *id == "integrations"));
-                let obj = values["integrations"].as_object().unwrap().clone();
-                let mut h = Harness::new_ui_state(
-                    |ui, obj: &mut Map<String, Value>| {
-                        section_fields(
-                            ui,
-                            "integrations",
-                            obj,
-                            &[],
-                            PreferenceFieldOptions { lang, system: None, models: &json!({"available":false}), search: query },
-                        );
-                    },
-                    obj,
-                );
-                h.run_steps(4);
-                assert!(h.query_by_label(crate::i18n::tr(lang, visible)).is_some(), "{code}: matching method is visible");
-                assert!(h.query_by_label(crate::i18n::tr(lang, hidden)).is_none(), "{code}: unrelated method is filtered");
-                assert_eq!(h.state()["subjectModel"], "classical");
-                assert_eq!(h.state()["objectModel"], "classical");
-            }
-        }
     }
 
     #[test]
@@ -3035,49 +2882,6 @@ mod tests {
         assert_eq!(super::width(prefs, 3000.0), Some(3000.0));
         let shortcuts = serde_json::json!({"__prefsui": "shortcuts"});
         assert_eq!(super::width(shortcuts.as_object().unwrap(), 3000.0), Some(720.0));
-    }
-
-    #[test]
-    fn local_model_labels_cover_every_complete_language() {
-        let labels = [
-            "Subject / background removal",
-            "Object selection",
-            "Classical (built in)",
-            "BiRefNet HR Matting",
-            "SAM 2.1 Large",
-            "Download",
-            "Download a model before choosing it. Downloads do not change the current method.",
-            "Downloaded",
-            "In use…",
-            "Large models can take time and use several GB of memory. Progress and Cancel appear in the status bar.",
-            "Local models aren't available in this build or session.",
-            "Local selection models",
-            "Model details",
-            "Models run on this device. Images stay on this device.",
-            "Not downloaded",
-            "Remove download",
-            "Select Subject and Remove Background; detailed, soft edges",
-            "Object Selection; drag a box around the object",
-        ];
-        for info in &crate::i18n::LANGUAGES {
-            if !info.complete_menus {
-                continue;
-            }
-            let lang = crate::i18n::Lang::from_pref(info.code);
-            let missing: Vec<_> = labels.iter().filter(|label| !crate::i18n::has(lang, label)).collect();
-            assert!(missing.is_empty(), "{}: missing model labels: {missing:?}", info.code);
-        }
-    }
-
-    #[test]
-    fn local_model_choices_need_a_backend_and_a_download() {
-        assert!(model_choice_available(&json!({"available":false}), "classical"));
-        assert!(!model_choice_available(&json!({"available":false}), "sam2.1-large"));
-        let mut status = json!({"available":true,"models":[{"id":"sam2.1-large","installed":false}]});
-        assert!(!model_choice_available(&status, "sam2.1-large"));
-        status["models"][0]["installed"] = json!(true);
-        assert!(model_choice_available(&status, "sam2.1-large"));
-        assert!(!model_choice_available(&status, "birefnet-hr-matting"));
     }
 
     #[test]
@@ -4427,18 +4231,9 @@ mod tests {
         assert_eq!(labels, ["Use system setting", "On", "Off"]);
         assert_eq!(pref_choice_label("general.colorPicker", "system"), "System", "elsewhere `system` keeps its plain label");
         let obj = json!({"animationEffects": "system"}).as_object().unwrap().clone();
-        let mut h = Harness::builder().with_size(egui::vec2(700.0, 700.0)).build_ui_state(
-            |ui, obj: &mut Map<String, Value>| {
-                section_fields(
-                    ui,
-                    "interface",
-                    obj,
-                    &[],
-                    PreferenceFieldOptions { lang: crate::i18n::Lang::from_pref("en"), system: None, models: &json!({"available":false}), search: "" },
-                )
-            },
-            obj,
-        );
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(700.0, 700.0))
+            .build_ui_state(|ui, obj: &mut Map<String, Value>| section_fields(ui, "interface", obj, &[], crate::i18n::Lang::from_pref("en"), None, ""), obj);
         h.run_steps(4);
         assert!(h.get_by_label("Animation effects").rect().is_positive());
         h.get_all_by_role(Role::ComboBox).last().unwrap().click();
@@ -4462,9 +4257,6 @@ mod tests {
         assert!(has_visible_fields(&values, "integrations"));
         assert!(!prefs::is_hidden("integrations.allowAgentControl"));
         assert!(!prefs::is_hidden("integrations.controlPort"));
-        // Model choices only where models can run.
-        assert_eq!(!prefs::is_hidden("integrations.subjectModel"), prefs::NATIVE_MODELS);
-        assert_eq!(!prefs::is_hidden("integrations.objectModel"), prefs::NATIVE_MODELS);
         // "Fill new type layers with placeholder text" and "Use Escape to Commit" are live; other Type rows stay hidden.
         assert!(has_visible_fields(&values, "type"));
         assert!(!prefs::is_hidden("type.fillNewTypeLayersWithPlaceholder"));
@@ -4694,15 +4486,7 @@ mod tests {
         use egui_kittest::{Harness, kittest::Queryable};
         let obj = json!({"renderingMode": "auto", "historyStates": 50}).as_object().unwrap().clone();
         let mut h = Harness::new_ui_state(
-            |ui, obj: &mut Map<String, Value>| {
-                section_fields(
-                    ui,
-                    "performance",
-                    obj,
-                    &[],
-                    PreferenceFieldOptions { lang: crate::i18n::Lang::from_pref("en"), system: None, models: &json!({"available":false}), search: "" },
-                )
-            },
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "performance", obj, &[], crate::i18n::Lang::from_pref("en"), None, ""),
             obj,
         );
         h.run_steps(4);
@@ -4711,15 +4495,7 @@ mod tests {
         // A search that leaves Rendering Mode out leaves its notice out too.
         let obj = json!({"renderingMode": "auto", "historyStates": 50}).as_object().unwrap().clone();
         let mut h = Harness::new_ui_state(
-            |ui, obj: &mut Map<String, Value>| {
-                section_fields(
-                    ui,
-                    "performance",
-                    obj,
-                    &[],
-                    PreferenceFieldOptions { lang: crate::i18n::Lang::from_pref("en"), system: None, models: &json!({"available":false}), search: "history" },
-                )
-            },
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "performance", obj, &[], crate::i18n::Lang::from_pref("en"), None, "history"),
             obj,
         );
         h.run_steps(4);
@@ -4732,15 +4508,7 @@ mod tests {
         use egui_kittest::{Harness, kittest::Queryable};
         let obj = json!({"allowAgentControl": true, "controlPort": 0}).as_object().unwrap().clone();
         let mut h = Harness::new_ui_state(
-            |ui, obj: &mut Map<String, Value>| {
-                section_fields(
-                    ui,
-                    "integrations",
-                    obj,
-                    &[],
-                    PreferenceFieldOptions { lang: crate::i18n::Lang::from_pref("en"), system: None, models: &json!({"available":false}), search: "" },
-                )
-            },
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "integrations", obj, &[], crate::i18n::Lang::from_pref("en"), None, ""),
             obj,
         );
         h.run_steps(4);
@@ -4753,15 +4521,7 @@ mod tests {
         use egui_kittest::{Harness, kittest::Queryable};
         let obj = json!({"showTooltips": true}).as_object().unwrap().clone();
         let mut h = Harness::new_ui_state(
-            |ui, obj: &mut Map<String, Value>| {
-                section_fields(
-                    ui,
-                    "interface",
-                    obj,
-                    &[],
-                    PreferenceFieldOptions { lang: crate::i18n::Lang::from_pref("en"), system: None, models: &json!({"available":false}), search: "" },
-                )
-            },
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "interface", obj, &[], crate::i18n::Lang::from_pref("en"), None, ""),
             obj,
         );
         h.run_steps(4);

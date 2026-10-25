@@ -4523,22 +4523,3 @@ shape	Appearance	Izgled
 	Tight Curl	Usko uvijeno
 	Loose Curl	Labavo uvijeno
 	Stylized dabs from a history state	Stilizovane mrlje iz stanja istorije
-# Optional local selection models.
-	Subject / background removal	Subjekat / uklanjanje pozadine
-	Object selection	Izbor objekta
-	Classical (built in)	Klasično (ugrađeno)
-	BiRefNet HR Matting	BiRefNet HR Matting
-	SAM 2.1 Large	SAM 2.1 Large
-	Download	Preuzmi
-	Download a model before choosing it. Downloads do not change the current method.	Preuzmite model pre izbora. Preuzimanje ne menja trenutnu metodu.
-	Downloaded	Preuzeto
-	In use…	U upotrebi…
-	Large models can take time and use several GB of memory. Progress and Cancel appear in the status bar.	Velikim modelima može trebati više vremena i nekoliko GB memorije. Napredak i Otkaži prikazuju se na statusnoj traci.
-	Local models aren't available in this build or session.	Lokalni modeli nisu dostupni u ovoj verziji ili sesiji.
-	Local selection models	Lokalni modeli za izbor
-	Model details	Detalji modela
-	Models run on this device. Images stay on this device.	Modeli rade na ovom uređaju. Slike ostaju na ovom uređaju.
-	Not downloaded	Nije preuzeto
-	Remove download	Ukloni preuzimanje
-	Select Subject and Remove Background; detailed, soft edges	Izbor subjekta i uklanjanje pozadine; detaljne, meke ivice
-	Object Selection; drag a box around the object	Izbor objekta; prevucite okvir oko objekta

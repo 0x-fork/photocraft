@@ -193,16 +193,12 @@ what an agent can't finish alone.
 
 ### G15. AI and generative features
 - **Missing:** Generative Fill and Expand, Generative Upscale, Neural Filters, Sky Replacement,
-  Super Zoom and ML Select Sky. The off-by-default `local-ml` backend supplies optional
-  BiRefNet subject matting/removal and SAM box selection (AUTO-219-7 remains partial).
-  Its 20-target COCO pilot is exploratory, not representative alpha-matting quality;
-  web inference and accelerated providers remain open. Classical substitutes exist
-  (GrabCut/max-flow selection, Remove tool by non-local patch completion).
+  Super Zoom, ML Select Subject/Sky. There is no ML runtime (AUTO-219-7). Classical substitutes
+  exist (GrabCut/max-flow selection, Remove tool by non-local patch completion).
 - **Evidence:** Photoshop's `Required/UXP` ships the Neural Filters gallery and its `.kys` has
   a Neural Filters taskspace; users ask for local models (#2313, #1996, #2682).
 - **Progress (2026-10-17):** classical Object Finder no longer rejects a foreground solely for covering over 60% of the canvas (#6548); canvas-boundary coverage distinguishes it from the surrounding backdrop. This does not add semantic recognition or close #2788.
 - **Estimate:** 300–600 h. **Human:** owner decision #41 (model licences, local vs remote).
-- **2026-10-10 evidence:** [optional models](local-models.md), [pilot and limitations](local-models-validation.md); no new accuracy measurement from the rebase.
 
 ### G16. Plug-in compatibility
 - **Missing:** hosting Photoshop .8BF filters (#2647), UXP panels, CEP. PhotoCraft has its own
@@ -408,7 +404,6 @@ what an agent can't finish alone.
 | 2026-10-14 | minor | G1: Lab adjustment layers' results are whole samples (native Lab path); photoshop lab8 curves passes |
 | 2026-10-21 | minor | G8: Photoshop's type on a path opens on its path (read from the `Txt2` frame) and saves back into the file's `Txt2` object (#7962); TYPE-218-1 stays partial (new documents save path text as point text) |
 | 2026-10-19 | minor | G9: Color panel modes, ramp and copy commands from its panel menu, the same in every theme (UI-217-17 done, #6000) |
-| 2026-10-10 | minor | G15 records optional local selection models and the exploratory pilot; generative provider work remains open |
 | 2026-10-15 | minor | G1 / #5972 A1: render only provably constant-RGB `GdFl` noise fills; variable noise synthesis remains open |
 | 2026-10-20 | minor | G10: `.asl` layer style library import and export landed (#1051) |
 | 2026-10-18 | minor | G9: with no selection, Copy takes fill and adjustment layers whole and Paste recreates them (#2344); UI-217-23 stays partial (a single pixel layer copies its pixels only); estimate unchanged |

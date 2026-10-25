@@ -3946,22 +3946,3 @@ curves	Smooth	Làm mượt
 	Tight Curl	Xoắn chặt
 	Loose Curl	Xoắn lỏng
 	Stylized dabs from a history state	Các chấm cách điệu từ một trạng thái lịch sử
-# Optional local selection models.
-	Subject / background removal	Chủ thể / xóa nền
-	Object selection	Chọn đối tượng
-	Classical (built in)	Phương pháp cổ điển (tích hợp)
-	BiRefNet HR Matting	BiRefNet HR Matting
-	SAM 2.1 Large	SAM 2.1 Large
-	Download	Tải xuống
-	Download a model before choosing it. Downloads do not change the current method.	Tải mô hình trước khi chọn. Việc tải xuống không thay đổi phương pháp hiện tại.
-	Downloaded	Đã tải xuống
-	In use…	Đang sử dụng…
-	Large models can take time and use several GB of memory. Progress and Cancel appear in the status bar.	Mô hình lớn có thể mất thời gian và dùng vài GB bộ nhớ. Tiến trình và nút Hủy xuất hiện trên thanh trạng thái.
-	Local models aren't available in this build or session.	Mô hình cục bộ không khả dụng trong bản dựng hoặc phiên này.
-	Local selection models	Mô hình chọn cục bộ
-	Model details	Chi tiết mô hình
-	Models run on this device. Images stay on this device.	Mô hình chạy trên thiết bị này. Hình ảnh vẫn ở trên thiết bị này.
-	Not downloaded	Chưa tải xuống
-	Remove download	Xóa bản tải xuống
-	Select Subject and Remove Background; detailed, soft edges	Chọn chủ thể và xóa nền; giữ các cạnh mềm, chi tiết
-	Object Selection; drag a box around the object	Chọn đối tượng; kéo một khung quanh đối tượng

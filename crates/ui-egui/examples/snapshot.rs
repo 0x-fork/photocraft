@@ -71,8 +71,6 @@ fn main() {
     let custom_titlebar = args.iter().any(|a| a == "--custom-titlebar");
     // `--settle-ms N`: keep rendering frames for N ms before the capture (e.g. mid-job).
     let settle_ms: u64 = arg(&args, "--settle-ms").and_then(|s| s.parse().ok()).unwrap_or(0);
-    #[cfg(feature = "local-ml")]
-    let models_dir = arg(&args, "--models-dir");
     let mut render_options = eframe::egui_wgpu::RendererOptions::PREDICTABLE;
     render_options.predictable_texture_filtering = !args.iter().any(|a| a == "--hardware-filtering");
     let mut harness = egui_kittest::Harness::builder()
@@ -86,16 +84,7 @@ fn main() {
             let mut services = services;
             services.is_wayland = wayland_notice;
             services.xwayland_command = wayland_notice.then(|| "WAYLAND_DISPLAY= photocraft".into());
-            let session = photocraft_engine::Session::new();
-            #[cfg(feature = "local-ml")]
-            let session = {
-                let mut session = session;
-                if let Some(dir) = models_dir {
-                    session.configure_local_models(dir.into());
-                }
-                session
-            };
-            let mut app = PhotocraftApp::new(session, services);
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
             if update_notice {
                 app.session.updates.status = photocraft_engine::updates_cmds::Status::Available {
                     release: photocraft_engine::updates_cmds::Release {
