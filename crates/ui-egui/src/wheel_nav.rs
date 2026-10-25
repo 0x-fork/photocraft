@@ -957,7 +957,13 @@ mod tests {
         let owner = Id::unique("test-touch-unread-end");
         let ctx = Context::default();
         configure(&ctx);
-        let point = |phase: TouchPhase| Event::MouseWheel { source: egui::MouseWheelSource::Unknown, unit: MouseWheelUnit::Point, delta: Vec2::ZERO, phase, modifiers: Modifiers::ALT };
+        let point = |phase: TouchPhase| Event::MouseWheel {
+            source: egui::MouseWheelSource::Unknown,
+            unit: MouseWheelUnit::Point,
+            delta: Vec2::ZERO,
+            phase,
+            modifiers: Modifiers::ALT,
+        };
         let mut first = 1.0;
         for n in 0..10u32 {
             let events = match n {
@@ -1001,7 +1007,13 @@ mod tests {
     /// `InTouch`) even big point steps zoom at once.
     #[test]
     fn animated_zoom_eases_big_pixel_steps_but_not_a_touch() {
-        let point = |dy: f32, phase: TouchPhase| Event::MouseWheel { source: egui::MouseWheelSource::Unknown, unit: MouseWheelUnit::Point, delta: Vec2::new(0.0, dy), phase, modifiers: Modifiers::ALT };
+        let point = |dy: f32, phase: TouchPhase| Event::MouseWheel {
+            source: egui::MouseWheelSource::Unknown,
+            unit: MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, dy),
+            phase,
+            modifiers: Modifiers::ALT,
+        };
         let browser = run_zoom(60, |n| if n == 0 { vec![point(100.0, TouchPhase::Move)] } else { Vec::new() }, |n| f64::from(n) / 60.0, |_| true);
         assert!(browser[0] > 1.0 && browser[0] < NOTCH.powf(2.5) - 1e-3, "eased: {:?}", &browser[..4]);
         let total: f32 = browser.iter().product();

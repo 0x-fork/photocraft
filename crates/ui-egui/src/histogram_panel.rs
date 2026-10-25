@@ -665,7 +665,8 @@ fn graph(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &Shown, channel: HistCha
     if s.stale || s.hist.level > 1 {
         let icon = Rect::from_min_size(r.right_top() + vec2(-18.0, 2.0), vec2(16.0, 16.0));
         crate::icons::paint(ui, icon, "triangle-alert", 12.0, t.warning);
-        let warn = ui.interact(icon, ui.scope_id().with("hist-cached-warning"), Sense::click()).on_hover_text(tl!("Click to refresh histogram with uncached data"));
+        let warn =
+            ui.interact(icon, ui.scope_id().with("hist-cached-warning"), Sense::click()).on_hover_text(tl!("Click to refresh histogram with uncached data"));
         if warn.clicked() {
             uncached_refresh(app);
         }
