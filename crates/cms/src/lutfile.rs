@@ -213,6 +213,15 @@ pub fn parse_3dl(text: &str) -> Result<LutFile, LutError> {
 /// SpeedGrade `.look`: `<size>` and a hex `<data>` string of little-endian float32 RGB triplets
 /// (red fastest).
 pub fn parse_look(text: &str) -> Result<LutFile, LutError> {
+    // Comments may hold tag-like text, so drop them before looking for tags (#9109).
+    let mut clean = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("<!--") {
+        clean.push_str(&rest[..i]);
+        rest = rest[i + 4..].find("-->").map_or("", |e| &rest[i + 4 + e + 3..]);
+    }
+    clean.push_str(rest);
+    let text = clean.as_str();
     let tag = |name: &str| -> Option<String> {
         let open = format!("<{name}>");
         let start = text.find(&open)? + open.len();
@@ -461,6 +470,18 @@ DOMAIN_MAX 0.5 1 1
         let hex: String = id.data.iter().flat_map(|v| v.to_le_bytes()).map(|b| format!("{b:02X}")).collect();
         let xml = format!("<?xml version=\"1.0\"?><look><LUT><size>\"2\"</size><data>\"{hex}\"</data></LUT></look>");
         assert_eq!(parse("a.look", xml.as_bytes()).unwrap().data, id.data);
+    }
+
+    #[test]
+    fn look_ignores_tags_inside_xml_comments() {
+        let hex = |l: &LutFile| -> String { l.data.iter().flat_map(|v| v.to_le_bytes()).map(|b| format!("{b:02X}")).collect() };
+        let inverse = LutFile::from_fn("", 2, |[r, g, b]| [1.0 - r, 1.0 - g, 1.0 - b]);
+        let xml = format!(
+            "<look><!-- <size>\"3\"</size><data>\"{}\"</data> --><LUT><size>\"2\"</size><data>\"{}\"</data></LUT><!-- unterminated <data>00",
+            hex(&LutFile::identity(2)),
+            hex(&inverse)
+        );
+        assert_eq!(parse("commented.look", xml.as_bytes()).unwrap().data, inverse.data);
     }
 
     #[test]
