@@ -818,7 +818,7 @@ fn set_dock_width(app: &mut PhotocraftApp, width: f32) {
 /// dock's panel id. The default layout's column takes it once, after the canvas has been laid
 /// out so the Studio Properties card keeps its place.
 fn native_dock_width(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let id = egui::Id::new("dock");
+    let id = crate::panels::panel_state_id(ctx, "dock");
     let Some(state) = ctx.data_mut(|data| data.get_persisted::<egui::PanelState>(id)) else { return };
     if app.ui.docking.is_none() && !app.last_canvas_rect.is_positive() {
         return;

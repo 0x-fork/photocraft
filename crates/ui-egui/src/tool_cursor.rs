@@ -149,7 +149,7 @@ fn native(ctx: &egui::Context) -> bool {
 /// nothing. Always false where egui embeds viewports, as they share one window's pointer.
 pub(crate) fn pointer_elsewhere(ctx: &egui::Context, others: &[egui::ViewportId]) -> bool {
     let own = ctx.viewport_id();
-    let key = egui::Id::new(("pc-pointer-elsewhere", own));
+    let key = egui::Id::unique(("pc-pointer-elsewhere", own));
     let before = ctx.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
     let separate = !ctx.embed_viewports() && others.iter().any(|&v| v != own);
     if !separate && !before {

@@ -119,7 +119,7 @@ type Drawn = (Vec<(String, Rect)>, Vec<(craft_ui::docking::Hit<String>, Rect)>);
 
 /// Every panel body and docking control drawn last frame.
 fn drawn(h: &Harness<'static, PhotocraftApp>) -> Drawn {
-    (crate::panel_docking::last_bodies(&h.ctx), craft_ui::docking::DockArea::<String>::hit_rects(&h.ctx, egui::Id::new("photocraft-panel-docking")))
+    (crate::panel_docking::last_bodies(&h.ctx), craft_ui::docking::DockArea::<String>::hit_rects(&h.ctx, egui::Id::unique("photocraft-panel-docking")))
 }
 
 fn drag(h: &mut Harness<'static, PhotocraftApp>, from: Pos2, to: Pos2) {

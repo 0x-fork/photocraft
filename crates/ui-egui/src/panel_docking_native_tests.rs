@@ -69,6 +69,7 @@ impl Host {
             match command {
                 egui::ViewportCommand::OuterPosition(pos) => window.rect = Rect::from_min_size(*pos, window.rect.size()),
                 egui::ViewportCommand::InnerSize(size) => window.rect = Rect::from_min_size(window.rect.min, *size),
+                egui::ViewportCommand::RequestPaste => window.paste_requested = true,
                 _ => {}
             }
         }
@@ -116,7 +117,8 @@ impl Desktop {
             input.viewports = infos;
             input.focused = main_focused;
             self.h.step();
-            // egui reports the commands of immediate viewports in the main window's output.
+            // A command sent to a window from the main window's pass is in the main pass's output;
+            // one sent from the window's own pass is in that pass's output (`Host::render`).
             let mut host = self.host.borrow_mut();
             for (id, output) in &self.h.output().viewport_output {
                 if let Some(window) = host.windows.get_mut(id) {

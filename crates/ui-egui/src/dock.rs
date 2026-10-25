@@ -861,7 +861,7 @@ pub fn persist(app: &mut PhotocraftApp, ctx: &egui::Context) {
 fn native_moved(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
     let places: Vec<(u64, [f32; 4])> =
         app.ui.docking.iter().flat_map(|workspace| workspace.layout.floating.iter().filter_map(|window| Some((window.id, window.native?)))).collect();
-    let id = egui::Id::new("dock-native-places");
+    let id = egui::Id::unique("dock-native-places");
     ctx.data_mut(|data| {
         let moved = data.get_temp::<Vec<(u64, [f32; 4])>>(id).is_some_and(|last| last != places);
         data.insert_temp(id, places);

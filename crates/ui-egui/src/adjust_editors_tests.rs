@@ -827,7 +827,7 @@ fn hue_saturation_bars_fill_the_panel_width() {
         let mut h = Harness::builder().with_size(vec2(width, 500.0)).build_ui_state(
             |ui, values: &mut serde_json::Value| {
                 let cx = EditorCx {
-                    mem: egui::Id::new("hs"),
+                    mem: egui::Id::unique("hs"),
                     hist: None,
                     gray: false,
                     swatches: [[0.0; 3], [1.0; 3]],
@@ -838,14 +838,14 @@ fn hue_saturation_bars_fill_the_panel_width() {
                 };
                 let avail = ui.available_width();
                 editor(ui, "hueSaturation", values, &cx);
-                ui.data_mut(|d| d.insert_temp(egui::Id::new("hs-avail"), avail));
+                ui.data_mut(|d| d.insert_temp(egui::Id::unique("hs-avail"), avail));
             },
             json!({}),
         );
         PhotocraftApp::setup_context(&h.ctx, Default::default());
         h.run_steps(4);
-        let bars = h.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new("hs").with("hs-bars"))).expect("bars drawn");
-        let avail = h.ctx.data(|d| d.get_temp::<f32>(egui::Id::new("hs-avail"))).unwrap();
+        let bars = h.ctx.data(|d| d.get_temp::<Rect>(egui::Id::unique("hs").with("hs-bars"))).expect("bars drawn");
+        let avail = h.ctx.data(|d| d.get_temp::<f32>(egui::Id::unique("hs-avail"))).unwrap();
         assert!((bars.width() - avail).abs() < 0.5, "{width}: bars {} of {avail}", bars.width());
     }
 }

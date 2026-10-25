@@ -415,7 +415,7 @@ pub fn clipboard_keys(ctx: &egui::Context, typing: bool, raw: &mut egui::RawInpu
 /// The keys held down in floating panels' own OS windows, from the presses and releases they
 /// forwarded ([`handle_forwarded`]).
 fn forwarded_down_id() -> egui::Id {
-    egui::Id::new("pc-forwarded-keys-down")
+    egui::Id::unique("pc-forwarded-keys-down")
 }
 
 #[cfg(test)]

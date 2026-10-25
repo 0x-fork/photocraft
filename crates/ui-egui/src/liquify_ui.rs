@@ -1751,7 +1751,7 @@ mod tests {
         // One frame of the real shortcut handler, then a focused single-line text edit (the
         // numeric fields are text edits), as the app orders them.
         let mut text = String::from("100");
-        let field = egui::Id::new("liquify-size-field");
+        let field = egui::Id::unique("liquify-size-field");
         let mut frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>| {
             let raw = egui::RawInput { events, ..Default::default() };
             let mut out = ctx.run_ui(raw, |ui| {
@@ -1793,7 +1793,7 @@ mod tests {
 
         // With a text edit focused, `[` belongs to the field.
         let mut text = String::new();
-        let field = egui::Id::new("liquify-size-field");
+        let field = egui::Id::unique("liquify-size-field");
         let focused_frame = |app: &mut PhotocraftApp, text: &mut String, events: Vec<egui::Event>| {
             let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
                 crate::shortcuts::handle(app, ui.ctx());

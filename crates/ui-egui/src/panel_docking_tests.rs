@@ -881,10 +881,11 @@ fn main_workspace_file_loads_as_the_default_and_saves_as_a_workspace() {
 fn the_native_dock_width_sizes_the_default_column() {
     let mut h = harness(app(), vec2(1280.0, 800.0));
     let state = egui::PanelState { outer_rect: egui::Rect::from_min_size(egui::pos2(900.0, 0.0), vec2(380.0, 700.0)) };
-    h.ctx.data_mut(|data| data.insert_persisted(egui::Id::new("dock"), state));
+    let key = crate::panels::panel_state_id(&h.ctx, "dock");
+    h.ctx.data_mut(|data| data.insert_persisted(key, state));
     h.run_steps(2);
     let Some(Node::Split { second, .. }) = &lay(h.state()).root else { panic!("expected the canvas split") };
     let Node::Dock { columns, .. } = second.as_ref() else { panic!("expected the dock") };
     assert_eq!(columns[0].width, 380.0);
-    assert!(h.ctx.data_mut(|data| data.get_persisted::<egui::PanelState>(egui::Id::new("dock"))).is_none(), "taken once");
+    assert!(h.ctx.data_mut(|data| data.get_persisted::<egui::PanelState>(key)).is_none(), "taken once");
 }
