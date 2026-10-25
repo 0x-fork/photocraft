@@ -418,6 +418,11 @@ fn forwarded_down_id() -> egui::Id {
     egui::Id::new("pc-forwarded-keys-down")
 }
 
+#[cfg(test)]
+pub(crate) fn forwarded_keys_down(ctx: &egui::Context) -> Vec<Key> {
+    ctx.data(|d| d.get_temp::<std::collections::BTreeSet<Key>>(forwarded_down_id())).unwrap_or_default().into_iter().collect()
+}
+
 /// Keys that a floating panel's own OS window left over (craft-ui's
 /// `DockOutput::forwarded_events`, with the modifiers held in that window) run through
 /// [`handle`] in the frame they arrive, as if pressed in the main window: tool keys, undo and
@@ -440,6 +445,10 @@ pub(crate) fn handle_forwarded(app: &mut PhotocraftApp, ctx: &egui::Context, eve
             }
         }
     });
+    // The main window runs no shortcuts while the screen color picker is open.
+    if crate::screen_picker::busy(ctx) {
+        return;
+    }
     let typing = ctx.text_edit_focused() || app.ui.text_edit.is_some();
     let (events_before, modifiers_before) = ctx.input_mut(|i| (std::mem::take(&mut i.events), std::mem::replace(&mut i.modifiers, modifiers)));
     let mut raw = egui::RawInput { events, ..Default::default() };
@@ -453,14 +462,16 @@ pub(crate) fn handle_forwarded(app: &mut PhotocraftApp, ctx: &egui::Context, eve
 }
 
 /// Runs the shortcuts on this frame's input. Keys still held in a floating panel's own window
-/// count as held (`key_down`) while the main window doesn't have the keyboard: a spring-loaded
-/// tool or Space for the Hand tool stays on while the pointer moves over the canvas.
+/// count as held (`key_down`) while that window has the keyboard: a spring-loaded tool or Space
+/// for the Hand tool stays on while the pointer moves over the canvas. Its releases stop coming
+/// once the main window or no window of the app has the keyboard, or one of its widgets takes
+/// keyboard focus, so the keys count as released then.
 pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let focused = ctx.input(|i| i.focused);
-    if focused {
+    let held = !ctx.input(|i| i.focused) && crate::panel_docking::other_window_keyboard(ctx) == Some(false);
+    if !held {
         ctx.data_mut(|d| d.remove_temp::<std::collections::BTreeSet<Key>>(forwarded_down_id()));
     }
-    let down = if focused { Default::default() } else { ctx.data(|d| d.get_temp::<std::collections::BTreeSet<Key>>(forwarded_down_id())).unwrap_or_default() };
+    let down = if held { ctx.data(|d| d.get_temp::<std::collections::BTreeSet<Key>>(forwarded_down_id())).unwrap_or_default() } else { Default::default() };
     let added: Vec<Key> = ctx.input_mut(|i| down.into_iter().filter(|k| i.keys_down.insert(*k)).collect());
     handle_keys(app, ctx);
     if !added.is_empty() {

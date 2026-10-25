@@ -289,6 +289,37 @@ fn a_menu_key_typed_in_a_panel_windows_text_field_goes_to_the_field() {
 }
 
 #[test]
+fn keys_held_in_a_panel_window_count_as_released_once_it_loses_the_keyboard() {
+    let mut desktop = Desktop::new(app_with_document());
+    desktop.h.state_mut().run("window.panel.float", json!({"panel": "gradients"})).unwrap();
+    desktop.steps(3);
+    let viewport = desktop.window_of("gradients").unwrap();
+    desktop.host.borrow_mut().focus = Some(viewport);
+    let space = |pressed| Event::Key { key: Key::Space, physical_key: None, pressed, repeat: false, modifiers: Modifiers::NONE };
+    // The main window's shortcuts, in a pass with the host's focus.
+    let held = |desktop: &mut Desktop| {
+        let ctx = desktop.h.ctx.clone();
+        let raw = {
+            let host = desktop.host.borrow();
+            egui::RawInput { viewports: host.infos(), focused: host.focus.is_none(), ..Default::default() }
+        };
+        ctx.run_ui(raw, |ui| crate::shortcuts::handle(desktop.h.state_mut(), ui.ctx())).textures_delta.clear();
+        crate::shortcuts::forwarded_keys_down(&ctx)
+    };
+    desktop.send(viewport, vec![space(true)]);
+    assert_eq!(held(&mut desktop), [Key::Space], "held while the window has the keyboard");
+    desktop.host.borrow_mut().focus = Some(ViewportId::from_hash_of("another app"));
+    assert_eq!(held(&mut desktop), [], "released once no window of the app has the keyboard");
+
+    desktop.host.borrow_mut().focus = Some(viewport);
+    desktop.send(viewport, vec![space(true)]);
+    assert_eq!(held(&mut desktop), [Key::Space]);
+    desktop.h.state_mut().ui.presets_ui.renaming = Some(("gradients".into(), "key".into(), "Name".into()));
+    desktop.steps(3);
+    assert_eq!(held(&mut desktop), [], "released once a field of the window takes keyboard focus");
+}
+
+#[test]
 fn a_dialog_blocks_the_panel_windows() {
     let mut desktop = Desktop::new(app_with_document());
     desktop.h.state_mut().run("window.panel.float", json!({"panel": "info"})).unwrap();
