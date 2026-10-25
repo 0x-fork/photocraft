@@ -290,6 +290,13 @@ pub(crate) fn update_frame(entry: &mut E, shape: &TextShape) {
         _ if kind != PATH_FRAME || frame.is_none_or(|f| read(f).is_err()) => {}
         TextShape::Box { x, y, width, height } => *entry = box_frame(f64::from(*x), f64::from(*y), f64::from(*width), f64::from(*height)),
         TextShape::Point => *entry = point_frame(),
+        // Area type saves as a text box over its path's bounds, as its EngineData does.
+        TextShape::Area { path } => {
+            *entry = match crate::area::path_bounds(path) {
+                Some((x0, y0, x1, y1)) => box_frame(x0, y0, x1 - x0, y1 - y0),
+                None => point_frame(),
+            }
+        }
     }
 }
 
