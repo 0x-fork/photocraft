@@ -569,7 +569,7 @@ fn working_memory(w: usize, h: usize, cfa: bool, bayer: bool, shape: Shape, opts
 
 /// Gain-map factors (DNG OpcodeList2 GainMap) for data row `y`, columns
 /// `x0..x0 + w`, sample `k`; `None` when no map touches the row.
-pub(crate) fn gain_row(s: &Sensor, y: usize, x0: usize, w: usize, k: usize) -> Option<Vec<f32>> {
+fn gain_row(s: &Sensor, y: usize, x0: usize, w: usize, k: usize) -> Option<Vec<f32>> {
     let a = s.active;
     if s.gain_maps.is_empty() || y < a.y || a.width == 0 || a.height == 0 {
         return None;
@@ -596,7 +596,7 @@ pub(crate) fn gain_row(s: &Sensor, y: usize, x0: usize, w: usize, k: usize) -> O
 /// Linear 0..1 → gamma-1.8 16-bit code. Tabulated over `s = sqrt(v)`, where
 /// the curve `s^(2/1.8)` is smooth down to 0, with linear interpolation
 /// (error below 0.2 code values).
-pub(crate) struct GammaLut {
+struct GammaLut {
     table: Vec<f32>,
     /// `[table[i], table[i + 1] - table[i]]`: the same interpolation from one load.
     pairs: Vec<[f32; 2]>,
@@ -613,7 +613,7 @@ impl GammaLut {
     }
 
     /// The gamma-1.8 encoding after a tone curve (see [`Sensor::tone_curve`]; empty: none).
-    pub(crate) fn with_curve(curve: &[[f32; 2]]) -> Self {
+    fn with_curve(curve: &[[f32; 2]]) -> Self {
         let table = (0..=GAMMA_STEPS + 1)
             .map(|i| {
                 let s = (i as f32 / GAMMA_STEPS as f32).min(1.0);
@@ -624,7 +624,7 @@ impl GammaLut {
     }
 
     /// The gamma-1.8 encoding after a fitted [`ToneCurve`] (`None`: none, plain gamma 1.8).
-    pub(crate) fn with_tone(tone: Option<&ToneCurve>) -> Self {
+    fn with_tone(tone: Option<&ToneCurve>) -> Self {
         let table = (0..=GAMMA_STEPS + 1)
             .map(|i| {
                 let s = (i as f64 / GAMMA_STEPS as f64).min(1.0);
@@ -661,15 +661,9 @@ impl GammaLut {
     }
 
     #[inline]
-    pub(crate) fn encode(&self, v: f32) -> u16 {
+    fn encode(&self, v: f32) -> u16 {
         let v = if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) };
-        self.encode_sqrt(v.sqrt())
-    }
-
-    /// [`encode`](Self::encode) of `s * s`, for `s` in 0..=1.
-    #[inline]
-    pub(crate) fn encode_sqrt(&self, s: f32) -> u16 {
-        let x = s * GAMMA_STEPS as f32;
+        let x = v.sqrt() * GAMMA_STEPS as f32;
         let i = (x as usize).min(GAMMA_STEPS);
         let f = x - i as f32;
         let (a, b) = (self.table[i], self.table[i + 1]);
