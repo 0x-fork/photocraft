@@ -24,24 +24,28 @@ pub fn parse<'i>(text: &'i str, opts: ParsingOptions<'i>) -> Result<Document<'i>
 /// Does a DOCTYPE have an internal subset (`<!DOCTYPE x [ … ]>`)? Every `<!DOCTYPE` in the text
 /// is checked, not only the one a walk over the prolog reaches: a quoted `?>` in the XML
 /// declaration must not hide it. One inside a comment may be refused needlessly; that fails safe.
+///
+/// Each `<!DOCTYPE` starts a scan over what follows: the name and the quoted public/system ids
+/// come first, a `[` outside quotes opens the subset, a `>` ends a DOCTYPE without one. Scans in
+/// the same quote state go on alike, so one pass keeps just three flags (outside quotes, in `"`,
+/// in `'`) and stays linear however many `<!DOCTYPE`s a comment holds.
 fn internal_subset(xml: &[u8]) -> bool {
     const DOCTYPE: &[u8] = b"<!DOCTYPE";
-    xml.windows(DOCTYPE.len()).enumerate().filter(|(_, w)| *w == DOCTYPE).any(|(at, _)| {
-        // The name and the quoted public/system ids come first; a `[` outside quotes opens the
-        // subset, a `>` ends a DOCTYPE without one.
-        let mut quote = None;
-        for &b in xml.iter().skip(at.saturating_add(DOCTYPE.len())) {
-            match quote {
-                Some(q) if b == q => quote = None,
-                Some(_) => {}
-                None if b == b'"' || b == b'\'' => quote = Some(b),
-                None if b == b'[' => return true,
-                None if b == b'>' => return false,
-                None => {}
-            }
+    let (mut bare, mut double, mut single) = (false, false, false);
+    for (at, &b) in xml.iter().enumerate() {
+        if at.checked_sub(DOCTYPE.len()).and_then(|start| xml.get(start..at)) == Some(DOCTYPE) {
+            bare = true;
         }
-        false
-    })
+        if bare && b == b'[' {
+            return true;
+        }
+        (bare, double, single) = (
+            (bare && !matches!(b, b'"' | b'\'' | b'>')) || (double && b == b'"') || (single && b == b'\''),
+            (double && b != b'"') || (bare && b == b'"'),
+            (single && b != b'\'') || (bare && b == b'\''),
+        );
+    }
+    false
 }
 
 #[cfg(test)]
@@ -80,6 +84,54 @@ mod tests {
         let g = "<g>".repeat(2 * MAX_DEPTH);
         let xml = format!("<?xml version=\"1.0\"?><!-- {g} --><a t=\"&lt;&gt; /&gt; >\"><![CDATA[ {g} ]]><?pi {g} ?><b/></a>");
         assert!(parse(&xml, ParsingOptions::default()).is_ok());
+    }
+
+    /// The scan per `<!DOCTYPE` that [`internal_subset`] folds into one pass.
+    fn internal_subset_per_doctype(xml: &[u8]) -> bool {
+        const DOCTYPE: &[u8] = b"<!DOCTYPE";
+        xml.windows(DOCTYPE.len()).enumerate().filter(|(_, w)| *w == DOCTYPE).any(|(at, _)| {
+            let mut quote = None;
+            for &b in &xml[at + DOCTYPE.len()..] {
+                match quote {
+                    Some(q) if b == q => quote = None,
+                    Some(_) => {}
+                    None if b == b'"' || b == b'\'' => quote = Some(b),
+                    None if b == b'[' => return true,
+                    None if b == b'>' => return false,
+                    None => {}
+                }
+            }
+            false
+        })
+    }
+
+    #[test]
+    fn the_one_pass_doctype_scan_agrees_with_a_scan_per_doctype() {
+        let parts: [&[u8]; 7] = [b"<!DOCTYPE", b"\"", b"'", b"[", b">", b"a", b"<!-- "];
+        // Every sequence of up to six parts, so the scans overlap in each quote state.
+        let mut checked = 0;
+        for len in 0..=6u32 {
+            for mut code in 0..parts.len().pow(len) {
+                let mut xml = Vec::new();
+                for _ in 0..len {
+                    xml.extend_from_slice(parts[code % parts.len()]);
+                    code /= parts.len();
+                }
+                assert_eq!(internal_subset(&xml), internal_subset_per_doctype(&xml), "{}", String::from_utf8_lossy(&xml));
+                checked += 1;
+            }
+        }
+        assert!(checked > 100_000);
+    }
+
+    #[test]
+    fn many_doctypes_in_a_comment_scan_in_linear_time() {
+        // A scan per `<!DOCTYPE` reads on to the end from each of the ~1.9 million here, some
+        // 10^13 steps; one pass reads the 16 MiB once.
+        let xml = format!("<!-- {} --><a/>", "<!DOCTYPE".repeat((16 << 20) / 9));
+        let started = std::time::Instant::now();
+        assert!(parse(&xml, dtd()).is_ok());
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "{:?}", started.elapsed());
     }
 
     #[test]
