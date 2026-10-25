@@ -343,6 +343,15 @@ fn rememberable(kind: &Kind, value: &Value) -> bool {
 
 fn restore_remembered(app: &PhotocraftApp, command: &str, spec: &str, fields: &mut Map<String, Value>) {
     let Some(Value::Object(saved)) = app.session.prefs().dialogs.get(command) else { return };
+    // Select and Mask starts from its defaults unless Remember Settings was on, as in Photoshop
+    // (#9423).
+    if command == crate::select_mask_view::COMMAND {
+        let remember = crate::select_mask_view::remembers(saved);
+        fields.insert(crate::select_mask_view::REMEMBER.into(), json!(remember));
+        if !remember {
+            return;
+        }
+    }
     for p in parse_spec(spec) {
         if let Some(v) = saved.get(&p.key).filter(|v| rememberable(&p.kind, v)) {
             fields.insert(p.key, v.clone());
@@ -356,8 +365,17 @@ pub(crate) fn remember(app: &mut PhotocraftApp, command: &str, fields: &Map<Stri
         return;
     }
     let Some(spec) = photocraft_engine::commands::find(command) else { return };
-    let saved: Map<String, Value> =
+    let mut saved: Map<String, Value> =
         parse_spec(spec.params).into_iter().filter_map(|p| fields.get(&p.key).filter(|v| rememberable(&p.kind, v)).map(|v| (p.key, v.clone()))).collect();
+    // Select and Mask with Remember Settings off keeps only that choice, so the next one starts
+    // from the defaults (#9423).
+    if command == crate::select_mask_view::COMMAND {
+        let remember = crate::select_mask_view::remembers(fields);
+        if !remember {
+            saved.clear();
+        }
+        saved.insert(crate::select_mask_view::REMEMBER.into(), json!(remember));
+    }
     if !saved.is_empty() {
         app.session.prefs.edit(|prefs| prefs.dialogs.insert(command.into(), Value::Object(saved)));
     }
@@ -1849,6 +1867,45 @@ mod tests {
         }
         assert!(has_dialog("filter.blur.gaussianBlur"));
         assert!(!has_dialog("filter.stylize.findEdges"));
+    }
+
+    /// #9423: Select and Mask starts from its defaults each time, as in Photoshop, unless Remember
+    /// Settings was on when it was last OKed; turning it off forgets the settings again.
+    #[test]
+    fn select_and_mask_remembers_settings_only_when_asked() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 64, "height": 64})).unwrap();
+        app.run("select.all", json!({})).unwrap();
+        let cmd = crate::select_mask_view::COMMAND;
+        let fields = |app: &PhotocraftApp, id: u64| app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields.clone();
+        let opened = |app: &mut PhotocraftApp| {
+            let id = open(app, cmd).unwrap();
+            let f = fields(app, id);
+            app.ui.dialogs.retain(|d| d.id != id);
+            f
+        };
+        let first = opened(&mut app);
+        assert_eq!(first["smooth"], json!(0.0));
+        assert_eq!(first.get(crate::select_mask_view::REMEMBER), None, "off by default");
+        // OK with Smooth 10 and Remember Settings off: the next one starts from the defaults.
+        let mut f = first.clone();
+        f.insert("smooth".into(), json!(10.0));
+        f.insert(crate::select_mask_view::REMEMBER.into(), json!(false));
+        remember(&mut app, cmd, &f);
+        let next = opened(&mut app);
+        assert_eq!(next["smooth"], json!(0.0), "not remembered");
+        assert_eq!(next[crate::select_mask_view::REMEMBER], json!(false));
+        // With Remember Settings on, the next one starts from them.
+        f.insert(crate::select_mask_view::REMEMBER.into(), json!(true));
+        remember(&mut app, cmd, &f);
+        let next = opened(&mut app);
+        assert_eq!(next["smooth"], json!(10.0), "remembered");
+        assert_eq!(next[crate::select_mask_view::REMEMBER], json!(true));
+        // Turning it off again forgets them.
+        let mut off = next.clone();
+        off.insert(crate::select_mask_view::REMEMBER.into(), json!(false));
+        remember(&mut app, cmd, &off);
+        assert_eq!(opened(&mut app)["smooth"], json!(0.0));
     }
 
     /// Select and Mask's Output To lists all six output targets.
