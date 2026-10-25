@@ -722,10 +722,10 @@ enforce = false  # new; as P5
 
 [[scenario]]
 id = "P78"
-title = "Hide an adjustment layer among 150 full-canvas layers, 6 MP (app GPU budget)"
+title = "Hide the top adjustment layer among 150 full-canvas layers, 6 MP, GPU budget forced to 512 MB (CPU fallback)"
 issue = 6533
 bench = "perf_scenarios"
-row = "hide an adjustment layer among many full-canvas layers + refresh"
+row = "hide the top adjustment layer among many full-canvas layers, over the GPU budget + refresh"
 budget_ms = 30
 enforce = false  # new; as P61
 
