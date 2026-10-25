@@ -876,7 +876,16 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
     // other faces. Register them up front: the lazy loader cannot react before the first frame
     // shapes (and a headless frame panics on a missing glyph rather than drawing tofu).
     if cjk.eager_craft_fonts {
-        for (i, f) in photocraft_text::craft_fonts::CRAFT_FONTS.iter().enumerate() {
+        // The UI Japanese face comes first, as in the lazy loader (`japanese_for_ui`): egui uses
+        // the first family member that covers a glyph, and the manifest lists Shippori Mincho
+        // before BIZ UDPGothic, so manifest order alone would draw Japanese UI in serif glyphs
+        // and shared Han characters in Japanese forms.
+        let craft = photocraft_text::craft_fonts::CRAFT_FONTS;
+        let ui_first: Vec<usize> =
+            photocraft_text::craft_fonts::japanese_for_ui().iter().filter_map(|f| craft.iter().position(|c| std::ptr::eq(c, *f))).collect();
+        let order = ui_first.iter().copied().chain((0..craft.len()).filter(|i| !ui_first.contains(i)));
+        for i in order {
+            let f = &craft[i];
             if f.bytes.is_empty() {
                 continue;
             }

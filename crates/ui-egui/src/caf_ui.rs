@@ -1341,7 +1341,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     widgets::dropdown(
                         ui,
                         "caf-indicates",
-                        tl!("Contents:"),
+                        tl!("Indicates"),
                         &mut w.opts.excluded,
                         &[(false, tl!("Sampling Area")), (true, tl!("Excluded Area"))],
                         120.0,
@@ -1384,7 +1384,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     ("high".to_string(), tl!("High")),
                     ("veryHigh".to_string(), tl!("Very High")),
                 ];
-                widgets::dropdown(ui, "caf-color", tl!("Color"), &mut w.opts.color_adaptation, &o, 110.0);
+                widgets::dropdown(ui, "caf-color", tl!("Color Adaptation"), &mut w.opts.color_adaptation, &o, 110.0);
             });
             ui.horizontal(|ui| {
                 ui.label(tl!("Rotation Adaptation"));
@@ -1395,7 +1395,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     ("high".to_string(), tl!("High")),
                     ("full".to_string(), tl!("Full")),
                 ];
-                widgets::dropdown(ui, "caf-rotation", tl!("Rotation"), &mut w.opts.rotation, &o, 110.0);
+                widgets::dropdown(ui, "caf-rotation", tl!("Rotation Adaptation"), &mut w.opts.rotation, &o, 110.0);
             });
             ui.horizontal(|ui| {
                 widgets::checkbox(ui, &mut w.opts.scale, tl!("Scale"));
@@ -1407,7 +1407,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.label(tl!("Output To"));
                 let o =
                     [("current".to_string(), tl!("Current Layer")), ("new".to_string(), tl!("New Layer")), ("duplicate".to_string(), tl!("Duplicate Layer"))];
-                widgets::dropdown(ui, "caf-output", tl!("Source"), &mut w.opts.output, &o, 140.0);
+                widgets::dropdown(ui, "caf-output", tl!("Output To"), &mut w.opts.output, &o, 140.0);
             });
             if let Some(e) = w.error.as_ref().or(w.preview.error.as_ref()) {
                 ui.label(egui::RichText::new(e.as_str()).color(t.danger).size(11.0));

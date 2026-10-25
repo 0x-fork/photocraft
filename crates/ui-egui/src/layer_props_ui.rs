@@ -48,7 +48,8 @@ fn edit_tolerance(layer: &Layer, u: LenUnit, extent: f64) -> f32 {
     }
 }
 
-/// `len` is the unit shown and its 100% extent (for percent); `name` is the accessible name.
+/// `len` is the unit shown and its 100% extent (for percent); `name` is the field's accessible name.
+// The explicit accessible name accompanies the existing numeric-field parameters.
 #[expect(clippy::too_many_arguments)]
 fn field(ui: &mut egui::Ui, id: &str, label: (&str, &str), name: &str, current: f32, width: f32, len: (LenUnit, f64), tol: f32) -> Option<f32> {
     let (u, extent) = len;
