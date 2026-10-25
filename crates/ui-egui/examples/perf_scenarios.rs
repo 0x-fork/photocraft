@@ -256,6 +256,8 @@ struct Sizes {
     a4: (u32, u32),
     /// A new 10 × 5 m document at 200 ppi (3.1 GP, #4017).
     huge_new: (u32, u32),
+    /// A huge document with one painted layer, refreshed zoomed out (#1015, #9330).
+    huge_doc: (u32, u32),
 }
 
 const FULL: Sizes = Sizes {
@@ -269,6 +271,7 @@ const FULL: Sizes = Sizes {
     big_photo: (6000, 4000),
     a4: (2480, 3508),
     huge_new: (78_740, 39_370),
+    huge_doc: (30_000, 30_000),
 };
 
 const QUICK: Sizes = Sizes {
@@ -282,6 +285,7 @@ const QUICK: Sizes = Sizes {
     big_photo: (1600, 1066),
     a4: (1240, 1754),
     huge_new: (20_000, 10_000),
+    huge_doc: (8_000, 8_000),
 };
 
 /// The layered document of #209: a background, six pixel layers with a drop shadow and a stroke,
@@ -339,6 +343,11 @@ fn many_layers_doc(w: u32, h: u32, n: usize) -> Res<(Session, u64)> {
     Ok((s, mid))
 }
 
+/// The first top-level layer of the active document, other than `except`, that `want` accepts.
+fn find_layer(s: &Session, except: u64, want: impl Fn(&photocraft_doc::Layer) -> bool) -> Option<u64> {
+    s.active()?.doc.layers.iter().find(|l| l.id.0 != except && want(l)).map(|l| l.id.0)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
@@ -365,13 +374,14 @@ fn main() {
     // A panic in one group (a crash the scenario found) is reported against the row that was
     // running, and the other groups still run.
     type Group = fn(&mut Bench, &Sizes);
-    let groups: [(&str, Group); 6] = [
+    let groups: [(&str, Group); 7] = [
         ("layered", layered_scenarios),
         ("many layers", many_layer_scenarios),
         ("full-canvas layers", full_canvas_layer_scenarios),
         ("bit depths", depth_scenarios),
         ("long operations", job_scenarios),
         ("algorithms", algorithm_scenarios),
+        ("huge document", huge_document_scenarios),
     ];
     let use_gpu = b.gpu.is_some();
     if let Some(wanted) = arg(&args, "--group")
@@ -477,6 +487,37 @@ fn layered_scenarios(b: &mut Bench, sz: &Sizes) {
         Ok(ms(t) + b.refresh(s, false)?)
     });
 
+    // Advanced Blending on one layer sends the whole document to the CPU compositor (#6689):
+    // opacity edits on another layer, then the knockout is cleared again.
+    let other = find_layer(&s, target, |l| matches!(l.content, photocraft_doc::LayerContent::Raster(_)) && photocraft_compose::effects::has_effects(l));
+    let adjustment = find_layer(&s, target, |l| matches!(l.content, photocraft_doc::LayerContent::Adjustment(_)));
+    match other {
+        Some(other) if exec(&mut s, "layer.layerStyle.blendingOptions", json!({"layer": other, "knockout": "shallow"})).is_ok() => {
+            let _ = b.refresh(&s, true);
+            b.time("set opacity on a layer with Advanced Blending + refresh", &mut s, reps, true, |b, s, i| {
+                let t = Instant::now();
+                exec(s, "layer.setProps", json!({"layer": target, "opacity": if i % 2 == 0 { 0.6 } else { 0.9 }}))?;
+                Ok(ms(t) + b.refresh(s, false)?)
+            });
+            let _ = exec(&mut s, "layer.layerStyle.blendingOptions", json!({"layer": other, "knockout": "none"}));
+            let _ = b.refresh(&s, true);
+        }
+        _ => b.errors.push(("set opacity on a layer with Advanced Blending + refresh".into(), "no second styled layer to knock out".into())),
+    }
+    // Hiding the Levels adjustment changes every pixel below it (#6535).
+    match adjustment {
+        Some(adj) => {
+            b.time("toggle adjustment layer visibility + refresh", &mut s, reps, true, |b, s, i| {
+                let t = Instant::now();
+                exec(s, "layer.setProps", json!({"layer": adj, "visible": i % 2 == 1}))?;
+                Ok(ms(t) + b.refresh(s, false)?)
+            });
+            let _ = exec(&mut s, "layer.setProps", json!({"layer": adj, "visible": true}));
+            let _ = exec(&mut s, "layer.select", json!({"layer": target}));
+        }
+        None => b.errors.push(("toggle adjustment layer visibility + refresh".into(), "no adjustment layer".into())),
+    }
+
     // A layer filling the canvas, with a drop shadow (#761) and without (#128): dragged, it
     // overhangs the canvas edge.
     let full = (|| -> Res<u64> {
@@ -554,7 +595,8 @@ fn layered_scenarios(b: &mut Bench, sz: &Sizes) {
 fn full_canvas_layer_scenarios(b: &mut Bench, sz: &Sizes) {
     let opacity = "opacity of a layer among many full-canvas layers + refresh";
     let hide = "hide a layer among many full-canvas layers + refresh";
-    if !b.wanted(opacity) && !b.wanted(hide) {
+    let adjust = "hide an adjustment layer among many full-canvas layers + refresh";
+    if !b.wanted(opacity) && !b.wanted(hide) && !b.wanted(adjust) {
         return;
     }
     b.current = Some(opacity.to_string());
@@ -605,6 +647,57 @@ fn full_canvas_layer_scenarios(b: &mut Bench, sz: &Sizes) {
         let t = Instant::now();
         exec(s, "layer.setProps", json!({"layer": mid, "visible": i % 2 == 1}))?;
         Ok(ms(t) + b.refresh(s, false)?)
+    });
+    // #6533: an adjustment among them, added after the rows above so their document is unchanged.
+    let _ = exec(&mut s, "layer.setProps", json!({"layer": mid, "visible": true}));
+    b.current = Some(adjust.to_string());
+    let adj = exec(&mut s, "layer.newAdjustmentLayer.levels", json!({"inBlack": 8, "inWhite": 245, "gamma": 1.05})).and_then(|_| active_layer(&s));
+    match adj {
+        Ok(adj) => {
+            let _ = b.refresh(&s, true);
+            b.time(adjust, &mut s, reps, true, |b, s, i| {
+                let t = Instant::now();
+                exec(s, "layer.setProps", json!({"layer": adj, "visible": i % 2 == 1}))?;
+                Ok(ms(t) + b.refresh(s, false)?)
+            });
+        }
+        Err(e) => b.errors.push((adjust.to_string(), e)),
+    }
+}
+
+/// #1015, #9330: a huge document with one painted layer, refreshed zoomed out (the reduced CPU
+/// canvas `canvas::ensure_texture` draws when the document is too large for GPU textures).
+fn huge_document_scenarios(b: &mut Bench, sz: &Sizes) {
+    let name = "zoomed-out refresh of a 30000x30000 document with one painted layer";
+    if !b.wanted(name) {
+        return;
+    }
+    b.current = Some(name.to_string());
+    let (w, h) = sz.huge_doc;
+    let mut s = Session::new();
+    let built = (|| -> Res<()> {
+        exec(&mut s, "file.new", json!({"width": w, "height": h, "background": "white"}))?;
+        exec(&mut s, "layer.new.layer", json!({"name": "paint"}))?;
+        exec(&mut s, "select.rect", json!({"x": w / 4, "y": h / 4, "width": w / 2, "height": h / 2}))?;
+        exec(&mut s, "edit.fill", json!({"color": "#c03020"}))?;
+        exec(&mut s, "select.deselect", json!({}))?;
+        Ok(())
+    })();
+    if let Err(e) = built {
+        b.errors.push((name.into(), e));
+        return;
+    }
+    // One run: each is a from-scratch reduced composite of the whole document.
+    b.time(name, &mut s, 1, false, |_, s, _| {
+        let doc = &s.active().ok_or("no document")?.doc;
+        let factor = w.max(h).div_ceil(photocraft_ui_egui::canvas::MAX_TEXTURE).max(1);
+        let t = Instant::now();
+        let reduced = photocraft_compose::render_reduced(doc, w / factor, h / factor);
+        let v = ms(t);
+        if reduced.px.is_empty() {
+            return Err("the reduced canvas is empty".into());
+        }
+        Ok(v)
     });
 }
 
