@@ -88,6 +88,15 @@ impl AuthorizedWorkspace {
         let relative = request_path(path, self.write.as_ref())?;
         let root = self.write.as_ref().ok_or_else(|| AutomationError::BadRequest(format!("{DENIED}: write authority is absent")))?;
         let leaf = relative.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        // The bytes are an image or document whatever the name says (`format` picks them), so
+        // only a file of a kind PhotoCraft writes is replaced: never source, settings or notes
+        // that share the root (`src/main.rs`, `.env`; #9439). A new file may have any name, and
+        // an image saved under one (`out` with `format: png`) can be saved over again.
+        if root.dir.symlink_metadata(&relative).is_ok() && !written_kind(&leaf) && !holds_image(&root.dir, &relative) {
+            return Err(AutomationError::BadRequest(format!(
+                "automation write refused: `{path}` already exists and is not an image or document file PhotoCraft writes; save to a new name"
+            )));
+        }
         let parent = relative.parent().map(Path::to_path_buf).unwrap_or_default();
         let tmp = parent.join(photocraft_format::atomic::temp_name(&leaf));
         let mut options = OpenOptions::new();
@@ -122,6 +131,23 @@ impl AuthorizedWorkspace {
         }
         Ok(())
     }
+}
+
+/// Whether `name`'s extension is one of the formats PhotoCraft saves or exports.
+fn written_kind(name: &str) -> bool {
+    let Some((_, ext)) = name.rsplit_once('.') else { return false };
+    let ext = ext.to_ascii_lowercase();
+    ["psd", "psb", "ora", "pdf", photocraft_format::EXTENSION].contains(&ext.as_str()) || photocraft_codecs::from_extension(&ext).is_some()
+}
+
+/// Whether the file at `relative` starts like an image PhotoCraft reads (PSD/PSB or a codec's
+/// magic). Containers that also hold other things (zip, PDF) are judged by name only.
+fn holds_image(dir: &Dir, relative: &Path) -> bool {
+    let mut head = [0u8; 64];
+    let Ok(mut file) = dir.open(relative) else { return false };
+    let Ok(n) = file.read(&mut head) else { return false };
+    let head = &head[..n];
+    head.starts_with(b"8BPS") || photocraft_codecs::detect(head).is_some()
 }
 
 fn read_to_observed_length(reader: &mut impl Read, observed_length: u64) -> Result<Vec<u8>, AutomationError> {
