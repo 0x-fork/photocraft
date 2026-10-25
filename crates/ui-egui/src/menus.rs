@@ -90,6 +90,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         crate::tool_memory::select(app, tool);
         return Ok(json!({"tool": tool}));
     }
+    if id == "help.checkForUpdates" {
+        return crate::updates_ui::check(app, ctx, params);
+    }
     if id == "ui.symmetryTransform" {
         return crate::symmetry_ui::begin(app).map(|_| Value::Null);
     }
@@ -1079,7 +1082,13 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             items.insert(after + 1 + k, it);
         }
     }
-    // Help: the link items, a separator, then System Info and About.
+    // Keep the update command with the links, ahead of System Info and About.
+    if let Some(at) = items.iter().position(|i| i.id == "help.checkForUpdates") {
+        let update = items.remove(at);
+        let before = items.iter().position(|i| i.id == "help.systemInfo" || i.id == "help.about").unwrap_or(items.len());
+        items.insert(before, update);
+    }
+    // Help: the link items and update check, a separator, then System Info and About.
     if let Some(at) = items.iter().position(|i| i.id == "help.systemInfo" || i.id == "help.about") {
         items.insert(
             at,

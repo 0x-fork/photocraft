@@ -46,6 +46,7 @@ mod layer_mask_depth;
 mod layer_props_several;
 mod layer_range_panel_order;
 mod live_line_transform;
+mod mask_lock_all;
 mod merge_transparent_bounds;
 mod missing_layer_error;
 mod nonfinite_style;

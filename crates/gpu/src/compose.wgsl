@@ -1206,6 +1206,7 @@ fn fs_fxinit(in: VOut) -> @location(0) vec4<f32> {
 // beneath a layer of alpha `l` (disjoint areas).
 fn outline_share(cov: f32, l: f32) -> f32 {
     let outside = max(1.0 - clamp(cov, 0.0, 1.0), 0.0);
+    if (outside <= 1e-6) { return 0.0; }
     let rest = 1.0 - clamp(l, 0.0, 1.0);
     if (rest <= 1e-6) { return 1.0; }
     return min(outside / rest, 1.0);
@@ -1271,13 +1272,11 @@ fn fs_fxstroke(in: VOut) -> @location(0) vec4<f32> {
         k = k * outline_share(a, lay_a);
     } else if (a > INSIDE_EPS) {
         // Pixel layers: the stroke shows beneath only through the part the shape leaves
-        // (`effects.rs`): (1 - a) / (1 - layer alpha), 1 under an opaque layer.
+        // (`effects.rs`): (1 - a) / (1 - layer alpha), none beneath a fully covered pixel.
         if (vector) {
             k = 0.0;
-        } else if (lay_a >= 1.0) {
-            k = 1.0;
         } else {
-            k = clamp((1.0 - clamp(a, 0.0, 1.0)) / (1.0 - lay_a), 0.0, 1.0);
+            k = k * outline_share(a, lay_a);
         }
     }
     var cov = k * op.opacity;

@@ -2152,6 +2152,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Seçim yapılabilecek yol yok: Kalem aracıyla bir yol çizin veya Yollar panelinden birini seçin.
 	Cancel opening	Açılışı iptal et
 	Cancelled opening {name}	{name} açılışı iptal edildi
+	Damaged Photoshop document	Hasarlı Photoshop belgesi
+	The document “{name}” may be damaged.	“{name}” belgesi hasarlı olabilir.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Bazı katmanlar, pikseller veya maskeler okunamadı. Açmaya devam etmek istiyor musunuz?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Devam ederseniz, orijinalin üzerine kaydetmek okunamayan verileri kalıcı olarak silebilir. Orijinali korumak için bir kopya kaydedin.
 	The document “{name}” does not have an embedded {mode} profile.	'{name}' belgesinde gömülü bir {mode} profili yok.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	“{name}” belgesinin gömülü renk profili geçerli {mode} çalışma renk uzayıyla eşleşmiyor.
 	Working: {working}	Çalışma renk uzayı: {working}
@@ -3949,6 +3953,18 @@ cameraData	Lens	Lens
 	Shadow Mode	Gölge Modu
 	Shadow Color	Gölge Rengi
 	Shadow Opacity	Gölge Opaklığı
+	Check for Updates…	Güncellemeleri Denetle…
+	PhotoCraft Updates	PhotoCraft Güncellemeleri
+	Checking for updates…	Güncellemeler denetleniyor…
+	Open the release page to choose an installer for your system.	Sisteminize uygun yükleyiciyi seçmek için sürüm sayfasını açın.
+	Open Download Page	İndirme Sayfasını Aç
+	PhotoCraft is up to date.	PhotoCraft güncel.
+	Could not check for updates.	Güncellemeler denetlenemedi.
+	Updates have not been checked yet.	Güncellemeler henüz denetlenmedi.
+	Check Again	Yeniden Denetle
+	Automatically Check for Updates	Güncellemeleri Otomatik Denetle
+	Installed version: {version}	Yüklü sürüm: {version}
+	PhotoCraft {version} is available.	PhotoCraft {version} kullanılabilir.
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Gömülü profili kullanın ({profile})
 	Convert to the working space ({profile})	Çalışma alanına dönüştürün ({profile})
@@ -4093,6 +4109,14 @@ cameraData	Lens	Lens
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU bağdaştırıcısı
+
+# Styles panel: Import / Export Styles (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{file} dosyasından {n} stil içe aktarıldı
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} stil {file} dosyasına dışa aktarıldı
+	Import Styles…	Stilleri İçe Aktar…
+	Export Selected Styles…	Seçili Stilleri Dışa Aktar…
+	Export Styles…	Stilleri Dışa Aktar…
+	{file} is not a style library (.asl)	{file} bir stil kitaplığı değil (.asl)
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Önce açık eylem adımı iletişim kutusunu onaylayın veya iptal edin
 	Pro Medium Gray	Pro Orta Gri
@@ -4101,14 +4125,27 @@ cameraData	Lens	Lens
 	Pro Light Gray	Pro Açık Gri
 	Pro Light	Pro Açık
 	Resize Windows to Fit	Pencereleri sığacak şekilde boyutlandır
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Otomatik paragraf yönü
 	Left-to-right paragraph direction	Soldan sağa paragraf yönü
 	Right-to-left paragraph direction	Sağdan sola paragraf yönü
 	Not rendered: this adjustment ({key}) is kept as imported.	Görüntülenmiyor: bu ayarlama ({key}) içe aktarıldığı gibi korunuyor.
-
 # Print preview image (#8236)
 	Print preview image	Baskı Önizleme Görüntüsü
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Renk Tonu Küpü
+	Brightness Cube	Parlaklık Küpü
+	Color Wheel	Renk Çarkı
+	RGB Sliders	RGB Kaydırıcıları
+	HSB Sliders	HSB Kaydırıcıları
+	CMYK Sliders	CMYK Kaydırıcıları
+	Lab Sliders	Lab Kaydırıcıları
+	Web Color Sliders	Web Rengi Kaydırıcıları
+	Copy Color as HTML	Rengi HTML Olarak Kopyala
+	Copy Color's Hex Code	Rengin Onaltılık Kodunu Kopyala
+	RGB Spectrum	RGB Spektrumu
+	CMYK Spectrum	CMYK Spektrumu
+	Grayscale Ramp	Gri Tonlama Şeridi
+	Current Colors	Geçerli Renkler
+	Make Ramp Web Safe	Şeridi Web Renkleriyle Sınırla

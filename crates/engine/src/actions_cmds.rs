@@ -100,6 +100,12 @@ pub struct ActionState {
     /// Number of steps executed by the current top-level playback tree.
     #[serde(skip)]
     pub playback_steps: u64,
+    /// How many scripts (`file.scripts.browse`) are running inside one another.
+    #[serde(skip)]
+    pub script_depth: u8,
+    /// Steps run by the current top-level script and everything it calls.
+    #[serde(skip)]
+    pub script_steps: u64,
     /// Bumped whenever `list` changes, so the preset store can skip unchanged writes.
     #[serde(skip)]
     pub rev: u64,
@@ -150,6 +156,14 @@ pub fn save_target_closed(s: &Session, id: &str, target: Option<photocraft_doc::
 
 /// Charge one step against the complete nested playback tree.
 pub fn consume_playback_step(s: &mut Session) -> bool {
+    // Inside a script the step also counts against the script's total: each top-level playback
+    // resets its own counter, so a script playing actions in a row would never reach the limit.
+    if s.actions.script_depth > 0 {
+        if s.actions.script_steps >= crate::automate_cmds::MAX_SCRIPT_STEPS {
+            return false;
+        }
+        s.actions.script_steps += 1;
+    }
     if s.actions.playback_steps >= MAX_PLAYBACK_STEPS {
         false
     } else {
