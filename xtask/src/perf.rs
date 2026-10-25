@@ -1036,15 +1036,24 @@ pub fn run(root: &Path, rest: &[&str]) -> Result<(), String> {
     println!("\n{summary}");
     println!("wrote {}", out_dir.join("results.json").display());
 
+    let mut errors: Vec<String> = Vec::new();
     if o.update_baseline {
         // The results are written either way; a contended run never silently becomes the baseline.
         let rules = BaselineRules { min_runs: 1, max_load_per_core: budgets.settings.max_load_per_core, allow_contended: o.allow_contended };
-        let nb = baseline_from_runs(baseline_value.as_ref(), std::slice::from_ref(&results), &rules)?;
-        write_baseline(root, &nb)?;
-        println!("updated {BASELINE} ({mode}, machine class {class}{})", if is_contended { ", labelled contended" } else { "" });
+        match baseline_from_runs(baseline_value.as_ref(), std::slice::from_ref(&results), &rules) {
+            Ok(nb) => {
+                write_baseline(root, &nb)?;
+                println!("updated {BASELINE} ({mode}, machine class {class}{})", if is_contended { ", labelled contended" } else { "" });
+            }
+            // A refused baseline still reports this run's perf failures below.
+            Err(e) => errors.push(e),
+        }
     }
     let all: Vec<&String> = failures.iter().chain(&bench_failures).collect();
-    if all.is_empty() { Ok(()) } else { Err(format!("{} perf failure(s):\n  {}", all.len(), all.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n  "))) }
+    if !all.is_empty() {
+        errors.push(format!("{} perf failure(s):\n  {}", all.len(), all.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n  ")));
+    }
+    if errors.is_empty() { Ok(()) } else { Err(errors.join("\n")) }
 }
 
 fn write_baseline(root: &Path, baseline: &Value) -> Result<(), String> {
