@@ -18,7 +18,9 @@ fn frame(app: &mut PhotocraftApp) {
     ctx.end_pass().textures_delta.clear();
 }
 
-/// Frames until the panel shows the histogram it wants (the throttle skipped), or panics after 5 s.
+/// Frames until the panel shows the histogram it wants (the throttle skipped), or panics after
+/// 60 s: an uncached count of the 18 MP document below takes seconds in a debug build on a loaded
+/// CI runner, and the loop returns as soon as the histogram lands.
 fn settle(app: &mut PhotocraftApp) {
     let t0 = std::time::Instant::now();
     loop {
@@ -30,7 +32,7 @@ fn settle(app: &mut PhotocraftApp) {
         if done {
             return;
         }
-        assert!(t0.elapsed() < std::time::Duration::from_secs(5), "the histogram never settled");
+        assert!(t0.elapsed() < std::time::Duration::from_secs(60), "the histogram never settled");
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
 }
