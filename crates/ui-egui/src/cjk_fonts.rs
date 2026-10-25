@@ -341,6 +341,12 @@ impl CraftFontProvider {
                 let Some(index) = self.checked_face_index(&file.path, &file.family, source.bytes()) else { continue };
                 index
             };
+            // A readable collection can still hold a malformed selected face whose `cmap` and
+            // `name` work; do not hand that index to epaint, which panics when it installs a
+            // configured face it cannot parse.
+            if !cjk::font_face_is_readable(source.bytes(), index) {
+                continue;
+            }
             if !scripts::face_covers(source.bytes(), index, c) {
                 continue;
             }
@@ -355,6 +361,9 @@ impl CraftFontProvider {
         for path in files {
             let Some(source) = self.system_source(&path) else { continue };
             let Some(index) = (self.covers)(source.bytes(), c) else { continue };
+            if !cjk::font_face_is_readable(source.bytes(), index) {
+                continue;
+            }
             return Some(self.system_insert_face(path, index, source));
         }
         None
@@ -435,7 +444,7 @@ impl FontProvider for CraftFontProvider {
 /// testing any face of a collection would select a face whose glyphs egui never uses. Test face
 /// 0 here, exactly like the lazy loader's `load_embedded_faces`.
 fn craft_face_installs_coverage(face: &CraftFont, c: char) -> bool {
-    !face.bytes.is_empty() && scripts::face_covers(face.bytes, 0, c)
+    !face.bytes.is_empty() && cjk::font_face_is_readable(face.bytes, 0) && scripts::face_covers(face.bytes, 0, c)
 }
 
 /// The best injected craft face declaring `iso` that really covers `c` in the face
@@ -720,6 +729,9 @@ impl CjkFallback {
                 continue;
             }
             let Some(index) = (self.sources.covers)(&bytes, c) else { continue };
+            if !cjk::font_face_is_readable(&bytes, index) {
+                continue;
+            }
             self.loaded.push(path.clone());
             let name = format!("{FONT_PREFIX}-{}", self.registered.len());
             log::info!("UI font fallback: registered {} (face {index}) for {script:?} as {name}", path.display());
@@ -748,7 +760,7 @@ impl CjkFallback {
 
     /// The first of `faces` that really covers `c`, registered from its static bytes.
     fn load_embedded_faces(&mut self, faces: Vec<&'static CraftFont>, c: char) -> Option<(String, FontData)> {
-        let f = faces.into_iter().find(|f| !f.bytes.is_empty() && scripts::face_covers(f.bytes, 0, c))?;
+        let f = faces.into_iter().find(|f| !f.bytes.is_empty() && cjk::font_face_is_readable(f.bytes, 0) && scripts::face_covers(f.bytes, 0, c))?;
         let path = PathBuf::from(format!("craft-fonts/{} {}", f.family, f.style));
         if self.loaded.contains(&path) {
             return None;
@@ -769,9 +781,9 @@ impl CjkFallback {
                 continue;
             }
             let Some(bytes) = read_font(&f.path) else { continue };
-            // Register only what the text engine can actually parse: a readable file with a
-            // valid `cmap` can still point a table outside the file, and epaint panics on a
-            // configured-font parse error instead of reporting a missing glyph.
+            // Register only what the text engine can actually parse. A readable collection may
+            // still have a selected face whose `cmap` is valid while another table points outside
+            // the file; `font_face_is_readable` below rejects such a face before registration.
             if !cjk::font_file_is_readable(&bytes) {
                 continue;
             }
@@ -781,6 +793,11 @@ impl CjkFallback {
                 let Some(index) = cjk::face_index_for_family_checked(&bytes, &f.family) else { continue };
                 index
             };
+            // `face_covers` only reads `cmap`; validate the selected face's whole table directory
+            // before `ctx.add_font` may install (and panic on) a face another table makes unreadable.
+            if !cjk::font_face_is_readable(&bytes, index) {
+                continue;
+            }
             if !scripts::face_covers(&bytes, index, c) {
                 continue;
             }
@@ -2319,7 +2336,7 @@ mod tests {
         });
     }
 
-    /// A valid synthetic font whose `glyf` table record points past the end of the file. Its
+    /// A valid synthetic font whose `glyf` table record extends past the end of the file. Its
     /// `cmap` still parses and maps Thai, so a coverage-only check accepts it, but the text
     /// engine cannot read every declared table.
     fn font_with_out_of_bounds_table() -> Vec<u8> {
@@ -2328,11 +2345,23 @@ mod tests {
         for i in 0..tables {
             let rec = 12 + 16 * i;
             if font.get(rec..rec + 4) == Some(&b"glyf"[..]) {
-                font[rec + 8..rec + 12].copy_from_slice(&u32::MAX.to_be_bytes());
+                font[rec + 12..rec + 16].copy_from_slice(&u32::MAX.to_be_bytes());
                 return font;
             }
         }
         panic!("synthetic font has no glyf table");
+    }
+
+    /// A readable collection whose selected family face has an out-of-bounds `glyf` table. Face 0
+    /// stays readable, and face 1's `cmap`/`name` still work, so a file-level check plus coverage
+    /// accepts it even though the face cannot be installed safely.
+    fn collection_with_out_of_bounds_selected_face() -> Vec<u8> {
+        let inter = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
+        let mut jetbrains = include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf").to_vec();
+        let tables = u16::from_be_bytes([jetbrains[4], jetbrains[5]]) as usize;
+        let glyf = (0..tables).map(|i| 12 + 16 * i).find(|&rec| jetbrains.get(rec..rec + 4) == Some(&b"glyf"[..])).expect("JetBrains Mono has a glyf table");
+        jetbrains[glyf + 12..glyf + 16].copy_from_slice(&u32::MAX.to_be_bytes());
+        two_face_ttc(inter, &jetbrains)
     }
 
     /// A truncated/out-of-bounds table can keep a valid `cmap`, so `load_first` must validate
@@ -2362,6 +2391,65 @@ mod tests {
         assert_eq!(fallback.registered.len(), 1);
         assert_eq!(fallback.registered[0].1, valid, "the script route also skips the malformed file");
         assert_eq!(data.bytes(), std::fs::read(&valid).unwrap().as_slice());
+
+        // A readable collection with an unreadable covering face must also skip that face: the
+        // coverage route selects face 1 by its valid cmap, not the readable face 0.
+        let collection = fake_dir().join("out-of-bounds-thai.ttc");
+        let inter = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
+        let collection_bytes = two_face_ttc(inter, &font_with_out_of_bounds_table());
+        std::fs::write(&collection, &collection_bytes).unwrap();
+        assert!(cjk::font_file_is_readable(&collection_bytes), "face 0 keeps the collection readable");
+        assert_eq!(scripts::covering_face(&collection_bytes, 'ก'), Some(1), "coverage selects the malformed face");
+        assert!(!cjk::font_face_is_readable(&collection_bytes, 1));
+        let mut sources = test_sources(|| Some("en".into()));
+        sources.scripts = |_| vec![fake_dir().join("out-of-bounds-thai.ttc"), fake_dir().join("thai.ttf")];
+        let mut fallback = CjkFallback::new(sources);
+        let (_, data) = fallback.next_script_font('ก').expect("the valid script fallback is reached");
+        assert_eq!(fallback.registered.len(), 1);
+        assert_eq!(fallback.registered[0].1, valid, "the coverage route skips the malformed selected face");
+        assert_eq!(data.bytes(), std::fs::read(&valid).unwrap().as_slice());
+    }
+
+    /// A readable collection may contain one bad face. The selected face (by family name) can
+    /// keep a valid `cmap` and `name` while another table points outside the file, so checking the
+    /// file or coverage alone would register a face epaint cannot safely install. Both the lazy
+    /// loader and the eager provider must skip that face and continue to the valid candidate.
+    #[test]
+    fn malformed_selected_collection_face_falls_back_before_lazy_and_provider_registration() {
+        let path = fake_dir().join("out-of-bounds-selected.ttc");
+        let bytes = collection_with_out_of_bounds_selected_face();
+        std::fs::write(&path, &bytes).expect("write the synthetic collection");
+        assert!(cjk::font_file_is_readable(&bytes), "face 0 keeps the collection readable");
+        assert_eq!(cjk::face_index_for_family_checked(&bytes, "JetBrains Mono"), Some(1), "the selected face's name resolves");
+        assert!(scripts::face_covers(&bytes, 1, 'A'), "the selected face's cmap covers the character");
+        assert!(!cjk::font_face_is_readable(&bytes, 1), "the selected face's glyf table is out of bounds");
+
+        let valid = fake("font.ttf");
+        let candidates = vec![FontFile { path: path.clone(), family: "JetBrains Mono".into() }, FontFile { path: valid.path.clone(), family: String::new() }];
+        let mut fallback = CjkFallback::new(test_sources(|| Some("en".into())));
+        let (name, data) = fallback.load_first(&candidates, 'A').expect("the valid alternative is reached");
+        assert_eq!(data.index, 0, "the lazy loader registers the valid face 0, not the malformed selected face");
+        assert_eq!(fallback.registered.len(), 1);
+        assert_eq!(fallback.registered[0].1, valid.path, "the malformed collection is not registered");
+
+        let provider = CraftFontProvider::new(&test_sources(|| Some("en".into())), 1.0);
+        let insert = provider.system_insert_files(candidates, 'A').expect("the provider reaches the valid alternative");
+        assert_eq!(insert.data.index, 0, "the provider does not hand the malformed selected face to epaint");
+        assert!(insert.name.starts_with("craft-system-"), "{insert:?}");
+
+        // Installing the selected font under the strict policy must not panic: only the valid
+        // fallback reaches egui's family builder.
+        let ctx = egui::Context::default();
+        ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Panic);
+        crate::theme::install_fonts(&ctx);
+        // The lazy loader runs after a frame; initialize the font view before matching that path.
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        add_to_all_families(&ctx, name, data);
+        ctx.run_ui(Default::default(), |ui| {
+            ui.label("A");
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]

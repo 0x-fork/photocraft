@@ -351,6 +351,9 @@ fn fontconfig_font_covers_sample(bytes: &[u8], family: &str, script: CjkScript) 
     use skrifa::MetadataProvider;
 
     let Some(index) = face_index_for_family_checked(bytes, family) else { return false };
+    if !font_face_is_readable(bytes, index) {
+        return false;
+    }
     let Ok(font) = skrifa::FontRef::from_index(bytes, index) else { return false };
     let sample = match script {
         CjkScript::Japanese => "レイヤー図",
@@ -553,25 +556,43 @@ fn family_name_matches(font: &skrifa::FontRef<'_>, family: &str, budget: &mut us
     false
 }
 
+/// Whether every table in the selected face of `bytes` really is present in the file.
+///
+/// `FontRef` reads tables lazily: a face whose `cmap` and `name` are valid can still point another
+/// table outside the file. Coverage checks only read `cmap`, so callers that register a selected
+/// collection face (by family index, coverage result or face 0) must check this first; epaint
+/// panics when it installs a configured face the parser cannot read.
+fn face_tables_are_readable(font: &skrifa::raw::FontRef<'_>) -> bool {
+    let directory = font.table_directory();
+    let records = directory.table_records();
+    !records.is_empty() && records.len() == usize::from(directory.num_tables()) && records.iter().all(|record| font.table_data(record.tag()).is_some())
+}
+
+/// Whether face `index` of a font file or collection has a complete, in-bounds table directory.
+///
+/// This is the selected-index counterpart of [`font_file_is_readable`]. A readable collection may
+/// still contain a malformed face at `index`; the face's `cmap` and `name` can work while another
+/// table points outside the file. Returns `false` for an out-of-range index or malformed data.
+/// Never panics.
+pub fn font_face_is_readable(bytes: &[u8], index: u32) -> bool {
+    skrifa::raw::FontRef::from_index(bytes, index).is_ok_and(|font| face_tables_are_readable(&font))
+}
+
 /// Whether `bytes` is a font file or font collection that the text engine's parser can read.
 ///
 /// This uses the same `skrifa` parser the text engine lays out and rasterizes with, instead of a
 /// hand-written table-directory check with invented face/table caps. A readable non-font or
 /// truncated file returns `false`; valid SFNT, OTF and TTC data returns `true`. For a collection,
-/// at least one face must parse; an individual bad face is skipped by the caller's coverage check.
+/// at least one face must have a complete table directory. That does **not** make every face
+/// readable: a face selected by family name, coverage or the empty-family face-0 contract must be
+/// checked with [`font_face_is_readable`], because its `cmap` and `name` can work while another
+/// table points out of bounds.
 pub fn font_file_is_readable(bytes: &[u8]) -> bool {
-    use skrifa::raw::{FileRef, FontRef};
+    use skrifa::raw::FileRef;
 
-    // FontRef reads tables lazily: a valid header alone can describe a truncated directory.
-    // Ask the parser for every declared table before retaining the file as a valid candidate.
-    let readable = |font: FontRef<'_>| {
-        let directory = font.table_directory();
-        let records = directory.table_records();
-        !records.is_empty() && records.len() == usize::from(directory.num_tables()) && records.iter().all(|record| font.table_data(record.tag()).is_some())
-    };
     match FileRef::new(bytes) {
-        Ok(FileRef::Font(font)) => readable(font),
-        Ok(FileRef::Collection(faces)) => faces.iter().any(|face| face.is_ok_and(readable)),
+        Ok(FileRef::Font(font)) => face_tables_are_readable(&font),
+        Ok(FileRef::Collection(faces)) => faces.iter().any(|face| face.is_ok_and(|font| face_tables_are_readable(&font))),
         Err(_) => false,
     }
 }
@@ -580,7 +601,9 @@ pub fn font_file_is_readable(bytes: &[u8]) -> bool {
 ///
 /// An empty `family` is the explicit "face 0" contract. A single-face file must actually carry
 /// the requested family name; a collection must contain a face with it. `None` when the family is
-/// missing, the data is malformed or the name budget is exhausted. Never panics.
+/// missing, the data is malformed or the name budget is exhausted. The returned index has a
+/// matching `name`, but its other tables are not validated: use [`font_face_is_readable`] before
+/// registering it. Never panics.
 pub fn face_index_for_family_checked(bytes: &[u8], family: &str) -> Option<u32> {
     use skrifa::raw::{FileRef, types::Tag};
 
@@ -620,8 +643,8 @@ pub fn face_index_for_family_checked(bytes: &[u8], family: &str) -> Option<u32> 
 
 /// Face index in a font file (or collection) whose family name is `family`; 0 when `family` is
 /// empty or no face matches. Kept for callers that prefer the historical face-0 fallback; new
-/// system-font selection should use [`face_index_for_family_checked`] and verify coverage.
-/// Never panics on malformed data.
+/// system-font selection should use [`face_index_for_family_checked`], verify the selected face
+/// with [`font_face_is_readable`], and then verify coverage. Never panics on malformed data.
 pub fn face_index_for_family(bytes: &[u8], family: &str) -> u32 {
     face_index_for_family_checked(bytes, family).unwrap_or(0)
 }
@@ -824,6 +847,31 @@ mod tests {
         // The first directory record begins at 12; its offset occupies bytes 20..24.
         missing_table[20..24].copy_from_slice(&u32::MAX.to_be_bytes());
         assert!(!font_file_is_readable(&missing_table), "a complete directory cannot point outside the file");
+    }
+
+    /// A readable collection can contain a malformed non-selected face, so the file-level check
+    /// must not stand in for validating the face a caller selects. The selected face keeps a valid
+    /// `cmap` (coverage succeeds) and `name` (family lookup succeeds) while another table points
+    /// past the end of the file.
+    #[test]
+    fn selected_face_validation_rejects_a_malformed_face_in_a_readable_collection() {
+        use crate::scripts::face_covers;
+
+        let inter = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
+        let jetbrains = include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf");
+        let mut malformed = jetbrains.to_vec();
+        let tables = u16::from_be_bytes([malformed[4], malformed[5]]) as usize;
+        let glyf = (0..tables).map(|i| 12 + 16 * i).find(|&rec| malformed.get(rec..rec + 4) == Some(&b"glyf"[..])).expect("JetBrains Mono has a glyf table");
+        malformed[glyf + 12..glyf + 16].copy_from_slice(&u32::MAX.to_be_bytes());
+        let ttc = two_face_ttc(inter, &malformed);
+
+        assert!(font_file_is_readable(&ttc), "face 0 remains a readable face");
+        assert_eq!(face_index_for_family_checked(&ttc, "JetBrains Mono"), Some(1), "the malformed face's name still resolves");
+        assert!(face_covers(&ttc, 1, 'A'), "the malformed face's cmap still covers A");
+        assert!(!font_face_is_readable(&ttc, 1), "its glyf table lies outside the collection");
+        assert!(font_face_is_readable(&ttc, 0), "positive control: the good face stays readable");
+        assert!(!font_face_is_readable(&ttc, 2), "out-of-range face");
+        assert!(font_face_is_readable(&two_face_ttc(inter, jetbrains), 1), "positive control: a valid selected face passes");
     }
 
     #[test]
