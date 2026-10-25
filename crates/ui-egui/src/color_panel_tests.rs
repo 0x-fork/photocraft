@@ -435,7 +435,8 @@ fn color_wheel_fits_the_default_color_group() {
         let group = crate::dock::last_rects(&h.ctx).into_iter().find(|(g, _)| *g == Group::Color).unwrap().1;
         assert!((group.height() - Group::Color.default_height()).abs() < 0.5, "{kind:?}: Color group {group:?}");
         let wheel = h.query_by_label("Color Wheel").unwrap_or_else(|| panic!("{kind:?}: no Color Wheel")).rect();
-        assert!(wheel.bottom() <= group.bottom(), "{kind:?}: wheel {wheel:?} runs past the Color group {group:?}");
+        // The group's scroll area ends at least 8 pt above its bottom edge (the card's bottom margin).
+        assert!(wheel.bottom() <= group.bottom() - 8.0, "{kind:?}: wheel {wheel:?} runs past the Color group {group:?}");
     }
 }
 
