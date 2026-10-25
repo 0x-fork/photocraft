@@ -2371,18 +2371,13 @@ impl eframe::App for PhotocraftApp {
             window_frame();
         }
         // Native menu key equivalents become the key presses they were (see `native_menu`).
-        // Those typed in a text field of a floating panel's own window are that field's.
         if let Some(menu) = self.services.native_menu.as_mut() {
-            match panel_docking::typing_window(ctx, raw_input) {
-                Some(window) => {
-                    let mut keys = egui::RawInput::default();
-                    menu.raw_input(&mut keys);
-                    panel_docking::send_keys(ctx, window, keys.events);
-                }
-                None => menu.raw_input(raw_input),
-            }
+            menu.raw_input(raw_input);
         }
-        shortcuts::clipboard_keys(ctx, ctx.text_edit_focused() || self.ui.text_edit.is_some(), raw_input);
+        // While a text field of a floating panel's own window has the keyboard, the dock area
+        // hands it the text keys in this input, and that window pastes.
+        let typing = craft_ui::docking::typing_window(ctx).is_none() && (ctx.text_edit_focused() || self.ui.text_edit.is_some());
+        shortcuts::clipboard_keys(ctx, typing, raw_input);
         // Windows precision touchpads and some Linux Wayland compositors send pinches
         // as fractional Ctrl + wheel rather than a native Zoom event (#4566).
         // Leave Ctrl+whole-notch mouse scrolling alone, and honour the pinch preference.

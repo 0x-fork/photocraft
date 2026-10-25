@@ -281,9 +281,11 @@ fn a_menu_key_typed_in_a_panel_windows_text_field_goes_to_the_field() {
     let mut raw = egui::RawInput { viewports: desktop.host.borrow().infos(), ..Default::default() };
     let ctx = desktop.h.ctx.clone();
     eframe::App::raw_input_hook(desktop.h.state_mut(), &ctx, &mut raw);
-    assert!(!raw.events.iter().any(|e| matches!(e, Event::Key { key: Key::V, .. })), "the main window gets no ⌘V: {:?}", raw.events);
     desktop.h.input_mut().events.extend(raw.events);
-    desktop.steps(3);
+    desktop.steps(1);
+    let main = desktop.h.output().viewport_output.get(&ViewportId::ROOT).map(|output| output.commands.clone()).unwrap_or_default();
+    assert!(!main.contains(&egui::ViewportCommand::RequestPaste), "the main window asks for no paste: {main:?}");
+    desktop.steps(2);
     assert_eq!(layers(&desktop), before, "nothing is pasted into the document");
     assert!(desktop.host.borrow().windows[&viewport].paste_requested, "the field's window asks for the clipboard text");
 }
