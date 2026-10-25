@@ -74,7 +74,7 @@ pub(crate) fn tag(source: HistSource, space: ToneSpace) -> u64 {
             photocraft_engine::channel_cmds::GraySurface::QuickMask => (5, layer.0),
             photocraft_engine::channel_cmds::GraySurface::FilterMask => (6, layer.0),
         },
-        HistSource::UpTo(l) => (6, l.0),
+        HistSource::UpTo(l) => (7, l.0),
     };
     let s = match space {
         ToneSpace::Rgb => 0u64,
@@ -475,6 +475,21 @@ mod tests {
             tag(HistSource::Channel { layer, surface: GraySurface::LayerMask }, ToneSpace::Rgb)
         );
         assert_ne!(tag(HistSource::Channel { layer, surface: GraySurface::LayerMask }, ToneSpace::Rgb), tag(HistSource::Layer(layer), ToneSpace::Rgb));
+        // Every source of one layer has its own tag (the filter mask and the Adjustment
+        // Composite once shared one).
+        let sources = [
+            HistSource::BelowLayer(layer),
+            HistSource::Layer(layer),
+            HistSource::UpTo(layer),
+            HistSource::Channel { layer, surface: GraySurface::LayerMask },
+            HistSource::Channel { layer, surface: GraySurface::QuickMask },
+            HistSource::Channel { layer, surface: GraySurface::FilterMask },
+        ];
+        for (i, a) in sources.iter().enumerate() {
+            for b in &sources[i + 1..] {
+                assert_ne!(tag(*a, ToneSpace::Rgb), tag(*b, ToneSpace::Rgb), "{a:?} and {b:?}");
+            }
+        }
     }
 
     /// #6574: bar heights scale linearly to the tallest bin. A 90/10 black/white
