@@ -101,6 +101,11 @@ impl Padded {
         Padded { data: vec![0.0; stride * (h + 2 * PAD)], w, h, stride }
     }
 
+    /// Whether the plane is non-empty and holds all its rows.
+    fn fits(&self) -> bool {
+        self.w != 0 && self.h != 0 && self.data.len() >= self.stride * (self.h + 2 * PAD)
+    }
+
     /// From an unpadded plane (tests and small inputs).
     #[cfg(test)]
     pub fn from_plane(plane: &[f32], w: usize, h: usize) -> Self {
@@ -190,51 +195,143 @@ fn kernels(phase: [u8; 4], method: Demosaic, stride: usize) -> [[Vec<(isize, f32
 pub(crate) fn demosaic(p: &Padded, phase: [u8; 4], method: Demosaic, to_xyz: &Mat3, ahd_jobs: usize) -> Vec<f32> {
     let (w, h, s) = (p.w, p.h, p.stride);
     let mut out = vec![0.0f32; w * h * 3];
-    if w == 0 || h == 0 || p.data.len() < s * (h + 2 * PAD) {
+    if !p.fits() {
         return out;
     }
     if method == Demosaic::Ahd {
-        ahd(p, phase, to_xyz, &mut out, ahd_jobs);
+        let (d, m, labf) = (&p.data, ahd_matrix(to_xyz), LabF::new());
+        for_bands(
+            &mut out,
+            AHD_BAND * w * 3,
+            ahd_bands(h),
+            ahd_jobs,
+            || AhdScratch::new((AHD_BAND + 2 * M) * s, s),
+            |band, chunk, sc| {
+                ahd_band(d, w, s, phase, &m, &labf, band, chunk, sc);
+            },
+        );
         return out;
     }
     let ks = kernels(phase, method, s);
     let rows = par::band_rows(w);
-    let d = &p.data;
-    par::chunks_mut(&mut out, rows * w * 3, |band, chunk| {
-        let y0 = band * rows;
-        for (r, row) in chunk.chunks_exact_mut(w * 3).enumerate() {
-            let y = y0 + r;
-            let base = (y + PAD) * s + PAD;
-            for (x, o) in row.as_chunks_mut::<3>().0.iter_mut().enumerate() {
-                let pos = (y & 1) * 2 + (x & 1);
-                let i = base + x;
-                if method == Demosaic::Bilinear {
-                    // Direct Bayer bilinear (the kernels' result without the tap loops).
-                    let own = usize::from(phase[pos]).min(2);
-                    let (n, so, e, wv) = (d[i - s], d[i + s], d[i + 1], d[i - 1]);
-                    if own == 1 {
-                        let hc = usize::from(phase[(y & 1) * 2 + ((x + 1) & 1)]).min(2);
-                        o[1] = d[i];
-                        o[hc] = (e + wv) * 0.5;
-                        o[2 - hc] = (n + so) * 0.5;
-                    } else {
-                        o[own] = d[i];
-                        o[1] = (n + so + e + wv) * 0.25;
-                        o[2 - own] = (d[i - s - 1] + d[i - s + 1] + d[i + s - 1] + d[i + s + 1]) * 0.25;
-                    }
-                    continue;
-                }
-                for (c, k) in ks[pos].iter().enumerate() {
-                    let mut v = 0.0f32;
-                    for &(off, wt) in k {
-                        v += wt * d[(i as isize + off) as usize];
-                    }
-                    o[c] = v.clamp(0.0, 1.0);
-                }
+    par::chunks_mut(&mut out, rows * w * 3, |band, chunk| linear_band(&p.data, w, s, phase, method, &ks, band * rows, 0, chunk));
+    out
+}
+
+/// [`demosaic`] without the full RGB frame and without the padded plane: every band loads the
+/// rows it reads (`fill(y, row)` writes the normalized CFA row `y` of the image, `w` samples;
+/// the mirrored borders are added here), demosaics into a band buffer, and `emit(rgb, out)`
+/// turns it into the band's `out` samples (the same rows, `w * 3` per row). Each pixel depends
+/// only on the plane around it, never on how rows are split or ordered, so the result is that
+/// of `emit` over [`demosaic`] of the filled plane.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn demosaic_fused(
+    w: usize,
+    h: usize,
+    phase: [u8; 4],
+    method: Demosaic,
+    to_xyz: &Mat3,
+    ahd_jobs: usize,
+    fill: &(impl Fn(usize, &mut [f32]) + Sync),
+    out: &mut [u16],
+    emit: &(impl Fn(&[f32], &mut [u16]) + Sync),
+) {
+    if w == 0 || h == 0 || out.len() < w * h * 3 {
+        return;
+    }
+    let s = w + 2 * PAD;
+    let out = &mut out[..w * h * 3];
+    // Padded rows of the output rows `y0..y0 + rows` (`rows + 2 * PAD` of them, row `PAD` is `y0`)
+    // with the mirror reflection `Padded::fill_borders` applies.
+    let load = |win: &mut [f32], y0: usize, rows: usize| {
+        for (j, prow) in win.chunks_exact_mut(s).take(rows + 2 * PAD).enumerate() {
+            fill(reflect((y0 + j) as isize - PAD as isize, h), &mut prow[PAD..PAD + w]);
+            for px in (0..PAD).chain(PAD + w..s) {
+                prow[px] = prow[PAD + reflect(px as isize - PAD as isize, w)];
             }
         }
+    };
+    if method == Demosaic::Ahd {
+        let (m, labf) = (ahd_matrix(to_xyz), LabF::new());
+        let init = || (AhdScratch::new((AHD_BAND + 2 * M) * s, s), vec![0.0f32; AHD_BAND * w * 3], vec![0.0f32; (AHD_BAND + 2 * PAD) * s]);
+        for_bands(out, AHD_BAND * w * 3, ahd_bands(h), ahd_jobs, init, |band, chunk, (sc, buf, win)| {
+            load(win, band * AHD_BAND, chunk.len() / (w * 3));
+            let buf = &mut buf[..chunk.len()];
+            // The window starts at a multiple of AHD_BAND (even), so it is band 0 of its own rows.
+            ahd_band(win, w, s, phase, &m, &labf, 0, buf, sc);
+            emit(buf, chunk);
+        });
+        return;
+    }
+    let ks = kernels(phase, method, s);
+    let init = || (vec![0.0f32; FUSED_ROWS * w * 3], vec![0.0f32; (FUSED_ROWS + 2 * PAD) * s]);
+    for_bands(out, FUSED_ROWS * w * 3, h.div_ceil(FUSED_ROWS), usize::MAX, init, |band, chunk, (buf, win)| {
+        load(win, band * FUSED_ROWS, chunk.len() / (w * 3));
+        let buf = &mut buf[..chunk.len()];
+        linear_band(win, w, s, phase, method, &ks, band * FUSED_ROWS, band * FUSED_ROWS, buf);
+        emit(buf, chunk);
     });
-    out
+}
+
+/// Output rows per band of the fused bilinear / MHC path (the window adds `2 * PAD` rows).
+pub(crate) const FUSED_ROWS: usize = 32;
+
+/// Rows `y0..` of bilinear or MHC output (`chunk.len() / (w * 3)` of them); `d` is the padded
+/// plane from image row `dy` on (`dy` 0: all of it).
+#[allow(clippy::too_many_arguments)]
+fn linear_band(d: &[f32], w: usize, s: usize, phase: [u8; 4], method: Demosaic, ks: &[[Vec<(isize, f32)>; 3]; 4], y0: usize, dy: usize, chunk: &mut [f32]) {
+    for (r, row) in chunk.chunks_exact_mut(w * 3).enumerate() {
+        let y = y0 + r;
+        let base = (y - dy + PAD) * s + PAD;
+        for (x, o) in row.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+            let pos = (y & 1) * 2 + (x & 1);
+            let i = base + x;
+            if method == Demosaic::Bilinear {
+                // Direct Bayer bilinear (the kernels' result without the tap loops).
+                let own = usize::from(phase[pos]).min(2);
+                let (n, so, e, wv) = (d[i - s], d[i + s], d[i + 1], d[i - 1]);
+                if own == 1 {
+                    let hc = usize::from(phase[(y & 1) * 2 + ((x + 1) & 1)]).min(2);
+                    o[1] = d[i];
+                    o[hc] = (e + wv) * 0.5;
+                    o[2 - hc] = (n + so) * 0.5;
+                } else {
+                    o[own] = d[i];
+                    o[1] = (n + so + e + wv) * 0.25;
+                    o[2 - own] = (d[i - s - 1] + d[i - s + 1] + d[i + s - 1] + d[i + s + 1]) * 0.25;
+                }
+                continue;
+            }
+            for (c, k) in ks[pos].iter().enumerate() {
+                let mut v = 0.0f32;
+                for &(off, wt) in k {
+                    v += wt * d[(i as isize + off) as usize];
+                }
+                o[c] = v.clamp(0.0, 1.0);
+            }
+        }
+    }
+}
+
+/// Runs `f(band, chunk, scratch)` over the `unit`-sized chunks of `out` (`bands` of them), with
+/// at most `jobs` scratch values alive: a few groups of consecutive bands per worker (for
+/// balance), each group building its scratch once.
+pub(crate) fn for_bands<T: Send, S>(
+    out: &mut [T],
+    unit: usize,
+    bands: usize,
+    jobs: usize,
+    init: impl Fn() -> S + Sync,
+    f: impl Fn(usize, &mut [T], &mut S) + Sync,
+) {
+    let groups = (par::workers().min(jobs.max(1)) * 4).clamp(1, bands.max(1));
+    let per_group = bands.div_ceil(groups).max(1);
+    par::chunks_mut_limited(out, per_group * unit, jobs, |group, gchunk| {
+        let mut sc = init();
+        for (j, chunk) in gchunk.chunks_mut(unit).enumerate() {
+            f(group * per_group + j, chunk, &mut sc);
+        }
+    });
 }
 
 /// A CFA repeat as seen from the plane's origin: colour of plane pixel
@@ -318,10 +415,36 @@ fn phase_taps(pat: &Pattern, px: isize, py: isize) -> Taps {
 /// without the edge-directed weights it is no faster and leaves zipper
 /// artefacts along every edge of an X-Trans image.
 pub(crate) fn demosaic_cfa(p: &Padded, pat: &Pattern) -> Vec<f32> {
-    let (w, h, s) = (p.w, p.h, p.stride);
+    let (w, h) = (p.w, p.h);
     let mut out = vec![0.0f32; w * h * 3];
-    if w == 0 || h == 0 || pat.w == 0 || pat.h == 0 || pat.colors.len() < pat.w * pat.h || p.data.len() < s * (h + 2 * PAD) {
-        return out;
+    let band = par::band_rows(w);
+    cfa_with(p, pat, |rows| par::chunks_mut(&mut out, band * w * 3, |b, chunk| rows(b * band, chunk)));
+    out
+}
+
+/// [`demosaic_cfa`] without the full RGB frame (the green plane stays): see [`demosaic_fused`].
+pub(crate) fn demosaic_cfa_fused(p: &Padded, pat: &Pattern, out: &mut [u16], emit: &(impl Fn(&[f32], &mut [u16]) + Sync)) {
+    let (w, h) = (p.w, p.h);
+    if out.len() < w * h * 3 {
+        return;
+    }
+    let band = par::band_rows(w);
+    let init = || vec![0.0f32; band * w * 3];
+    cfa_with(p, pat, |rows| {
+        for_bands(&mut out[..w * h * 3], band * w * 3, h.div_ceil(band), usize::MAX, init, |b, chunk, buf| {
+            let buf = &mut buf[..chunk.len()];
+            rows(b * band, buf);
+            emit(buf, chunk);
+        });
+    });
+}
+
+/// The generic demosaic's green plane, then `run` with a function that fills the RGB rows
+/// `y0..` of a chunk (`chunk.len() / (w * 3)` of them). Not called for an unusable plane or pattern.
+fn cfa_with(p: &Padded, pat: &Pattern, run: impl FnOnce(&(dyn Fn(usize, &mut [f32]) + Sync))) {
+    let (w, h, s) = (p.w, p.h, p.stride);
+    if !p.fits() || pat.w == 0 || pat.h == 0 || pat.colors.len() < pat.w * pat.h {
+        return;
     }
     let taps: Vec<Taps> = (0..pat.w * pat.h).map(|i| phase_taps(pat, (i % pat.w) as isize, (i / pat.w) as isize)).collect();
     let tap_at = |x: usize, y: usize| &taps[(y % pat.h) * pat.w + x % pat.w];
@@ -389,9 +512,9 @@ pub(crate) fn demosaic_cfa(p: &Padded, pat: &Pattern) -> Vec<f32> {
     // 2. Red and blue from colour differences.
     let gref = &green;
     let gat = |x: usize, y: usize, o: Off| get(gref, w, 0, x, y, o);
-    par::chunks_mut(&mut out, band * w * 3, |b, chunk| {
+    run(&|y0: usize, chunk: &mut [f32]| {
         for (r, row) in chunk.chunks_exact_mut(w * 3).enumerate() {
-            let y = b * band + r;
+            let y = y0 + r;
             for (x, o) in row.as_chunks_mut::<3>().0.iter_mut().enumerate() {
                 let t = tap_at(x, y);
                 let g = gref.get(y * w + x).copied().unwrap_or(0.0);
@@ -418,7 +541,6 @@ pub(crate) fn demosaic_cfa(p: &Padded, pat: &Pattern) -> Vec<f32> {
             }
         }
     });
-    out
 }
 
 /// Regularizes the inverse-gradient weights (normalized units, about 1/256 of full scale).
@@ -458,7 +580,7 @@ impl LabF {
 }
 
 /// Output rows per AHD band.
-const AHD_BAND: usize = 32;
+pub(crate) const AHD_BAND: usize = 32;
 /// Extra band rows above and below the output rows.
 const M: usize = 3;
 
@@ -508,28 +630,16 @@ impl AhdScratch {
     }
 }
 
-/// AHD (see [`ahd_ref`] for the plain statement): the same arithmetic in the same order, per
-/// row on slices, planar scratch reused across a worker's bands. Every scratch cell a stage
-/// reads was written earlier in the same band, so the planes are never cleared between bands.
-fn ahd(p: &Padded, phase: [u8; 4], to_xyz: &Mat3, out: &mut [f32], jobs: usize) {
-    let (w, h, s) = (p.w, p.h, p.stride);
-    let d = &p.data;
+/// The camera → XYZ matrix with the rows divided by the white point.
+fn ahd_matrix(to_xyz: &Mat3) -> [[f32; 3]; 3] {
     let white = [0.9642f32, 1.0, 0.8249];
-    let m: [[f32; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| to_xyz[i][j] as f32 / white[i]));
-    let labf = LabF::new();
-    let bands = ahd_bands(h);
-    // A few groups per worker for balance; each group allocates its scratch once.
-    let groups = (par::workers().min(jobs.max(1)) * 4).clamp(1, bands.max(1));
-    let per_group = bands.div_ceil(groups).max(1);
-    let cap = (AHD_BAND + 2 * M) * s;
-    par::chunks_mut_limited(out, per_group * AHD_BAND * w * 3, jobs, |group, gchunk| {
-        let mut sc = AhdScratch::new(cap, s);
-        for (j, chunk) in gchunk.chunks_mut(AHD_BAND * w * 3).enumerate() {
-            ahd_band(d, w, s, phase, &m, &labf, group * per_group + j, chunk, &mut sc);
-        }
-    });
+    std::array::from_fn(|i| std::array::from_fn(|j| to_xyz[i][j] as f32 / white[i]))
 }
 
+/// One AHD band (see [`ahd_ref`] for the plain statement): the same arithmetic in the same
+/// order, per row on slices, planar scratch reused across a worker's bands. Every scratch cell
+/// a stage reads was written earlier in the same band, so the planes are never cleared between
+/// bands.
 #[allow(clippy::too_many_arguments)]
 fn ahd_band(d: &[f32], w: usize, s: usize, phase: [u8; 4], m: &[[f32; 3]; 3], labf: &LabF, band: usize, chunk: &mut [f32], sc: &mut AhdScratch) {
     let rows = chunk.len() / (w * 3);
@@ -825,7 +935,40 @@ mod tests {
                     let mut want = vec![0.0f32; w * h * 3];
                     ahd_ref(&p, phase, &m, &mut want, jobs);
                     let got = demosaic(&p, phase, Demosaic::Ahd, &m, jobs);
-                    assert_eq!(want.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), "{w}x{h} {phase:?} {jobs}");
+                    assert_eq!(
+                        want.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                        got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                        "{w}x{h} {phase:?} {jobs}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fused_demosaic_matches_the_full_frame_demosaic() {
+        let m = [[0.41, 0.36, 0.18], [0.21, 0.72, 0.07], [0.02, 0.12, 0.95]];
+        // Sizes around the bands (AHD 32 rows, bilinear / MHC 32 rows) and the padding.
+        for (w, h) in [(1, 1), (2, 3), (7, 5), (53, 103), (64, 64), (33, 31), (5, 70), (31, 65)] {
+            let cfa: Vec<f32> = (0..w * h).map(|i| ((i * 7919 + i / w * 104729) % 1013) as f32 / 1000.0 - 0.006).collect();
+            let p = Padded::from_plane(&cfa, w, h);
+            let fill = |y: usize, row: &mut [f32]| row.copy_from_slice(&cfa[y * w..(y + 1) * w]);
+            // Any per-sample map stands in for the encode.
+            let emit = |rgb: &[f32], out: &mut [u16]| {
+                for (o, v) in out.iter_mut().zip(rgb) {
+                    *o = (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
+                }
+            };
+            for method in [Demosaic::Bilinear, Demosaic::Mhc, Demosaic::Ahd] {
+                for phase in [[0, 1, 1, 2], [2, 1, 1, 0], [1, 0, 2, 1], [1, 2, 0, 1]] {
+                    for jobs in [1, 3, 64] {
+                        let full = demosaic(&p, phase, method, &m, jobs);
+                        let mut want = vec![0u16; w * h * 3];
+                        emit(&full, &mut want);
+                        let mut got = vec![0u16; w * h * 3];
+                        demosaic_fused(w, h, phase, method, &m, jobs, &fill, &mut got, &emit);
+                        assert_eq!(want, got, "{w}x{h} {method:?} {phase:?} {jobs}");
+                    }
                 }
             }
         }
