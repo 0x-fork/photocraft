@@ -881,10 +881,8 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
         // before BIZ UDPGothic, so manifest order alone would draw Japanese UI in serif glyphs
         // and shared Han characters in Japanese forms.
         let craft = photocraft_text::craft_fonts::CRAFT_FONTS;
-        let ui_first: Vec<usize> = photocraft_text::craft_fonts::japanese_for_ui()
-            .iter()
-            .filter_map(|f| craft.iter().position(|c| std::ptr::eq(c, *f)))
-            .collect();
+        let ui_first: Vec<usize> =
+            photocraft_text::craft_fonts::japanese_for_ui().iter().filter_map(|f| craft.iter().position(|c| std::ptr::eq(c, *f))).collect();
         let order = ui_first.iter().copied().chain((0..craft.len()).filter(|i| !ui_first.contains(i)));
         for i in order {
             let f = &craft[i];
