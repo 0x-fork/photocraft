@@ -218,17 +218,17 @@ fn a_panel_never_laid_out_opens_in_its_default_group_and_side() {
 }
 
 #[test]
-fn a_tab_dropped_on_the_canvas_opens_beside_it_and_redocks() {
+fn a_tab_dropped_on_the_canvas_floats_there_and_redocks() {
     let mut h = harness(app(), vec2(1280.0, 800.0));
     let canvas = canvas_rect(&h);
     let source = tab_rect(&h, "layers").center();
-    drag(&mut h, source, egui::pos2(canvas.left() + canvas.width() / 6.0, canvas.center().y));
+    let target = egui::pos2(canvas.left() + canvas.width() / 6.0, canvas.center().y);
+    drag(&mut h, source, target);
     let layout = lay(h.state());
     assert!(valid(layout));
-    let beside = canvas_side(layout);
-    assert!(beside.contains(&"layers".to_string()) && beside.contains(&CANVAS.to_string()), "{layout:?}");
-    assert!(!in_dock_column(layout, "layers") && !layout.floating.iter().any(|window| window.contains("layers")));
-    assert!(tab_rect(&h, "layers").right() < hit_rect(&h, craft_ui::docking::Hit::Tab("color".into())).left());
+    assert!(!canvas_side(layout).contains(&"layers".to_string()) && !in_dock_column(layout, "layers"), "{layout:?}");
+    assert!(layout.floating.iter().any(|window| window.panels().eq(["layers".to_string()].iter())), "{layout:?}");
+    assert!(tab_rect(&h, "layers").expand(4.0).contains(target), "the tab stays under the pointer");
 
     let source = tab_rect(&h, "layers").center();
     let destination = tab_rect(&h, "properties").center();
@@ -241,15 +241,19 @@ fn a_tab_dropped_on_the_canvas_opens_beside_it_and_redocks() {
 }
 
 #[test]
-fn brushes_tab_drag_opens_beside_the_canvas_and_can_redock_into_another_tab_group() {
+fn brushes_tab_drag_opens_above_the_canvas_and_can_redock_into_another_tab_group() {
     let mut app = app();
     crate::menus::invoke(&mut app, &egui::Context::default(), "window.panel.brushes", json!({})).unwrap();
     let mut h = harness(app, vec2(1280.0, 800.0));
     let canvas = canvas_rect(&h);
     let source = tab_rect(&h, "brushes").center();
-    drag(&mut h, source, egui::pos2(canvas.center().x, canvas.top() + canvas.height() / 6.0));
+    // The outer edge band along the canvas column's top.
+    drag(&mut h, source, egui::pos2(canvas.center().x, canvas.top() + 6.0));
     let layout = lay(h.state());
     assert!(canvas_side(layout).contains(&"brushes".to_string()), "{layout:?}");
+    assert!(!layout.floating.iter().any(|window| window.contains("brushes")));
+    let canvas_body = last_bodies(&h.ctx).into_iter().find(|(id, _)| id == CANVAS).expect("the canvas is drawn").1;
+    assert!(tab_rect(&h, "brushes").bottom() <= canvas_body.top(), "brushes is above the canvas");
 
     let source = tab_rect(&h, "brushes").center();
     let destination = tab_rect(&h, "layers").center();
