@@ -5631,11 +5631,13 @@ mod history_transform_tests {
         app.run("history.newSnapshot", json!({})).unwrap();
         let mut h = Harness::builder().with_size(vec2(300.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
         h.run_steps(2);
-        // The snapshot row's cell is the only 24×38 one (the opening row has no column).
-        let cells: Vec<Rect> = h
+        // Snapshot rows' cells are the 24×38 ones: the opening snapshot (0) first, then the new one.
+        let mut cells: Vec<Rect> = h
             .ctx
             .viewport(|v| v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter()).filter(|w| w.rect.size() == vec2(24.0, 38.0)).map(|w| w.rect).collect());
-        let cell = *cells.first().expect("a snapshot source cell");
+        cells.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        assert_eq!(cells.len(), 2, "a source cell on each snapshot row");
+        let cell = cells[1];
         click(&mut h, cell.center());
         let st = h.state().session.active().unwrap();
         assert_eq!(photocraft_engine::history_source_cmds::source(st), Some(HistorySource::Snapshot(1)));
