@@ -114,7 +114,7 @@ fn put_focus(h: &mut Harness<'_, PhotocraftApp>, place: Place) {
         }
         Place::OpacityField => {
             // The Layers panel's Opacity field: the DragValue in the right dock reading 100.
-            let layers = crate::dock::last_rects(&h.ctx).into_iter().find(|(g, _)| *g == crate::dock::Group::Layers).expect("Layers drawn").1;
+            let layers = crate::panel_docking::probe::group_rect(h.state(), &h.ctx, "layers").expect("Layers drawn");
             let at = h
                 .query_all_by_role(Role::SpinButton)
                 .map(|n| n.rect())

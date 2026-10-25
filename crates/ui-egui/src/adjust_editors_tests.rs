@@ -37,7 +37,7 @@ fn app_harness(kind: &str, mode: &str, depth: u32) -> Harness<'static, Photocraf
 /// [`app_harness`] advancing `step_dt` seconds per frame (double-clicks need real frame times).
 fn app_harness_stepped(kind: &str, mode: &str, depth: u32, step_dt: f32) -> Harness<'static, PhotocraftApp> {
     let (kind, mode) = (kind.to_string(), mode.to_string());
-    let mut h = Harness::builder().with_size(vec2(1440.0, 900.0)).with_max_steps(64).with_step_dt(step_dt).build_eframe(move |cc| {
+    let mut h = Harness::builder().with_size(vec2(1440.0, 1000.0)).with_max_steps(64).with_step_dt(step_dt).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         let mut s = photocraft_engine::Session::new();
         s.execute("file.new", json!({"width": 96, "height": 64, "mode": mode, "depth": depth})).unwrap();
@@ -48,7 +48,8 @@ fn app_harness_stepped(kind: &str, mode: &str, depth: u32, step_dt: f32) -> Harn
         s.execute(&format!("layer.newAdjustmentLayer.{kind}"), json!({})).unwrap();
         let mut app = PhotocraftApp::new(s, crate::Services::default());
         // The default Properties group gives way to Layers (#147) and scrolls taller editors;
-        // these tests drive every control without scrolling, so they size it like a user would.
+        // these tests drive every control without scrolling, so they size it like a user would,
+        // in a window tall enough for it beside Layers' smallest height.
         app.ui.dock.heights.insert(crate::dock::Group::Properties, 560.0);
         app
     });
@@ -217,8 +218,8 @@ fn curves_graph_grows_with_the_properties_panel() {
     crate::panels::request_dock_width(&h.ctx, 760.0);
     h.run_steps(8);
     let wide = curves_graph(&h, id);
-    // 760 points of panel, but the 900-point window leaves room for 540 beside the other rows.
-    assert!(wide.width() > narrow.width() + 250.0 && wide.height() <= 900.0 - 360.0, "{narrow:?} → {wide:?}");
+    // 760 points of panel, but the 1000-point window leaves room for 640 beside the other rows.
+    assert!(wide.width() > narrow.width() + 250.0 && wide.height() <= 1000.0 - 360.0, "{narrow:?} → {wide:?}");
     assert!((wide.width() - wide.height()).abs() < 1.0, "square: {wide:?}");
     // A point added at the graph's centre lands at 128, 128 of the curve.
     click(&mut h, wide.center());

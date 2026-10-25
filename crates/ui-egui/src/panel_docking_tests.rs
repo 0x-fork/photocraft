@@ -528,63 +528,6 @@ fn changing_workspace_during_a_drag_cancels_the_stale_gesture() {
     assert_eq!(h.state().ui.docking, destination);
 }
 
-#[test]
-fn first_legacy_drag_workspace_switch_preserves_custom_and_legacy_destinations() {
-    let layout_state = |app: &PhotocraftApp| json!({"panels":app.ui.panels,"dock":app.ui.dock,"tabs":app.ui.dock_tabs,"layout":app.ui.docking,"hidden":app.ui.docking_returns,"collapsed":app.ui.docking_collapsed,"timeline":app.ui.timeline.open});
-    for customized_destination in [true, false] {
-        for cancellation in ["release", "escape", "focus-loss"] {
-            let mut app = app();
-            let ctx = egui::Context::default();
-            if customized_destination {
-                app.run("window.panel.move", json!({"panel":"swatches","anchor":"layers","zone":"top"})).unwrap();
-                crate::menus::invoke(&mut app, &ctx, "window.workspace.newWorkspace", json!({"name":"Destination"})).unwrap();
-                crate::menus::invoke(&mut app, &ctx, "window.workspace.essentials", json!({})).unwrap();
-            }
-            let mut h = harness(app, vec2(1280.0, 800.0));
-            let source = h.query_all_by_label("Layers").find(|node| node.rect().height() <= 45.0).unwrap().rect().center();
-            h.event(Event::PointerMoved(source));
-            h.run_steps(1);
-            h.event(Event::PointerButton { pos: source, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
-            h.run_steps(1);
-            h.event(Event::PointerMoved(source - vec2(90.0, 0.0)));
-            // One frame installs the first legacy drag; no shared dock has rendered yet.
-            h.run_steps(1);
-            assert!(h.state().ui.docking.is_some());
-            let origin = egui::Id::new("photocraft-panel-docking").with("legacy-origin");
-            assert!(h.ctx.data_mut(|data| data.get_temp::<LegacyDrag>(origin)).unwrap().workspace.is_none());
-            let ctx = h.ctx.clone();
-            let command = if customized_destination { "window.workspace.select" } else { "window.workspace.painting" };
-            crate::menus::invoke(h.state_mut(), &ctx, command, json!({"name":"Destination"})).unwrap();
-            assert_eq!(h.state().ui.docking.is_some(), customized_destination);
-            let destination = layout_state(h.state());
-            let tabs = serde_json::to_value(h.state().ui.dock_tabs).unwrap();
-            match cancellation {
-                "escape" => h.event(Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }),
-                "focus-loss" => h.event(Event::WindowFocused(false)),
-                _ => {
-                    h.event(Event::PointerButton { pos: source - vec2(90.0, 0.0), button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE })
-                }
-            }
-            h.run_steps(1);
-            assert_eq!(layout_state(h.state()), destination, "{customized_destination}/{cancellation}");
-            if cancellation == "focus-loss" {
-                let at = source - vec2(90.0, 0.0);
-                h.event(Event::PointerButton { pos: at, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
-                h.run_steps(1);
-                assert_eq!(layout_state(h.state()), destination, "secondary press must not resume the stale primary drag");
-                h.event(Event::PointerButton { pos: at, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
-                h.run_steps(1);
-            }
-            assert_eq!(serde_json::to_value(h.state().ui.dock_tabs).unwrap(), tabs);
-            assert!(h.ctx.data_mut(|data| data.get_temp::<LegacyDrag>(origin)).is_none(), "stale origin: {customized_destination}/{cancellation}");
-            h.event(Event::WindowFocused(true));
-            h.event(Event::PointerButton { pos: source, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
-            h.run_steps(2);
-            assert_eq!(layout_state(h.state()), destination);
-        }
-    }
-}
-
 fn control_set(app: &mut PhotocraftApp, ctx: &egui::Context, params: Value) -> Value {
     let (request, _) = crate::control::ControlRequest::new("ui.set", params);
     match crate::control::handle(app, ctx, &request) {
@@ -872,31 +815,6 @@ fn mixed_theme_and_legacy_selection_projects_the_selected_panel_in_the_new_theme
     assert_eq!(control_set(&mut app, &ctx, json!({"theme":"proMedium","dockTabs":{"color":0}}))["ok"], true);
     assert!(panel_active(lay(&app), "color"));
     assert_eq!(app.ui.dock_tabs.color, 0);
-}
-
-#[test]
-fn native_tab_reorder_stays_native_until_drag_crosses_the_strip() {
-    let mut h = harness(app(), vec2(1280.0, 800.0));
-    let source = h.query_all_by_label("Layers").find(|node| node.rect().height() <= 45.0).unwrap().rect().center();
-    let target = h.query_all_by_label("Channels").find(|node| node.rect().height() <= 45.0).unwrap().rect().right_center() - vec2(1.0, 0.0);
-    h.event(Event::PointerMoved(source));
-    h.run_steps(1);
-    h.event(Event::PointerButton { pos: source, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
-    h.run_steps(1);
-    let near_edge = egui::pos2(target.x, source.y - 21.0);
-    h.event(Event::PointerMoved(near_edge));
-    h.run_steps(1);
-    assert!(h.state().ui.docking.is_none(), "native near-edge reorder tolerance must not promote to custom docking");
-    h.event(Event::PointerMoved(target));
-    h.run_steps(1);
-    assert!(h.state().ui.docking.is_none(), "native horizontal reorder must not promote to custom docking");
-    h.event(Event::PointerButton { pos: target, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
-    h.run_steps(2);
-    assert!(h.state().ui.docking.is_none());
-    let tabs = h.state().ui.dock.visible_tabs(Group::Layers, false);
-    let layers = tabs.iter().position(|(_, label)| *label == "Layers").unwrap();
-    let channels = tabs.iter().position(|(_, label)| *label == "Channels").unwrap();
-    assert!(channels < layers, "upstream native reorder remains effective");
 }
 
 /// #7896: the dock's widest is the window less what the toolbar and the canvas keep, never

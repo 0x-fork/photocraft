@@ -6649,7 +6649,7 @@ mod embedding_tests {
         assert!(!drawn(&h, "rail"), "the icon rail is drawn");
         assert!(!drawn(&h, "title_bar"), "the title bar is drawn");
         assert!(h.query_by_label("File").is_none(), "the menus are drawn");
-        assert!(drawn(&h, "dock"), "the dock itself stays");
+        assert!(crate::panel_docking::last_bodies(&h.ctx).iter().any(|(id, _)| id == "layers"), "the dock itself stays");
     }
 
     /// Settings saved before the flags existed load with both on.
