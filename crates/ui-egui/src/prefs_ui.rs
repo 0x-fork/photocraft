@@ -1500,8 +1500,7 @@ fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
                     if section == "performance" {
                         gpu_status_rows(ui, f.get("__gpuInfo"), f.get("__gpuAdapters"), obj);
                     }
-                    // Builds without local models show Integrations for agent control only (#4097).
-                    if section == "integrations" && prefs::NATIVE_MODELS {
+                    if section == "integrations" {
                         local_model_rows(app, ui, obj);
                     }
                     ui.add_space(8.0);
@@ -2989,23 +2988,6 @@ mod tests {
         assert_eq!(contains("integrations.subjectModel", "integrations"), prefs::NATIVE_MODELS);
         assert!(preference_sections(&values, "this setting does not exist").is_empty());
         assert_eq!(preference_sections(&values, "").len(), SECTIONS.len());
-    }
-
-    #[test]
-    fn integrations_shows_local_model_rows_only_where_models_can_run() {
-        use egui_kittest::{Harness, kittest::Queryable};
-        let (mut app, _) = app_with_store();
-        app.run("prefs.set", json!({"values": {"interface.language": "en"}})).unwrap();
-        open_preferences(&mut app, "integrations");
-        let mut h = Harness::builder().with_size(vec2(1000.0, 750.0)).build_eframe(move |cc| {
-            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
-            app
-        });
-        h.run_steps(4);
-        let shown = |label: &str| h.query_all_by_label(label).next().is_some();
-        assert!(shown("Allow agent control"), "Integrations is open");
-        assert_eq!(shown("Local selection models"), prefs::NATIVE_MODELS);
-        assert!(!shown("Local models aren't available in this build or session.") || prefs::NATIVE_MODELS);
     }
 
     #[test]
