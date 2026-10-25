@@ -412,6 +412,33 @@ fn color_wheel_ignores_clicks_beside_it() {
     assert_eq!(bytes(h.state().session.tools.foreground), [0, 0, 255]);
 }
 
+/// The Color Wheel shrinks to the Color group at its default height in every theme, as the
+/// slider modes' ramp does, instead of running past the group's bottom into its scroll area.
+#[test]
+fn color_wheel_fits_the_default_color_group() {
+    for kind in ThemeKind::ALL {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.ui.color_panel.mode = ColorPanelMode::ColorWheel;
+        app.ui.theme = kind;
+        app.ui.dock_tabs.color = Group::Color.tabs(Tokens::for_kind(kind).pro).iter().position(|name| *name == "Color").unwrap();
+        let mut h = Harness::builder().with_size(vec2(1440.0, 1200.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    crate::panels::right_dock(app, ui);
+                    egui::CentralPanel::default().show(ui, |_| {});
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, kind);
+        h.run_steps(4);
+        let group = crate::dock::last_rects(&h.ctx).into_iter().find(|(g, _)| *g == Group::Color).unwrap().1;
+        assert!((group.height() - Group::Color.default_height()).abs() < 0.5, "{kind:?}: Color group {group:?}");
+        let wheel = h.query_by_label("Color Wheel").unwrap_or_else(|| panic!("{kind:?}: no Color Wheel")).rect();
+        assert!(wheel.bottom() <= group.bottom(), "{kind:?}: wheel {wheel:?} runs past the Color group {group:?}");
+    }
+}
+
 /// The Color tab in `mode` with a document holding one selected black rectangle, the Rectangle tool
 /// in hand, foreground blue and background red, editing the background chip if `background`.
 fn color_tab_with_a_shape(mode: ColorPanelMode, background: bool) -> Harness<'static, PhotocraftApp> {
