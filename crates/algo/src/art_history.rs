@@ -1,7 +1,7 @@
 //! Oriented history-state dabs: sample a snapshot patch, pose it along the stroke, and stamp.
 //!
-//! Tile processing reads a halo around each destination tile so a dab whose centre sits one pixel
-//! inside a tile still sees the same source as an untiled pass. Scatter is seeded, so the same
+//! Tile processing reads each dab's rotated source straight from the history state, so a dab
+//! that crosses a tile edge paints the same as an untiled pass. Scatter is seeded, so the same
 //! stroke is replayable.
 
 #![allow(clippy::needless_range_loop)]
@@ -136,7 +136,7 @@ pub fn spacing_px(size: f32, area: f32, style: Style) -> Option<f32> {
     if s.is_finite() && s > 0.0 { Some(s) } else { None }
 }
 
-/// Extra pixels each destination tile must read from the source.
+/// Reach of a dab around its stroke point: half the dab plus its scatter, plus a margin.
 pub fn halo_radius(size: f32, style: Style) -> Option<i32> {
     if !size.is_finite() || size <= 0.0 {
         return None;
@@ -345,8 +345,9 @@ fn sample_bilinear(src: SrcView<'_>, sx: f32, sy: f32, out: &mut [f32]) -> bool 
     if !(sx.is_finite() && sy.is_finite()) {
         return false;
     }
-    let lx = sx - src.origin.0 as f32;
-    let ly = sy - src.origin.1 as f32;
+    // `sx, sy` are continuous coordinates; pixel `i` has its centre at `i + 0.5`.
+    let lx = sx - src.origin.0 as f32 - 0.5;
+    let ly = sy - src.origin.1 as f32 - 0.5;
     if !(lx.is_finite() && ly.is_finite()) {
         return false;
     }
@@ -435,7 +436,6 @@ pub struct StampParams<'a> {
     pub tolerance: f32,
     /// Destination tile edge; `0` processes the whole buffer as one tile.
     pub tile: i32,
-    pub halo: i32,
     pub selection: Option<&'a [f32]>,
     pub lock_transparent: bool,
     pub alpha: Option<usize>,
@@ -478,12 +478,11 @@ fn tile_grid(w: usize, h: usize, origin: (i32, i32), tile: i32) -> Vec<(i32, i32
     tiles
 }
 
-fn stamp_dab_on_rect(p: &mut StampParams<'_>, dab: &Dab, rect: (i32, i32, i32, i32), src_rect: (i32, i32, i32, i32)) -> Result<u32, StampError> {
+fn stamp_dab_on_rect(p: &mut StampParams<'_>, dab: &Dab, rect: (i32, i32, i32, i32)) -> Result<u32, StampError> {
     let (x0, y0, x1, y1) = rect;
     if x1 <= x0 || y1 <= y0 {
         return Ok(0);
     }
-    let (sx0, sy0, sx1, sy1) = src_rect;
     let Some(tw) = (x1 as i64 - x0 as i64).try_into().ok().filter(|w: &usize| *w > 0) else {
         return Err(StampError::TooLarge);
     };
@@ -513,21 +512,8 @@ fn stamp_dab_on_rect(p: &mut StampParams<'_>, dab: &Dab, rect: (i32, i32, i32, i
         }
     }
 
-    // Cropped source window (halo). Samples outside it look empty — that is the seam if halo is short.
-    let sw = (sx1 - sx0).max(0) as usize;
-    let sh = (sy1 - sy0).max(0) as usize;
-    let sn = sw.checked_mul(sh).and_then(|m| m.checked_mul(p.ch)).ok_or(StampError::TooLarge)?;
-    let mut src_win = vec![0.0f32; sn];
-    for y in sy0..sy1 {
-        for x in sx0..sx1 {
-            let Some(si) = origin_index(p.src_origin, x, y, p.src_w, p.src_h, p.ch) else { continue };
-            let Some(wi) = origin_index((sx0, sy0), x, y, sw, sh, p.ch) else { continue };
-            if let (Some(d), Some(s)) = (src_win.get_mut(wi..wi + p.ch), p.src.get(si..si + p.ch)) {
-                d.copy_from_slice(s);
-            }
-        }
-    }
-
+    // The rotated read keeps the distance to the dab centre, so it stays inside the dab's bounds:
+    // sample the source directly, whichever tile the destination pixel is in.
     let mut sampled = vec![0.0f32; p.ch];
     let mut written = 0u32;
     let k_stroke = (p.opacity * p.flow * dab.pressure).clamp(0.0, 1.0);
@@ -549,7 +535,7 @@ fn stamp_dab_on_rect(p: &mut StampParams<'_>, dab: &Dab, rect: (i32, i32, i32, i
                 continue;
             }
             let (sx, sy) = rotated_source(dab, x, y);
-            if !sample_bilinear(SrcView { data: &src_win, w: sw, h: sh, origin: (sx0, sy0), ch: p.ch }, sx, sy, &mut sampled) {
+            if !sample_bilinear(SrcView { data: p.src, w: p.src_w, h: p.src_h, origin: p.src_origin, ch: p.ch }, sx, sy, &mut sampled) {
                 continue;
             }
             let Some(li) = pixel_index(lx, ly, tw, th, p.ch) else { continue };
@@ -562,7 +548,7 @@ fn stamp_dab_on_rect(p: &mut StampParams<'_>, dab: &Dab, rect: (i32, i32, i32, i
         }
     }
 
-    // Write the dest tile back (not the halo).
+    // Write the dest tile back.
     for y in y0..y1 {
         for x in x0..x1 {
             let lx = (x - x0) as usize;
@@ -582,9 +568,10 @@ fn dab_intersects(dab: &Dab, tile: (i32, i32, i32, i32)) -> bool {
     x0 < tile.2 && x1 > tile.0 && y0 < tile.3 && y1 > tile.1
 }
 
-/// Mean `|src − dest|` over the dab's covered pixels and colour channels (working-space peak is 1,
-/// so a tolerance of 50% is `0.5`). Alpha is left out unless it is the only channel. `None` if
-/// nothing is covered.
+/// Mean difference between `src` and `dest` over the dab's covered pixels (working-space peak is
+/// 1, so a tolerance of 50% is `0.5`). Per pixel it is the larger of the mean colour change and the
+/// alpha change: an opaque pixel's unchanged alpha must not water a colour change down, and the
+/// Eraser keeps the colour and lowers only the alpha. `None` if nothing is covered.
 fn dab_mean_diff(p: &StampParams<'_>, dab: &Dab) -> Option<f32> {
     let (x0, y0, x1, y1) = dab_bounds(dab)?;
     let mut sampled = vec![0.0f32; p.ch];
@@ -602,17 +589,21 @@ fn dab_mean_diff(p: &StampParams<'_>, dab: &Dab) -> Option<f32> {
                 continue;
             }
             let nch = p.ch.min(dst.len()).min(sampled.len());
-            let skip_alpha = p.alpha.filter(|&a| a < nch && nch > 1);
-            let ncolour = nch - usize::from(skip_alpha.is_some());
-            if ncolour == 0 {
+            if nch == 0 {
                 continue;
             }
-            let mut mad = 0.0f32;
-            for i in (0..nch).filter(|&i| Some(i) != skip_alpha) {
+            let (mut colour, mut colours, mut alpha) = (0.0f32, 0u32, 0.0f32);
+            for i in 0..nch {
                 let Some((&s, &d)) = sampled.get(i).zip(dst.get(i)) else { continue };
-                mad += (s - d).abs();
+                if p.alpha == Some(i) {
+                    alpha = (s - d).abs();
+                } else {
+                    colour += (s - d).abs();
+                    colours += 1;
+                }
             }
-            sum += mad / ncolour as f32;
+            let colour = if colours == 0 { 0.0 } else { colour / colours as f32 };
+            sum += colour.max(alpha);
             count = count.saturating_add(1);
         }
     }
@@ -623,7 +614,7 @@ fn dab_mean_diff(p: &StampParams<'_>, dab: &Dab) -> Option<f32> {
     mean.is_finite().then_some(mean)
 }
 
-/// Stamp posed dabs into `dest`, reading `src` with a halo around each destination tile.
+/// Stamp posed dabs into `dest`, tile by tile, reading `src` at each dab's rotated positions.
 ///
 /// Sequential dabs overlap: dab *n* sees dab *n − 1*. Returns how many destination pixels were
 /// written (tolerance-skipped dabs count as zero).
@@ -640,7 +631,6 @@ pub fn stamp(p: &mut StampParams<'_>) -> Result<u32, StampError> {
         return Err(StampError::TooLarge);
     }
     let tiles = tile_grid(p.dest_w, p.dest_h, p.dest_origin, p.tile);
-    let halo = p.halo.max(0);
     let mut written = 0u32;
     let dabs: Vec<Dab> = p.dabs.to_vec();
     for dab in &dabs {
@@ -657,14 +647,8 @@ pub fn stamp(p: &mut StampParams<'_>) -> Result<u32, StampError> {
         // here so overlapping dabs stay deterministic.
         for tile in overlapping {
             let (bx0, by0, bx1, by1) = bounds;
-            let src_rect = (
-                tile.0.saturating_sub(halo).max(bx0.saturating_sub(1)),
-                tile.1.saturating_sub(halo).max(by0.saturating_sub(1)),
-                tile.2.saturating_add(halo).min(bx1.saturating_add(1)),
-                tile.3.saturating_add(halo).min(by1.saturating_add(1)),
-            );
             let dest_rect = (tile.0.max(bx0), tile.1.max(by0), tile.2.min(bx1), tile.3.min(by1));
-            written = written.saturating_add(stamp_dab_on_rect(p, dab, dest_rect, src_rect)?);
+            written = written.saturating_add(stamp_dab_on_rect(p, dab, dest_rect)?);
         }
     }
     Ok(written)
@@ -737,7 +721,12 @@ mod tests {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn stamp_run(w: usize, h: usize, ch: usize, src: &[f32], dest: &mut [f32], dab: &Dab, tile: i32, halo: i32) -> u32 {
+    fn stamp_run(w: usize, h: usize, ch: usize, src: &[f32], dest: &mut [f32], dab: &Dab, tile: i32) -> u32 {
+        stamp_dabs(w, h, ch, src, dest, std::slice::from_ref(dab), tile)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn stamp_dabs(w: usize, h: usize, ch: usize, src: &[f32], dest: &mut [f32], dabs: &[Dab], tile: i32) -> u32 {
         let mut p = StampParams {
             dest,
             dest_w: w,
@@ -748,13 +737,12 @@ mod tests {
             src_h: h,
             src_origin: (0, 0),
             ch,
-            dabs: std::slice::from_ref(dab),
+            dabs,
             hardness: 1.0,
             opacity: 1.0,
             flow: 1.0,
             tolerance: 0.0,
             tile,
-            halo,
             selection: None,
             lock_transparent: false,
             alpha: (ch > 1).then_some(ch - 1),
@@ -779,12 +767,11 @@ mod tests {
 
     #[test]
     fn tiled_stamp_matches_untiled_at_a_tile_seam() {
-        let halo = halo_radius(40.0, Style::LooseMedium).unwrap();
         let (w, h, src, dest0, dab) = fixture(4);
         let mut tiled = dest0.clone();
         let mut flat = dest0.clone();
-        let n_t = stamp_run(w, h, 4, &src, &mut tiled, &dab, 64, halo);
-        let n_f = stamp_run(w, h, 4, &src, &mut flat, &dab, 0, halo);
+        let n_t = stamp_run(w, h, 4, &src, &mut tiled, &dab, 64);
+        let n_f = stamp_run(w, h, 4, &src, &mut flat, &dab, 0);
         assert!(n_t > 0 && n_f > 0, "wrote {n_t} tiled / {n_f} flat");
         assert_eq!(max_u8(&tiled, &flat), 0, "8-bit seam");
         assert!(max_abs(&tiled, &flat) <= 1.0 / 32_767.0, "16-bit seam {}", max_abs(&tiled, &flat));
@@ -793,37 +780,39 @@ mod tests {
         let (w, h, src, dest0, dab) = fixture(1);
         let mut tiled = dest0.clone();
         let mut flat = dest0;
-        stamp_run(w, h, 1, &src, &mut tiled, &dab, 64, halo);
-        stamp_run(w, h, 1, &src, &mut flat, &dab, 0, halo);
+        stamp_run(w, h, 1, &src, &mut tiled, &dab, 64);
+        stamp_run(w, h, 1, &src, &mut flat, &dab, 0);
         assert_eq!(max_u8(&tiled, &flat), 0, "gray 8-bit seam");
     }
 
     #[test]
-    fn oversized_halo_is_clipped_without_changing_pixels() {
-        for ch in [1, 4, 5] {
-            let (w, h, src, dest0, dab) = fixture(ch);
-            let mut reference = dest0.clone();
-            let halo = halo_radius(40.0, Style::LooseMedium).unwrap();
-            let expected = stamp_run(w, h, ch, &src, &mut reference, &dab, 0, halo);
-            assert!(expected > 0);
-            for tile in [0, 64] {
-                let mut dest = dest0.clone();
-                let written = stamp_run(w, h, ch, &src, &mut dest, &dab, tile, i32::MAX);
-                assert_eq!(written, expected);
-                assert_eq!(dest, reference);
-            }
+    fn leftward_and_curl_strokes_match_untiled_across_a_tile_edge() {
+        let (w, h, ch) = (128usize, 96usize, 4);
+        let src = fill(w, h, ch, |x, y, c| if c == 3 { 1.0 } else { ((x * 13 + y * 7 + c as i32 * 3).rem_euclid(251) as f32) / 255.0 });
+        let dest0 = fill(w, h, ch, |_, _, c| if c == 3 { 1.0 } else { 0.1 });
+        for style in [Style::TightMedium, Style::TightCurl, Style::LooseCurl] {
+            let dabs = place_dabs(&[[110.0, 40.0], [20.0, 40.0]], 40.0, 50.0, style, RNG_SEED).unwrap();
+            let mut tiled = dest0.clone();
+            let mut flat = dest0.clone();
+            stamp_dabs(w, h, ch, &src, &mut tiled, &dabs, 64);
+            stamp_dabs(w, h, ch, &src, &mut flat, &dabs, 0);
+            assert_eq!(max_abs(&tiled, &flat), 0.0, "{} seam at x = 64", style.as_str());
         }
     }
 
+    /// A dab at angle 0 copies the history pixel under each covered pixel, not a blend of it
+    /// and its lower-right neighbours.
     #[test]
-    fn short_halo_disagrees_with_untiled_reference() {
-        let (w, h, src, dest0, dab) = fixture(4);
-        let halo = halo_radius(40.0, Style::LooseMedium).unwrap();
-        let mut short = dest0.clone();
-        let mut full = dest0;
-        stamp_run(w, h, 4, &src, &mut short, &dab, 64, 1);
-        stamp_run(w, h, 4, &src, &mut full, &dab, 0, halo);
-        assert!(max_abs(&short, &full) > 1.0e-3, "a 1 px halo must miss the rotated read");
+    fn unrotated_dab_restores_the_source_pixel() {
+        let (w, h, ch) = (48usize, 48usize, 4);
+        let src = fill(w, h, ch, |x, y, c| if c == 3 { 1.0 } else { ((x * 37 + y * 11 + c as i32 * 5).rem_euclid(97) as f32) / 96.0 });
+        let mut dest = fill(w, h, ch, |_, _, c| if c == 3 { 1.0 } else { 0.5 });
+        let dab = Dab { x: 24.0, y: 24.0, theta: 0.0, radius: 8.0, pressure: 1.0 };
+        stamp_run(w, h, ch, &src, &mut dest, &dab, 0);
+        for (x, y) in [(24usize, 24usize), (20, 22), (27, 26)] {
+            let i = (y * w + x) * ch;
+            assert_eq!(&dest[i..i + ch], &src[i..i + ch], "pixel {x},{y}");
+        }
     }
 
     #[test]
@@ -861,7 +850,6 @@ mod tests {
             flow: 1.0,
             tolerance: 1.0,
             tile: 0,
-            halo: 4,
             selection: None,
             lock_transparent: false,
             alpha: Some(3),
@@ -893,7 +881,6 @@ mod tests {
             flow: 1.0,
             tolerance: 0.0,
             tile: 0,
-            halo: 4,
             selection: None,
             lock_transparent: false,
             alpha: Some(3),
@@ -929,7 +916,6 @@ mod tests {
                 flow: 1.0,
                 tolerance,
                 tile: 0,
-                halo: 4,
                 selection: None,
                 lock_transparent: false,
                 alpha: Some(3),
@@ -939,6 +925,42 @@ mod tests {
         }
     }
 
+    /// The Eraser keeps the colour and lowers only the alpha: an erased patch differs from the
+    /// history state and is painted back with a tolerance above 0.
+    #[test]
+    fn tolerance_sees_an_erased_patch() {
+        let (w, h, ch) = (48usize, 48usize, 4);
+        let src = fill(w, h, ch, |_, _, c| if c == 0 || c == 3 { 1.0 } else { 0.0 });
+        let mut dest = fill(w, h, ch, |_, _, c| match c {
+            0 => 1.0,
+            3 => 0.6,
+            _ => 0.0,
+        });
+        let dab = Dab { x: 24.0, y: 24.0, theta: 0.0, radius: 8.0, pressure: 1.0 };
+        let mut p = StampParams {
+            dest: &mut dest,
+            dest_w: w,
+            dest_h: h,
+            dest_origin: (0, 0),
+            src: &src,
+            src_w: w,
+            src_h: h,
+            src_origin: (0, 0),
+            ch,
+            dabs: std::slice::from_ref(&dab),
+            hardness: 1.0,
+            opacity: 1.0,
+            flow: 1.0,
+            tolerance: 0.25,
+            tile: 0,
+            selection: None,
+            lock_transparent: false,
+            alpha: Some(3),
+        };
+        assert!(stamp(&mut p).unwrap() > 0, "alpha 1 -> 0.6 is over tolerance 0.25");
+        let i = (24 * w + 24) * ch;
+        assert!((dest[i + 3] - 1.0).abs() < 1.0e-5, "alpha restored, got {}", dest[i + 3]);
+    }
     #[test]
     fn empty_or_mismatched_buffers_error() {
         let mut dest = vec![0.0f32; 16];
@@ -960,7 +982,6 @@ mod tests {
             flow: 1.0,
             tolerance: 0.0,
             tile: 0,
-            halo: 1,
             selection: None,
             lock_transparent: false,
             alpha: None,
@@ -984,7 +1005,6 @@ mod tests {
             flow: 1.0,
             tolerance: 0.0,
             tile: 0,
-            halo: 1,
             selection: None,
             lock_transparent: false,
             alpha: None,
@@ -1019,7 +1039,6 @@ mod tests {
                 flow: 1.0,
                 tolerance: 0.0,
                 tile: 64,
-                halo: halo_radius(12.0, Style::LooseCurl).unwrap(),
                 selection: None,
                 lock_transparent: false,
                 alpha: Some(3),
