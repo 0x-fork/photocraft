@@ -1288,6 +1288,10 @@ fn humanize(key: &str) -> String {
     if key == "doNotAppendCopy" {
         return "Do not append \"copy\" to filename when saving a copy".into();
     }
+    // Plug-ins: Photoshop's wording (#9392).
+    if key == "generatorEnabled" {
+        return "Enable Generator".into();
+    }
     if key == "lowLatencyDrawing" {
         return "Low-Latency Drawing (vsync off, applies at next launch)".into();
     }
@@ -2737,6 +2741,24 @@ mod tests {
         h.get_by_label("Limits each open document's pixels plus History. Oldest undo states are discarded when the limit is exceeded.");
         h.get_by_label("Applies immediately when saved. Memory is not reserved in advance.");
         assert_eq!(h.state()["memoryUsageMb"], 50000);
+    }
+
+    #[test]
+    fn the_generator_checkbox_reads_enable_generator() {
+        // #9392: Photoshop's Plug-ins page says "Enable Generator", not "Generator enabled".
+        use egui_kittest::{Harness, kittest::Queryable};
+        let values = serde_json::to_value(photocraft_engine::prefs::PlugIns::default()).unwrap().as_object().unwrap().clone();
+        let keys: Vec<String> = values.keys().cloned().collect();
+        let mut h = Harness::builder()
+            .with_size(vec2(680.0, 350.0))
+            .build_ui_state(move |ui, values| section_fields(ui, "plugIns", values, &keys, crate::i18n::Lang::EN, None, ""), values);
+        h.run_steps(2);
+        assert!(h.query_by_label("Generator enabled").is_none());
+        h.get_by_label("Enable Generator").click();
+        h.run_steps(2);
+        assert_eq!(h.state()["generatorEnabled"], true);
+        let de = crate::i18n::Lang::from_code("de").unwrap();
+        assert_eq!(crate::i18n::tr(de, "Enable Generator"), "Generator aktivieren");
     }
 
     #[test]
