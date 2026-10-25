@@ -16,6 +16,12 @@ struct State {
     recents: Vec<String>,
 }
 
+/// Frames a harness may take to settle. Opening the font menu scrolls it to the current family on
+/// the first laid-out pass, and the rows that scroll into view load their samples then: a family
+/// with an Arabic sample asks for one more pass to widen its row. How many do depends on the
+/// fonts installed (Linux CI settled after 6), so 4 frames, egui's default, is too few.
+const SETTLE_STEPS: u64 = 16;
+
 fn harness() -> Harness<'static, State> {
     harness_with(FontPreview::Medium)
 }
@@ -29,7 +35,7 @@ fn harness_with_recents(preview: FontPreview, recents: Vec<String>) -> Harness<'
     let mut families: Vec<String> = (0..60).map(|i| format!("Family {i:02}")).collect();
     families.push("Zeta Sans".into());
     let state = State { current: "Family 00".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview, recents };
-    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
+    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).with_max_steps(SETTLE_STEPS).build_ui_state(
         |ui, s: &mut State| {
             s.button = ui.make_persistent_id(egui::IdSalt::new("type-font"));
             s.popup = s.button.with("popup");
@@ -341,7 +347,7 @@ fn the_first_arrow_after_a_pick_keeps_the_focus_between_neighbours() {
         let families: Vec<String> = (0..20).map(|i| format!("Family {i:02}")).collect();
         let state =
             State { current: "Family 03".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview: FontPreview::Off, recents: Vec::new() };
-        let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
+        let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).with_max_steps(SETTLE_STEPS).build_ui_state(
             |ui, s: &mut State| {
                 let _ = ui.button("Above");
                 s.button = ui.make_persistent_id(egui::IdSalt::new("type-font"));
@@ -436,7 +442,7 @@ fn font_cycle_in_options_bar_edits_the_layer_and_can_be_undone() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Services::default());
     app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
     app.run("type.create", json!({"text": "Sample", "font": "Inter", "size": 18})).unwrap();
-    let mut h = Harness::builder().with_size(vec2(900.0, 700.0)).build_ui_state(
+    let mut h = Harness::builder().with_size(vec2(900.0, 700.0)).with_max_steps(SETTLE_STEPS).build_ui_state(
         |ui, app| {
             if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                 ui.horizontal(|ui| crate::type_tool::options_bar(app, ui));
@@ -660,7 +666,7 @@ fn localized_font_names_label_the_menu_but_pick_the_family() {
         preview: FontPreview::Medium,
         recents: Vec::new(),
     };
-    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
+    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).with_max_steps(SETTLE_STEPS).build_ui_state(
         |ui, s: &mut State| {
             s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
             let fams = s.families.clone();
@@ -942,7 +948,7 @@ fn options_bar_menu_arrows_walk_on_while_recording_recent_fonts() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Services::default());
     app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
     app.run("type.create", json!({"text": "Sample", "font": "Inter", "size": 18})).unwrap();
-    let mut h = Harness::builder().with_size(vec2(900.0, 700.0)).build_ui_state(
+    let mut h = Harness::builder().with_size(vec2(900.0, 700.0)).with_max_steps(SETTLE_STEPS).build_ui_state(
         |ui, app| {
             if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                 ui.horizontal(|ui| crate::type_tool::options_bar(app, ui));
