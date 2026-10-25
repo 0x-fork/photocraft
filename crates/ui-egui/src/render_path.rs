@@ -2,6 +2,11 @@
 //! point ([`note`]) by every exit from the GPU path, logged once when it changes, kept in a short
 //! history, shown in the status bar (`chrome_ui::render_path_status`) and returned by the control
 //! channel (`perf.renderPath`). `perf.gpuFallback` mirrors the current reason as text.
+//!
+//! Three slots, each written only by its own events: the canvas's reason per document ([`note`]),
+//! a reason for the whole window ([`note_app`]) and an adjustment dialog's CPU proxy preview
+//! ([`adjust_preview_cpu`] / [`adjust_preview_ok`]). [`RenderPath::current`] reads them in that
+//! order of precedence: the window, then the canvas, then the preview.
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -103,6 +108,9 @@ pub struct Change {
     pub t_ms: f64,
     pub doc: u64,
     pub reason: Option<CpuReason>,
+    /// A change of the adjustment preview's slot: `reason` None means the preview stopped using
+    /// the CPU proxy, not that the canvas is back on the GPU.
+    pub preview: bool,
 }
 
 /// The current reasons and their history.
@@ -111,14 +119,21 @@ pub struct RenderPath {
     docs: HashMap<u64, CpuReason>,
     /// A reason for every document: the GPU canvas was dropped, or never started.
     app_wide: Option<CpuReason>,
+    /// The open adjustment dialog's CPU proxy preview: (doc, [`CpuReason::AdjustPreview`]). Only
+    /// one dialog is open at a time.
+    preview: Option<(u64, CpuReason)>,
     startup_checked: bool,
     history: VecDeque<Change>,
+    /// Tests without a GPU: act as if the window had a GPU canvas.
+    #[cfg(test)]
+    pub(crate) assume_gpu: bool,
 }
 
 impl RenderPath {
-    /// Why document `doc` is drawn on the CPU now, or None on the GPU.
+    /// Why document `doc` is drawn on the CPU now, or None on the GPU: the window's reason, else
+    /// the canvas's, else the adjustment preview's.
     pub fn current(&self, doc: u64) -> Option<&CpuReason> {
-        self.app_wide.as_ref().or_else(|| self.docs.get(&doc))
+        self.app_wide.as_ref().or_else(|| self.docs.get(&doc)).or_else(|| self.preview.as_ref().filter(|(d, _)| *d == doc).map(|(_, r)| r))
     }
 
     /// The changes, oldest first.
@@ -126,11 +141,11 @@ impl RenderPath {
         self.history.iter()
     }
 
-    fn push(&mut self, doc: u64, reason: Option<CpuReason>) {
+    fn push(&mut self, doc: u64, reason: Option<CpuReason>, preview: bool) {
         if self.history.len() == HISTORY {
             self.history.pop_front();
         }
-        self.history.push_back(Change { t_ms: crate::gpu_canvas::now_ms(), doc, reason });
+        self.history.push_back(Change { t_ms: crate::gpu_canvas::now_ms(), doc, reason, preview });
     }
 }
 
@@ -164,7 +179,7 @@ pub fn note(app: &mut PhotocraftApp, doc: u64, path: Path) {
     app.perf.gpu_fallback = app.render_path.current(doc).map(ToString::to_string);
     if changed {
         log_change(&doc_name(app, doc), next.as_ref());
-        app.render_path.push(doc, next);
+        app.render_path.push(doc, next, false);
     }
 }
 
@@ -176,7 +191,7 @@ pub fn note_app(app: &mut PhotocraftApp, reason: Option<CpuReason>) {
     app.perf.gpu_fallback = reason.as_ref().map(ToString::to_string);
     if changed {
         log_change("all documents", reason.as_ref());
-        app.render_path.push(0, reason);
+        app.render_path.push(0, reason, false);
     }
 }
 
@@ -185,6 +200,42 @@ pub fn view_ok(app: &mut PhotocraftApp, doc: u64) {
     if app.render_path.docs.get(&doc) == Some(&CpuReason::ViewTransform) {
         note(app, doc, Path::Gpu { full: true });
     }
+}
+
+/// Whether the window composites on the GPU at all: no reason for every document, and a GPU canvas.
+fn window_on_gpu(app: &PhotocraftApp) -> bool {
+    #[cfg(test)]
+    let gpu = app.gpu.is_some() || app.render_path.assume_gpu;
+    #[cfg(not(test))]
+    let gpu = app.gpu.is_some();
+    gpu && app.render_path.app_wide.is_none()
+}
+
+/// An adjustment dialog on document `doc` previews through the CPU proxy for `why`. It has its
+/// own slot, so it never replaces or ends the canvas's or the window's reason. Not recorded when
+/// the whole window is off the GPU: the proxy is then simply part of a CPU window.
+pub fn adjust_preview_cpu(app: &mut PhotocraftApp, doc: u64, why: &'static str) {
+    if !window_on_gpu(app) {
+        adjust_preview_ok(app);
+        return;
+    }
+    let reason = CpuReason::AdjustPreview(why);
+    let changed = app.render_path.preview.as_ref().is_none_or(|(d, _)| *d != doc);
+    app.render_path.preview = Some((doc, reason.clone()));
+    app.perf.gpu_fallback = app.render_path.current(doc).map(ToString::to_string);
+    if changed {
+        log::info!("render path: {}: adjustment preview uses the CPU proxy: {why}", doc_name(app, doc));
+        app.render_path.push(doc, Some(reason), true);
+    }
+}
+
+/// The adjustment dialog closed, or retargeted to a layer the layer path can preview: end its
+/// CPU proxy preview, if one was recorded. The canvas's and the window's reasons are untouched.
+pub fn adjust_preview_ok(app: &mut PhotocraftApp) {
+    let Some((doc, _)) = app.render_path.preview.take() else { return };
+    app.perf.gpu_fallback = app.render_path.current(doc).map(ToString::to_string);
+    log::info!("render path: {}: adjustment preview no longer uses the CPU proxy", doc_name(app, doc));
+    app.render_path.push(doc, None, true);
 }
 
 /// Once, when the window has no GPU canvas: a software adapter or CPU mode chosen at startup.
@@ -209,20 +260,23 @@ fn reason_json(doc: u64, r: Option<&CpuReason>) -> Value {
     json!({"doc": doc, "kind": r.map(CpuReason::kind), "detail": r.map(ToString::to_string)})
 }
 
+/// A history entry: a preview entry's `kind` is always `adjustPreview` (`detail` null when the
+/// preview stopped using the CPU proxy), so its end never reads as the canvas back on the GPU.
+fn change_json(c: &Change) -> Value {
+    let mut v = reason_json(c.doc, c.reason.as_ref());
+    if c.preview {
+        v["kind"] = json!("adjustPreview");
+    }
+    v["t"] = json!(c.t_ms);
+    v
+}
+
 /// The control channel's `perf.renderPath`: the active document's reason (`null` on the GPU) and
 /// the history, oldest first.
 pub fn inspect(app: &PhotocraftApp) -> Value {
     let active = app.session.active().map(|st| st.doc.id.0);
     let current = active.and_then(|d| app.render_path.current(d).map(|r| reason_json(d, Some(r))));
-    let history: Vec<Value> = app
-        .render_path
-        .history()
-        .map(|c| {
-            let mut v = reason_json(c.doc, c.reason.as_ref());
-            v["t"] = json!(c.t_ms);
-            v
-        })
-        .collect();
+    let history: Vec<Value> = app.render_path.history().map(change_json).collect();
     json!({"current": current, "history": history})
 }
 
