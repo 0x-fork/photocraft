@@ -637,6 +637,8 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         layout.floating.iter().filter(|window| window.id == PROPERTIES_WINDOW).flat_map(|window| window.panels().cloned()).collect();
     #[cfg(test)]
     ui.ctx().data_mut(|data| data.insert_temp(bodies_id(), Vec::<(String, egui::Rect)>::new()));
+    // The panel windows' passes, inside this call, note their text focus again.
+    native_keys(ui.ctx()).lock().unwrap_or_else(|e| e.into_inner()).typing.clear();
     let mut output = dock.show_customized(
         ui,
         &layout,
@@ -728,15 +730,53 @@ pub(crate) fn native_viewports(app: &PhotocraftApp, ctx: &egui::Context) -> Vec<
 }
 
 /// The main window's `raw_input_hook` rewrites that floating panels' own windows need too:
-/// Ctrl+click is a secondary click on macOS. Each window keeps its own press state.
+/// Ctrl+click is a secondary click on macOS. Each window keeps its own press state. Key presses
+/// [`send_keys`] left for a window join its input.
 #[cfg(not(target_arch = "wasm32"))]
 fn native_input_hook(ctx: &egui::Context) -> impl FnMut(&egui::Context, &mut egui::RawInput) + Send + 'static {
     type Clicks = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<egui::ViewportId, crate::control_click::ControlClick>>>;
     let clicks = ctx.data_mut(|data| data.get_temp_mut_or_default::<Clicks>(area_id().with("control-click")).clone());
-    move |_, raw| {
+    let keys = native_keys(ctx);
+    move |ctx, raw| {
+        let waiting = keys.lock().unwrap_or_else(|e| e.into_inner()).waiting.remove(&raw.viewport_id);
+        if let Some(mut events) = waiting {
+            crate::shortcuts::text_clipboard_keys(ctx, raw.viewport_id, &mut events);
+            raw.events.extend(events);
+        }
         let mut clicks = clicks.lock().unwrap_or_else(|e| e.into_inner());
         clicks.entry(raw.viewport_id).or_default().normalize(&mut raw.events, cfg!(target_os = "macos"));
     }
+}
+
+/// The floating panels' own windows whose text field had keyboard focus in their last pass, and
+/// key presses waiting for their next input.
+#[derive(Default)]
+struct NativeKeys {
+    typing: std::collections::HashSet<egui::ViewportId>,
+    waiting: std::collections::HashMap<egui::ViewportId, Vec<egui::Event>>,
+}
+
+type SharedKeys = std::sync::Arc<std::sync::Mutex<NativeKeys>>;
+
+fn native_keys(ctx: &egui::Context) -> SharedKeys {
+    ctx.data_mut(|data| data.get_temp_mut_or_default::<SharedKeys>(area_id().with("native-keys")).clone())
+}
+
+/// The floating panel window with the keyboard (by `raw`'s viewport infos) whose text field has
+/// focus. The Mac menu's key equivalents typed there arrive in the main window's input.
+pub(crate) fn typing_window(ctx: &egui::Context, raw: &egui::RawInput) -> Option<egui::ViewportId> {
+    let keys = native_keys(ctx);
+    let keys = keys.lock().unwrap_or_else(|e| e.into_inner());
+    keys.typing.iter().copied().find(|viewport| raw.viewports.get(viewport).and_then(|info| info.focused) == Some(true))
+}
+
+/// Give key presses to the floating panel window `viewport`, on its next input.
+pub(crate) fn send_keys(ctx: &egui::Context, viewport: egui::ViewportId, events: Vec<egui::Event>) {
+    if events.is_empty() {
+        return;
+    }
+    native_keys(ctx).lock().unwrap_or_else(|e| e.into_inner()).waiting.entry(viewport).or_default().extend(events);
+    ctx.request_repaint_of(viewport);
 }
 
 /// Files dropped on a floating panel's own OS window open as documents, as files dropped on the
@@ -1296,6 +1336,10 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
         if id == CANVAS {
             crate::panels::canvas_panel(self.app, ui);
             return;
+        }
+        let viewport = ui.ctx().viewport_id();
+        if viewport != egui::ViewportId::ROOT && ui.ctx().text_edit_focused() {
+            native_keys(ui.ctx()).lock().unwrap_or_else(|e| e.into_inner()).typing.insert(viewport);
         }
         // A window too small for the dock squeezes its column below the panels' minimum width,
         // which their layouts do not take.

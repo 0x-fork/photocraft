@@ -2371,8 +2371,16 @@ impl eframe::App for PhotocraftApp {
             window_frame();
         }
         // Native menu key equivalents become the key presses they were (see `native_menu`).
+        // Those typed in a text field of a floating panel's own window are that field's.
         if let Some(menu) = self.services.native_menu.as_mut() {
-            menu.raw_input(raw_input);
+            match panel_docking::typing_window(ctx, raw_input) {
+                Some(window) => {
+                    let mut keys = egui::RawInput::default();
+                    menu.raw_input(&mut keys);
+                    panel_docking::send_keys(ctx, window, keys.events);
+                }
+                None => menu.raw_input(raw_input),
+            }
         }
         shortcuts::clipboard_keys(ctx, ctx.text_edit_focused() || self.ui.text_edit.is_some(), raw_input);
         // Windows precision touchpads and some Linux Wayland compositors send pinches

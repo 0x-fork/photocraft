@@ -13,6 +13,8 @@ struct Window {
     rect: Rect,
     events: Vec<Event>,
     dropped: Vec<egui::DroppedFileHandle>,
+    /// The window asked for the clipboard text.
+    paste_requested: bool,
 }
 
 #[derive(Default)]
@@ -44,7 +46,7 @@ impl Host {
             let mut host = host.borrow_mut();
             let builder = &viewport.builder;
             let rect = Rect::from_min_size(builder.position.unwrap_or_default(), builder.inner_size.unwrap_or(vec2(300.0, 200.0)));
-            host.windows.entry(id).or_insert(Window { rect, events: Vec::new(), dropped: Vec::new() });
+            host.windows.entry(id).or_insert(Window { rect, events: Vec::new(), dropped: Vec::new(), paste_requested: false });
             let (viewports, focused, time) = (host.infos(), host.focus == Some(id), host.time);
             let window = host.windows.get_mut(&id).expect("just added");
             egui::RawInput {
@@ -113,6 +115,13 @@ impl Desktop {
             input.viewports = infos;
             input.focused = main_focused;
             self.h.step();
+            // egui reports the commands of immediate viewports in the main window's output.
+            let mut host = self.host.borrow_mut();
+            for (id, output) in &self.h.output().viewport_output {
+                if let Some(window) = host.windows.get_mut(id) {
+                    window.paste_requested |= output.commands.contains(&egui::ViewportCommand::RequestPaste);
+                }
+            }
         }
     }
 
@@ -240,6 +249,43 @@ fn keys_pressed_in_a_panel_window_run_photocrafts_shortcuts() {
     assert_eq!(layers(&desktop), before + 1);
     desktop.key(viewport, Key::Z, Modifiers::COMMAND);
     assert_eq!(layers(&desktop), before, "⌘Z in the Info window undoes");
+}
+
+/// The Mac menu bar, reporting one key equivalent.
+struct MenuKey(Vec<crate::native_menu::Event>);
+
+impl crate::native_menu::Backend for MenuKey {
+    fn sync(&mut self, _: &crate::native_menu::MenuBar) {}
+    fn drain(&mut self) -> Vec<crate::native_menu::Event> {
+        std::mem::take(&mut self.0)
+    }
+}
+
+#[test]
+fn a_menu_key_typed_in_a_panel_windows_text_field_goes_to_the_field() {
+    let mut desktop = Desktop::new(app_with_document());
+    let app = desktop.h.state_mut();
+    app.run("select.rect", json!({"x": 0, "y": 0, "width": 8, "height": 4})).unwrap();
+    app.run("edit.copy", json!({})).unwrap();
+    app.run("window.panel.float", json!({"panel": "gradients"})).unwrap();
+    desktop.steps(3);
+    let viewport = desktop.window_of("gradients").unwrap();
+    desktop.host.borrow_mut().focus = Some(viewport);
+    desktop.h.state_mut().ui.presets_ui.renaming = Some(("gradients".into(), "key".into(), "Name".into()));
+    desktop.steps(3);
+
+    let layers = |desktop: &Desktop| desktop.h.state().session.active().unwrap().doc.layers.len();
+    let before = layers(&desktop);
+    let paste = crate::native_menu::Chord::parse("Cmd+V").unwrap();
+    desktop.h.state_mut().services.native_menu = Some(crate::native_menu::NativeMenu::new(Box::new(MenuKey(vec![crate::native_menu::Event::Key(paste)]))));
+    let mut raw = egui::RawInput { viewports: desktop.host.borrow().infos(), ..Default::default() };
+    let ctx = desktop.h.ctx.clone();
+    eframe::App::raw_input_hook(desktop.h.state_mut(), &ctx, &mut raw);
+    assert!(!raw.events.iter().any(|e| matches!(e, Event::Key { key: Key::V, .. })), "the main window gets no ⌘V: {:?}", raw.events);
+    desktop.h.input_mut().events.extend(raw.events);
+    desktop.steps(3);
+    assert_eq!(layers(&desktop), before, "nothing is pasted into the document");
+    assert!(desktop.host.borrow().windows[&viewport].paste_requested, "the field's window asks for the clipboard text");
 }
 
 #[test]

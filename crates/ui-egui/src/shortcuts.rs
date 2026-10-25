@@ -260,6 +260,31 @@ fn plain_copy(e: &egui::Event, mods: Modifiers) -> bool {
     }
 }
 
+/// A text field copies and pastes on egui's Copy / Cut / Paste events, which egui-winit makes
+/// from the window's key and so never sends as key presses. A ⌘C / ⌘X / ⌘V press in a text
+/// field's `events` is the Mac menu's key equivalent (AppKit takes the key while Edit › Copy, Cut
+/// or Paste is enabled), which a text field ignores: pasting text worked only while PhotoCraft's
+/// own clipboard was empty. Give those presses back as the events; Paste asks the window
+/// `viewport` for the clipboard text, which arrives as a Paste event next frame.
+pub(crate) fn text_clipboard_keys(ctx: &egui::Context, viewport: egui::ViewportId, events: &mut Vec<egui::Event>) {
+    events.retain_mut(|e| {
+        let egui::Event::Key { key, pressed: true, modifiers: m, .. } = *e else { return true };
+        if !m.command || m.alt || m.shift {
+            return true;
+        }
+        match key {
+            Key::C => *e = egui::Event::Copy,
+            Key::X => *e = egui::Event::Cut,
+            Key::V => {
+                ctx.send_viewport_cmd_to(viewport, egui::ViewportCommand::RequestPaste);
+                return false;
+            }
+            _ => {}
+        }
+        true
+    });
+}
+
 /// egui-winit turns ⌘C / ⌘X / ⌘V into `Event::Copy` / `Cut` / `Paste` and drops the key press, and
 /// drops ⌘V entirely when the clipboard holds no text (an image). Outside text fields, give the
 /// pixel commands their key presses back: Copy/Cut/Paste become ⌘C/⌘X/⌘V presses (with ⇧/⌥ as
@@ -299,28 +324,7 @@ pub fn clipboard_keys(ctx: &egui::Context, typing: bool, raw: &mut egui::RawInpu
         });
     }
     if typing {
-        // A text field copies and pastes on egui's Copy / Cut / Paste events, which egui-winit
-        // makes from the window's key and so never sends as key presses. A ⌘C / ⌘X / ⌘V press
-        // here is the Mac menu's key equivalent (AppKit takes the key while Edit › Copy, Cut or
-        // Paste is enabled), which a text field ignores: pasting text worked only while
-        // PhotoCraft's own clipboard was empty. Give those presses back as the events; Paste asks
-        // the window for the clipboard text, which arrives as a Paste event next frame.
-        raw.events.retain_mut(|e| {
-            let egui::Event::Key { key, pressed: true, modifiers: m, .. } = *e else { return true };
-            if !m.command || m.alt || m.shift {
-                return true;
-            }
-            match key {
-                Key::C => *e = egui::Event::Copy,
-                Key::X => *e = egui::Event::Cut,
-                Key::V => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                    return false;
-                }
-                _ => {}
-            }
-            true
-        });
+        text_clipboard_keys(ctx, raw.viewport_id, &mut raw.events);
         return;
     }
     let seen = egui::Id::new("pc-paste-key-seen");
