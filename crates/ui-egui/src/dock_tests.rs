@@ -886,8 +886,7 @@ fn navigator_preview_fills_its_group_and_keeps_aspect() {
     for theme in [ThemeKind::ProMedium, ThemeKind::Studio] {
         let mut sizes = Vec::new();
         for tall in [150.0, 260.0, 420.0] {
-            // Tall enough for the 420 pt group above Layers, which keeps room for its controls.
-            let mut h = Harness::builder().with_size(vec2(1200.0, 1100.0)).with_max_steps(64).build_eframe(move |cc| {
+            let mut h = Harness::builder().with_size(vec2(1200.0, 1000.0)).with_max_steps(64).build_eframe(move |cc| {
                 PhotocraftApp::setup_context(&cc.egui_ctx, theme);
                 let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
                 app.ui.theme = theme;

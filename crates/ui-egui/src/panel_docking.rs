@@ -629,11 +629,8 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             } else if collapsed.contains(id) {
                 craft_ui::docking::PanelLimits { min: egui::vec2(220.0, 0.0), max: egui::vec2(1_000_000.0, 0.0) }
             } else {
-                // Layers owns its row scroll and footer; leave room for its fixed controls
-                // plus a scrolling row area instead of clipping the footer after a split. The
-                // others go down to the native group's smallest height, tab strip included.
-                let native = PANELS.iter().find(|p| p.0 == id).map_or(80.0, |p| p.2.min_height() - strip);
-                let height = if id == "layers" { 220.0 } else { native };
+                // The native group's smallest height, tab strip included.
+                let height = PANELS.iter().find(|p| p.0 == id).map_or(80.0, |p| p.2.min_height() - strip);
                 craft_ui::docking::PanelLimits { min: egui::vec2(220.0, height), ..Default::default() }
             }
         },
