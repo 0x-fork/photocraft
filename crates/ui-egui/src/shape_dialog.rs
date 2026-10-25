@@ -205,10 +205,14 @@ pub fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) 
             ui.horizontal(|ui| {
                 label(ui, tl!("Radius:"));
                 ui.vertical(|ui| {
+                    // All four fields show "Radius:"; the accessible name says which corner
+                    // (radii are top-left, top-right, bottom-right, bottom-left).
+                    let corners = ["Top Left", "Top Right", "Bottom Right", "Bottom Left"];
                     for row in [[0usize, 1], [3, 2]] {
                         ui.horizontal(|ui| {
                             for i in row {
-                                if crate::widgets::value_field(ui, &mut radii[i], 0.0..=10000.0, "px", 72.0).accessible_name(tl!("Radius:")).changed() {
+                                let name = format!("{} {}", tl!(corners[i]), tl!("Radius:"));
+                                if crate::widgets::value_field(ui, &mut radii[i], 0.0..=10000.0, "px", 72.0).accessible_name(name).changed() {
                                     changed = Some(i);
                                 }
                             }

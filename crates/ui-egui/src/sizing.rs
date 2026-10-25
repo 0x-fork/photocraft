@@ -406,7 +406,7 @@ fn canvas_size(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             ("black".to_string(), tl!("Black")),
             ("transparent".to_string(), tl!("Transparent")),
         ];
-        if crate::widgets::dropdown(ui, "cs-ext", tl!("Size"), &mut cur, &opts, 140.0) {
+        if crate::widgets::dropdown(ui, "cs-ext", tl!("Canvas extension color:"), &mut cur, &opts, 140.0) {
             f.insert("extensionColor".into(), json!(cur));
         }
     });

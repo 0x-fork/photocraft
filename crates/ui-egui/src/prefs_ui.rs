@@ -1506,7 +1506,7 @@ fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, adapters: Option<&Va
             let options = prefs::choices("performance.gpuBackend").unwrap_or(&[]);
             let labels: Vec<String> = options.iter().map(|o| choice_label(o)).collect();
             let pairs: Vec<(String, &str)> = options.iter().map(|o| o.to_string()).zip(labels.iter().map(String::as_str)).collect();
-            crate::widgets::dropdown(ui, "graphics-backend", tl!("Graphics"), &mut current, &pairs, 220.0);
+            crate::widgets::dropdown(ui, "graphics-backend", tl!("GPU Backend"), &mut current, &pairs, 220.0);
             obj.insert("gpuBackend".into(), json!(current));
         });
         if !prefs::is_hidden("performance.gpuAdapter") {
@@ -1534,7 +1534,7 @@ fn graphics_adapter_row(ui: &mut egui::Ui, adapters: Option<&Value>, obj: &mut M
     pairs.extend(names.iter().cloned().zip(labels.iter().map(String::as_str)));
     ui.horizontal(|ui| {
         ui.label(tl!("GPU adapter"));
-        crate::widgets::dropdown_literal(ui, "graphics-adapter", tl!("Graphics"), &mut current, &pairs, 320.0);
+        crate::widgets::dropdown_literal(ui, "graphics-adapter", tl!("GPU adapter"), &mut current, &pairs, 320.0);
     });
     ui.label(RichText::new(tl!("Applies at next launch.")).color(Tokens::get(ui.ctx()).text_faint));
     obj.insert("gpuAdapter".into(), json!(current));
