@@ -170,11 +170,31 @@ pub(crate) fn valid_workspace(workspace: &Workspace) -> bool {
 pub(crate) fn load(saved: &Value) -> Option<(Workspace, Returns)> {
     let docking = saved.get("docking").filter(|v| v.get("layout").is_some())?;
     let mut workspace: Workspace = serde_json::from_value(docking.clone()).ok()?;
-    workspace.layout = beside_canvas(workspace.layout);
-    workspace.saved = workspace.saved.map(beside_canvas);
+    workspace.layout = with_card(beside_canvas(workspace.layout));
+    workspace.saved = workspace.saved.map(|saved| with_card(beside_canvas(saved)));
     let mut returns: Returns = saved.get("dockingReturns").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     returns.retain(|panel, at| registered(panel) && at.floating.is_none() && floats(&workspace.layout, panel));
     valid_workspace(&workspace).then_some((workspace, returns))
+}
+
+/// The Studio Properties card again, with its window id. craft-ui saves the id of native windows
+/// only, so a loaded card would otherwise get a fresh one and open as an OS window. The card is the
+/// first window outside an OS window with one group of only Properties-group panels. The theme is
+/// not known here (the saved one applies on the first frame, and Auto appearance switches it), so
+/// this holds in every theme: on the desktop, other floating windows have OS windows and save
+/// their rects.
+fn with_card(mut layout: Layout<String>) -> Layout<String> {
+    let card = |window: &Floating<String>| {
+        window.native.is_none()
+            && matches!(&window.root, Node::Tabs { panels, .. } if !panels.is_empty()
+                && panels.iter().all(|id| PANELS.iter().any(|p| p.0 == id && p.2 == Group::Properties)))
+    };
+    if !layout.floating.iter().any(|window| window.id == PROPERTIES_WINDOW)
+        && let Some(window) = layout.floating.iter_mut().find(|window| card(window))
+    {
+        window.id = PROPERTIES_WINDOW;
+    }
+    layout
 }
 
 fn legacy(app: &PhotocraftApp) -> Layout<String> {

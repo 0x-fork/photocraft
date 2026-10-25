@@ -196,6 +196,33 @@ fn undocking_a_panel_opens_its_own_window_and_the_studio_card_stays_in_the_main_
     assert!(refused.is_err(), "{refused:?}");
 }
 
+fn studio_app() -> PhotocraftApp {
+    let mut app = app_with_document();
+    app.ui.theme = crate::theme::ThemeKind::Studio;
+    app
+}
+
+#[test]
+fn the_studio_card_stays_in_the_main_window_after_a_reload() {
+    let mut desktop = Desktop::new(studio_app());
+    desktop.h.state_mut().run("window.panel.close", json!({"panel": "layers"})).unwrap();
+    desktop.steps(3);
+    assert!(desktop.host.borrow().windows.is_empty());
+    let saved: Value = serde_json::from_str(&crate::dock::snapshot(desktop.h.state()).to_string()).unwrap();
+    drop(desktop);
+    let mut reloaded = studio_app();
+    crate::dock::apply(&mut reloaded, &saved);
+    let mut desktop = Desktop::new(reloaded);
+    desktop.steps(3);
+    let card = lay(desktop.h.state()).floating.iter().find(|window| window.contains(&"properties".to_owned())).expect("the card").clone();
+    assert_eq!(card.id, PROPERTIES_WINDOW);
+    assert!(desktop.host.borrow().windows.is_empty(), "the card opens no OS window");
+    let layer = craft_ui::docking::DockArea::<String>::floating_layer(area_id(), &card).unwrap();
+    assert!(desktop.h.ctx.memory(|m| m.area_rect(layer.id)).is_some(), "the card is drawn in the main window");
+    let refused = desktop.h.state_mut().run("window.panel.window", json!({"panel": "properties"}));
+    assert!(refused.is_err(), "{refused:?}");
+}
+
 #[test]
 fn keys_pressed_in_a_panel_window_run_photocrafts_shortcuts() {
     let mut desktop = Desktop::new(app_with_document());
