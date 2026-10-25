@@ -246,6 +246,10 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
         limits.check_bytes(w, h, u64::from(nc.max(1)))?;
     }
     if uses_craft_jpeg(bytes) {
+        // craft-jpeg sizes its buffers from the frame header before it reads a scan.
+        if scan_bytes == 0 {
+            return Err(err("the file has no scan data"));
+        }
         if let Some((w, h, _)) = meta.frame
             && end == DataEnd::Truncated
             && u64::from(w) * u64::from(h) / MAX_TRUNCATED_PIXELS_PER_BYTE > scan_bytes
@@ -677,10 +681,18 @@ mod tests {
     fn lossless_and_twelve_bit_progressive_are_unsupported_not_damaged() {
         for marker in [0xC3, 0xC2] {
             let mut bytes = vec![0xFF, 0xD8, 0xFF, marker, 0, 11, 12, 0, 8, 0, 8, 1, 1, 0x11, 0];
-            bytes.extend_from_slice(&[0xFF, 0xD9]);
+            bytes.extend_from_slice(&[0xFF, 0xDA, 0, 8, 1, 1, 0, 0, 0x3F, 0, 0x12, 0x34, 0xFF, 0xD9]);
             let e = crate::decode(&bytes).unwrap_err();
             assert!(matches!(e, CodecError::Unsupported { .. }), "{marker:#x}: {e:?}");
         }
+    }
+
+    #[test]
+    fn a_twelve_bit_frame_without_scan_data_is_refused_before_decoding() {
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xC1, 0, 11, 12, 0x40, 0, 0x40, 0, 1, 1, 0x11, 0];
+        bytes.extend_from_slice(&[0xFF, 0xDA, 0, 8, 1, 1, 0, 0, 0x3F, 0, 0xFF, 0xD9]);
+        let e = crate::decode(&bytes).unwrap_err();
+        assert!(e.to_string().contains("no scan data"), "{e}");
     }
 
     #[test]
