@@ -904,6 +904,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut events: Vec<ToolEvent> = Vec::new();
     let mut mods = egui::Modifiers::NONE;
     let pinch_zooms = app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch;
+    let animated_zoom = app.session.prefs().general.animated_zoom;
     egui::Area::new(egui::Id::new("liquify-dialog")).order(egui::Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
         let Some(d) = app.distort.liquify.as_mut() else { return };
         d.upload(ctx);
@@ -1038,10 +1039,18 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // The wheel zooms about the pointer, ×1.1 a notch, and so does a trackpad pinch (unless
         // Preferences › Enhanced Controls › Zoom with Trackpad Pinch is off); a sideways scroll
         // pans (#7210). Read every frame, as `wheel_nav` asks, so its modifier state follows.
-        let wheel = crate::wheel_nav::read(ctx, true, pinch_zooms, egui::Id::new("liquify-preview-wheel"), resp.hovered());
+        let wheel_id = egui::Id::new("liquify-preview-wheel");
+        let wheel = crate::wheel_nav::read(ctx, true, pinch_zooms, animated_zoom, wheel_id, resp.hovered());
         if let Some(hp) = resp.hover_pos() {
             let zoom = match wheel {
-                Some(crate::wheel_nav::Wheel::Zoom(f)) => Some((d.zoom * f).clamp(ZOOM_MIN, ZOOM_MAX)),
+                Some(crate::wheel_nav::Wheel::Zoom(f)) => {
+                    let z = d.zoom * f;
+                    // At a limit, drop the rest of an eased notch, or it would swallow the first notch back.
+                    if z != z.clamp(ZOOM_MIN, ZOOM_MAX) {
+                        crate::wheel_nav::settle(ctx, wheel_id);
+                    }
+                    Some(z.clamp(ZOOM_MIN, ZOOM_MAX))
+                }
                 Some(crate::wheel_nav::Wheel::SnapZoom(n)) => {
                     Some((0..n.unsigned_abs()).fold(d.zoom, |z, _| crate::zoom_levels::step_in_range(z, n.signum(), ZOOM_MIN, ZOOM_MAX)))
                 }
