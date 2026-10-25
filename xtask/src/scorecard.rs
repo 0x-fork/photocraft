@@ -469,14 +469,10 @@ pub struct Inputs {
     pub panic_hunt: bool,
 }
 
-pub fn gather(root: &Path) -> Result<Inputs, String> {
-    let budgets = perf::parse_budgets(&std::fs::read_to_string(root.join(perf::BUDGETS)).map_err(|e| format!("read {}: {e}", perf::BUDGETS))?)?;
-    let baseline = match std::fs::read_to_string(root.join(perf::BASELINE)) {
-        Ok(t) => Some(serde_json::from_str(&t).map_err(|e| format!("{}: {e}", perf::BASELINE))?),
-        Err(_) => None,
-    };
-    let mut corpora = parse_corpus(&std::fs::read_to_string(root.join(CORPUS_RS)).map_err(|e| format!("read {CORPUS_RS}: {e}"))?);
-    for corpus in &mut corpora {
+/// A pinned corpus counts the files its sha256 manifest lists (one per non-blank line), not
+/// the number its doc comment in `corpus.rs` gives; other corpora keep the doc comment's count.
+fn pinned_file_counts(corpora: &mut [Corpus], root: &Path) -> Result<(), String> {
+    for corpus in corpora {
         let Some(pinned) = crate::corpus_pins::ALL.iter().find(|p| corpus.dir == format!("corpus/{}", p.dest)) else { continue };
         let manifest = std::fs::read_to_string(root.join(pinned.manifest)).map_err(|e| format!("read {}: {e}", pinned.manifest))?;
         corpus.files = Some(
@@ -484,6 +480,17 @@ pub fn gather(root: &Path) -> Result<Inputs, String> {
                 .map_err(|_| format!("{}: corpus file count exceeds u32", pinned.manifest))?,
         );
     }
+    Ok(())
+}
+
+pub fn gather(root: &Path) -> Result<Inputs, String> {
+    let budgets = perf::parse_budgets(&std::fs::read_to_string(root.join(perf::BUDGETS)).map_err(|e| format!("read {}: {e}", perf::BUDGETS))?)?;
+    let baseline = match std::fs::read_to_string(root.join(perf::BASELINE)) {
+        Ok(t) => Some(serde_json::from_str(&t).map_err(|e| format!("{}: {e}", perf::BASELINE))?),
+        Err(_) => None,
+    };
+    let mut corpora = parse_corpus(&std::fs::read_to_string(root.join(CORPUS_RS)).map_err(|e| format!("read {CORPUS_RS}: {e}"))?);
+    pinned_file_counts(&mut corpora, root)?;
     Ok(Inputs {
         budgets,
         baseline,
@@ -798,6 +805,34 @@ const PHOTOSHOP: Source = Source { label: "photoshop oracles", dir: "corpus/phot
         assert_eq!((c[1].files, c[1].pass_floor, c[1].roundtrip_floor), (Some(309), Some(212), Some(307)));
         assert_eq!((c[2].dir.as_str(), c[2].files, c[2].pass_floor, c[2].roundtrip_floor), ("corpus/photoshop", Some(256), Some(74), Some(256)));
         assert!(parse_corpus("const X: u32 = 1;").is_empty());
+    }
+
+    /// The manifest decides, even when the doc comment says otherwise (on the tree they agree,
+    /// so only a synthetic root tells the two apart).
+    #[test]
+    fn pinned_corpus_counts_come_from_the_manifest_not_the_doc_comment() {
+        let pin = &crate::corpus_pins::ALL[0];
+        let root = std::env::temp_dir().join(format!("scorecard-pinned-counts-{}", std::process::id()));
+        let manifest = root.join(pin.manifest);
+        std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        std::fs::write(
+            &manifest,
+            "aa  a.psd
+
+bb  b.psd
+cc  c.psd
+",
+        )
+        .unwrap();
+        let mut corpora = vec![
+            Corpus { label: "pinned".into(), dir: format!("corpus/{}", pin.dest), files: Some(999), ..Default::default() },
+            Corpus { label: "other".into(), dir: "corpus/not-pinned".into(), files: Some(7), ..Default::default() },
+        ];
+        let r = pinned_file_counts(&mut corpora, &root);
+        let _ = std::fs::remove_dir_all(&root);
+        r.unwrap();
+        assert_eq!(corpora[0].files, Some(3), "three manifest lines, not the doc comment's 999");
+        assert_eq!(corpora[1].files, Some(7), "a corpus without a pin keeps its doc comment count");
     }
 
     #[test]
