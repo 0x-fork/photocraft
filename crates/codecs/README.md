@@ -244,7 +244,9 @@ embedded table (and a PNG's transparent entry) so `photocraft-io` can open them 
     JPEG-in-TIFF) return `Unsupported`.
 * **TIFF encode** writes classic TIFF, or BigTIFF when `EncodeOptions::tiff_bigtiff` is set or
   the file could pass 4 GiB. `Metadata::extra_samples` (up to 16) are written after the colour
-  and alpha samples, with their `kind` in the ExtraSamples tag; more than 16 is an error.
+  and alpha samples, with their `kind` in the ExtraSamples tag. Each plane must be exactly
+  `width × height × sample.bytes()` bytes; a plane of any other length, and more than 16 planes,
+  are encode errors rather than silently truncated or reinterpreted.
 * **EXR**
   * Multi-part files (a Maya/Arnold render writes one part per AOV) open the part that
     looks most like a colour image — RGBA beats RGB beats YA beats a single channel, so a

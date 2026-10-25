@@ -179,6 +179,44 @@ fn sixteen_extra_samples_round_trip() {
     }
 }
 
+/// An extra plane holds exactly one sample per pixel of the image's sample type. A plane of any
+/// other length is refused rather than written: the writer copies one sample per pixel, so a
+/// longer plane would lose its tail and a shorter one would run out mid-image.
+#[test]
+fn wrong_sized_extra_planes_are_refused() {
+    let (w, h) = (2u32, 1u32);
+    for (label, plane) in [("too long", vec![10u8, 20, 30]), ("too short", vec![10u8]), ("empty", Vec::new())] {
+        let mut img = synth(w, h, ChannelLayout::Rgb, SampleType::U8, 1, 0.0);
+        img.meta.extra_samples = vec![ExtraSample { kind: 0, data: plane.clone() }];
+        let err = encode(&img, Format::Tiff, &EncodeOptions::default()).unwrap_err();
+        assert!(matches!(err, CodecError::Encode { .. }), "{label}: {err}");
+        assert!(err.to_string().contains("extra sample 0") && err.to_string().contains("exactly 2"), "{label}: {err}");
+    }
+    // The exact length still writes, and comes back unchanged.
+    let plane = vec![10u8, 20];
+    let mut img = synth(w, h, ChannelLayout::Rgb, SampleType::U8, 1, 0.0);
+    img.meta.extra_samples = vec![ExtraSample { kind: 0, data: plane.clone() }];
+    let back = decode(&encode(&img, Format::Tiff, &EncodeOptions::default()).unwrap()).unwrap();
+    assert_eq!(back.meta.extra_samples, vec![ExtraSample { kind: 0, data: plane }]);
+}
+
+/// The sample-type conversion an encode performs must not launder a wrong-sized plane: float Lab
+/// is stored as CIELab at 16 bits, and `Image::convert` leaves a plane whose length does not match
+/// the image alone, so a 7- or 9-byte plane for two pixels would otherwise reach the writer
+/// reinterpreted at the new width.
+#[test]
+fn a_wrong_sized_plane_is_refused_before_a_sample_type_conversion() {
+    let (w, h) = (2u32, 1u32);
+    // Two pixels at 32-bit float are 8 bytes; the file's 16-bit samples are 4.
+    for (label, len) in [("short", 7usize), ("long", 9)] {
+        let mut img = synth(w, h, ChannelLayout::Lab, SampleType::F32, 1, 0.0);
+        img.meta.extra_samples = vec![ExtraSample { kind: 0, data: vec![0; len] }];
+        let err = encode(&img, Format::Tiff, &EncodeOptions::default()).unwrap_err();
+        assert!(matches!(err, CodecError::Encode { .. }), "{label}: {err}");
+        assert!(err.to_string().contains("exactly 8"), "{label}: {err}");
+    }
+}
+
 /// Extra samples count against `max_alloc` with the image (their interleaved buffer and the
 /// planes split from it): a budget that holds the RGB image but not sixteen extra planes refuses
 /// the file instead of allocating past it.

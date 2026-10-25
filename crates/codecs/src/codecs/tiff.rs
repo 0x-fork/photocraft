@@ -1655,7 +1655,39 @@ fn estimated_size(img: &Image, tags: &TagSet<'_>) -> u64 {
     (img.data().len() as u64).saturating_add(extras).saturating_add(payloads).saturating_add(text).saturating_add(tables).saturating_add(1 << 20)
 }
 
+/// The byte length of one extra-sample plane: one sample per pixel of `img`, in its sample type.
+/// `None` when the pixel count overflows a `usize` (no such image buffer can exist).
+fn extra_plane_len(img: &Image) -> Option<usize> {
+    let (w, h) = img.dimensions();
+    (w as usize).checked_mul(h as usize)?.checked_mul(img.sample_type().bytes())
+}
+
+/// Every extra plane must hold exactly one sample per pixel of `img`, in its sample type.
+///
+/// The writer copies one sample per pixel out of each plane, so a plane of any other length
+/// would be silently truncated (long) or read past its end (short). A sample-type conversion
+/// reinterprets the bytes in the new width instead, so an unchecked plane would also change
+/// meaning rather than fail. Refuse the image instead of writing either.
+fn check_extra_planes(img: &Image) -> Result<(), CodecError> {
+    let (w, h) = img.dimensions();
+    let sample = img.sample_type();
+    let plane_len = extra_plane_len(img).ok_or_else(|| CodecError::encode(F, format!("the extra-sample size of a {w}x{h} image overflows")))?;
+    for (k, e) in img.meta.extra_samples.iter().enumerate() {
+        if e.data.len() != plane_len {
+            return Err(CodecError::encode(
+                F,
+                format!("extra sample {k} is {} bytes; a {w}x{h} {sample:?} image needs exactly {plane_len} (one sample per pixel)", e.data.len()),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Vec<u8>, CodecError> {
+    // Check the source planes before `converted`, which brings them to the plan's sample type
+    // with the image but deliberately leaves a wrong-sized plane alone: past that point a bad
+    // plane would be reinterpreted in the new width rather than rejected.
+    check_extra_planes(src)?;
     // `converted` brings the extra samples to the plan's sample type with the image.
     encode_ready(&src.converted(plan.layout, plan.sample), opts)
 }
@@ -1687,6 +1719,11 @@ fn encode_ready(img: &Image, opts: &EncodeOptions) -> Result<Vec<u8>, CodecError
     if img.meta.extra_samples.len() > crate::MAX_EXTRA_SAMPLES {
         return Err(CodecError::encode(F, format!("TIFF stores at most {} extra samples", crate::MAX_EXTRA_SAMPLES)));
     }
+    // Validate again in the sample type the planes now hold: `Image::convert` takes a plane's
+    // bytes before it rebuilds them, so one it could not rebuild would arrive here empty. The Lab
+    // path's later re-type through `lab_file` converts a plane only when its length already
+    // matches the image, which this guarantees.
+    check_extra_planes(img)?;
     let mut kinds = Vec::with_capacity(img.meta.extra_samples.len().saturating_add(1));
     if img.layout().has_alpha() {
         kinds.push(2);
