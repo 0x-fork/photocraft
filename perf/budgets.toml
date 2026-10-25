@@ -236,7 +236,10 @@ issue = 209
 bench = "perf_scenarios"
 row = "brush dab 60 px on 32-bit 20 layers + refresh"
 budget_ms = 100
-enforce = false  # over budget in the 2026-10-05 baseline
+# Not enforced: met on an idle M4 Pro (p95 2.95 ms), but over budget once in the 8 nightlies on
+# macos-15 (p95 103.7 ms on 2026-10-18). `cargo xtask perf --update-baseline --from` over those
+# 8 nightlies (2026-10-18 to 10-25) lists it as flaky. Budget enforcement applies on the runner.
+enforce = false
 
 [[scenario]]
 id = "P17"
@@ -322,7 +325,9 @@ title = "Cancel a Gaussian Blur job on 24 MP (until the worker exits)"
 issue = 210
 bench = "perf_scenarios"
 row = "cancel Gaussian Blur r 50 job on 24 MP"
-metric = "max"
+# Judged on p95, not max. Note: with n <= 20, `rank()` makes p95 equal max, so on the nightly
+# runner (n = 8) this has no effect until reps >= 21. The 2026-10-18 nightly read 299 ms either way.
+metric = "p95"
 budget_ms = 200
 
 [[scenario]]

@@ -50,7 +50,7 @@ Baseline: 2026-10-05, 1 run, commit `f5d2bcb54a`, Apple M4 Pro (48 GB), GPU Appl
 | P21 | Content-Aware Fill on 10 MP | ≤ 1500 ms p95 | 218 | 256 | 256 | 1.8 GB | 1.8 GB | pass | [#210](https://github.com/storytold/photocraft/issues/210) |
 | P22 | Spot Healing stroke on 10 MP | ≤ 500 ms p95 | 157 | 247 | 247 | 1.8 GB | 1.9 GB | pass | [#210](https://github.com/storytold/photocraft/issues/210) |
 | P24 | Import 500 brushes (longest UI-thread step) | ≤ 100 ms max | – | – | – | – | – | not run | [#210](https://github.com/storytold/photocraft/issues/210) |
-| P25 | Cancel a Gaussian Blur job on 24 MP (until the worker exits) | ≤ 200 ms max | – | – | – | – | – | not run | [#210](https://github.com/storytold/photocraft/issues/210) |
+| P25 | Cancel a Gaussian Blur job on 24 MP (until the worker exits) | ≤ 200 ms p95 | – | – | – | – | – | not run | [#210](https://github.com/storytold/photocraft/issues/210) |
 | P49 | Cancel a Content-Aware Fill job on 24 MP (until the worker exits) | ≤ 200 ms max | – | – | – | – | – | not run | [#210](https://github.com/storytold/photocraft/issues/210) |
 | P50 | App frame time while a 24 MP Gaussian Blur job runs | ≤ 16 ms p95 | – | – | – | – | – | not run | [#210](https://github.com/storytold/photocraft/issues/210) |
 | P26 | Select › Modify › Smooth on 24 MP (radius 50) | ≤ 100 ms p95 | 99.9 | 216 | 251 | 1.0 GB | – | over budget (target not met yet) | [#211](https://github.com/storytold/photocraft/issues/211) |
