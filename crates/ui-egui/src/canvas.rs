@@ -4423,7 +4423,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         let press_stroke = app.press_stroke;
         // A live tool's press that went to the ⌥ eyedropper keeps sampling for the whole press: the
         // drag recognised later must not decide again with ⌥ already let go and paint (#7802).
-        if press_stroke || (strokes_live(tool) && app.alt_sampling) {
+        if press_stroke || (strokes_live(tool) && (app.alt_sampling || app.mixer_sampling)) {
             buttons.started = false;
         }
         if buttons.started
@@ -6010,9 +6010,21 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     if crate::cam_transform::pointer(app, ev, mods) {
         return;
     }
+    // A Mixer Brush press that loaded paint stays a sample press until it is released, with ⌥
+    // let go or not (`mixer_sampling`; `canvas_view` holds back egui's later drag start too).
+    match ev {
+        ToolEvent::Down { .. } => app.mixer_sampling = false,
+        ToolEvent::Up { .. } if app.mixer_sampling => {
+            app.mixer_sampling = false;
+            return;
+        }
+        _ if app.mixer_sampling => return,
+        _ => {}
+    }
     // The tool in use, so a held temporary tool (⌘ = Move) with ⌥ doesn't load paint.
     if app.active_tool() == Tool::MixerBrush && mods.alt && !mods.ctrl && app.drag.is_none() && !armed && app.brush_resize.is_none() {
         if let ToolEvent::Down { x, y, pressure } = ev {
+            app.mixer_sampling = true;
             let pen = app.stylus.sample().unwrap_or_default();
             let p = json!({"points":[[x,y,pressure,pen.tilt_x,pen.tilt_y,pen.rotation]],"target":paint_target(app)});
             if let Err(e) = app.run("brush.mixer.sample", p) {
@@ -9504,6 +9516,56 @@ mod tests {
             frame(&mut app, vec![egui::Event::ModifiersChanged(none)]);
             assert_eq!(app.session.active().unwrap().revision, rev, "release_alt={release_alt}: an Alt-sample press must not paint");
             assert!(app.drag.is_none() && !app.alt_sampling, "release_alt={release_alt}");
+        }
+        // Without Alt the same gesture paints.
+        let rev = app.session.active().unwrap().revision;
+        frame(&mut app, vec![egui::Event::PointerMoved(start)]);
+        frame(&mut app, vec![press(start, true, none)]);
+        frame(&mut app, vec![egui::Event::PointerMoved(start + vec2(20.0, 0.0))]);
+        frame(&mut app, vec![press(start + vec2(20.0, 0.0), false, none)]);
+        assert!(app.session.active().unwrap().revision > rev, "a plain drag paints");
+    }
+
+    #[test]
+    fn letting_go_of_alt_during_a_mixer_brush_sample_press_does_not_paint() {
+        // As #7802 for the Brush: an Alt-press with the Mixer Brush loads paint from the canvas.
+        // If Alt was let go before egui recognised the drag, that drag started a Mixer stroke.
+        let ctx = egui::Context::default();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 400, "height": 300, "background": "white"})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("view.actualPixels", json!({})).unwrap();
+        app.ui.tool = Tool::MixerBrush;
+        app.sync_views();
+        let mut view = app.ui.views[0].clone();
+        view.zoom = 1.0;
+        view.center = [200.0, 150.0];
+        view.fit_pending = false;
+        view.fill_pending = false;
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+        let frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>| {
+            let input = egui::RawInput { screen_rect: Some(rect), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                canvas_view(app, ui, 0, rect, view.clone(), true);
+            });
+            out.textures_delta.clear();
+        };
+        let (alt, none) = (egui::Modifiers::ALT, egui::Modifiers::NONE);
+        let start = Pos2::new(200.0, 150.0);
+        let press =
+            |pos: Pos2, pressed: bool, modifiers: egui::Modifiers| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers };
+        // Alt released mid-press, and Alt held throughout: both only load paint.
+        for release_alt in [true, false] {
+            let rev = app.session.active().unwrap().revision;
+            frame(&mut app, vec![egui::Event::ModifiersChanged(alt), egui::Event::PointerMoved(start)]);
+            frame(&mut app, vec![press(start, true, alt)]);
+            let later = if release_alt { none } else { alt };
+            let end = start + vec2(20.0, 0.0);
+            frame(&mut app, vec![egui::Event::ModifiersChanged(later), egui::Event::PointerMoved(end)]);
+            frame(&mut app, vec![press(end, false, later)]);
+            frame(&mut app, vec![egui::Event::ModifiersChanged(none)]);
+            assert_eq!(app.session.active().unwrap().revision, rev, "release_alt={release_alt}: an Alt-sample press must not paint");
+            assert!(app.drag.is_none() && !app.mixer_sampling, "release_alt={release_alt}");
         }
         // Without Alt the same gesture paints.
         let rev = app.session.active().unwrap().revision;
