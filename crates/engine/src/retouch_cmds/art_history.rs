@@ -85,25 +85,6 @@ fn style_of(p: &Value) -> Result<Style> {
     }
 }
 
-fn history_source(s: &Session, p: &Value) -> Result<(photocraft_doc::Document, usize)> {
-    let st = s.active().ok_or(EngineError::NoDocument)?;
-    let past = st.history.past_len();
-    let idx = match p.get("state") {
-        None | Some(Value::Null) => 0usize,
-        Some(v) => {
-            let Some(i) = v.as_u64() else {
-                return Err(err("invalid number"));
-            };
-            usize::try_from(i).map_err(|_| err(format!("no history state {i} (0..={past})")))?
-        }
-    };
-    let doc = match idx {
-        i if i == past => st.doc.clone(),
-        i => st.history.state(i).ok_or_else(|| err(format!("no history state {i} (0..={past})")))?,
-    };
-    Ok(((*doc).clone(), idx))
-}
-
 fn union_bounds(dabs: &[Dab]) -> Result<Rect> {
     let mut r = Rect::EMPTY;
     for d in dabs {
@@ -141,7 +122,6 @@ fn stamp_region(
     opacity: f32,
     flow: f32,
     tolerance: f32,
-    halo: i32,
     sel: Option<&[f32]>,
     lock: bool,
     alpha: Option<usize>,
@@ -177,7 +157,6 @@ fn stamp_region(
         flow,
         tolerance,
         tile: 64,
-        halo,
         selection: sel,
         lock_transparent: lock,
         alpha,
@@ -228,9 +207,8 @@ fn stamp_blended(
         opacity,
         flow,
         tolerance,
-        // Dest/src already include the halo; one tile is the whole buffer.
+        // One tile is the whole buffer.
         tile: 0,
-        halo: 0,
         selection: sel,
         lock_transparent: lock,
         alpha,
@@ -292,17 +270,16 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let opacity = ranged(p, "opacity", 100.0, 0.0, 100.0)? / 100.0;
     let flow = ranged(p, "flow", 100.0, 0.0, 100.0)? / 100.0;
     let area = ranged(p, "area", 50.0, 0.0, 100.0)?;
-    let tolerance = ranged(p, "tolerance", 50.0, 0.0, 100.0)? / 100.0;
+    let tolerance = ranged(p, "tolerance", 0.0, 0.0, 100.0)? / 100.0;
     let style = style_of(p)?;
     let mode = blend_param(p, CMD)?;
     let (stroke, id) = parse_brush(s, p, CMD)?;
     let _ = stroke;
-    let (mut source_doc, state_idx) = history_source(s, p)?;
-    let src_surface = crate::channel_cmds::target_surface(&mut source_doc, id, p)
-        .map(|(surf, _)| surf.clone())
-        .map_err(|_| EngineError::Other("the target did not exist (as pixels, a mask or a channel) in that history state".into()))?;
-
-    let seed = RNG_SEED ^ (state_idx as u32);
+    // The same source as the History Brush: the `state` or `snapshot` passed, else the History
+    // panel's source, refused after a canvas size change.
+    let src_surface = super::history_source(s, id, p, CMD)?;
+    // Truncating a huge row index only changes the seed.
+    let seed = RNG_SEED ^ p.get("state").and_then(Value::as_u64).map_or(0, |i| i as u32);
     let dabs = art_history::place_dabs(&pts, size, area, style, seed).map_err(|e| match e {
         StampError::TooLarge => err("stroke too large"),
         _ => err("no stroke points"),
@@ -330,9 +307,11 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(err("source and destination do not match"));
         }
         let sel_mask = selection_mask(sel, outer);
-        let n = stamp_region(&mut dest, &src_reg, &dabs, hardness, opacity, flow, tolerance, halo, sel_mask.as_deref(), lock, alpha_index(&fmt), mode, fmt)?;
-        if n == 0 && tolerance <= 0.0 {
-            return Err(err("no stroke points"));
+        let n = stamp_region(&mut dest, &src_reg, &dabs, hardness, opacity, flow, tolerance, sel_mask.as_deref(), lock, alpha_index(&fmt), mode, fmt)?;
+        // Nothing written (every dab within the tolerance, or outside the selection or lock)
+        // must not leave an empty History step.
+        if n == 0 {
+            return Err(err("nothing to paint: the stroke changes no pixel (tolerance, selection or locked transparency)"));
         }
         dest.write(surf);
         Ok(bounds)
@@ -421,6 +400,56 @@ mod tests {
         stroke(&mut s, json!({"state": 1, "points": [[4, 12], [20, 12]], "size": 10})).unwrap();
         let p = rgba(&s, 10, 12);
         assert!(p[0] > 0.9 && p[1] < 0.2, "state 1 is red, got {p:?}");
+    }
+
+    /// Photoshop's default Tolerance is 0: with no `tolerance` an ordinary edit is painted back.
+    #[test]
+    fn default_params_paint_an_ordinary_edit() {
+        let mut s = session(40, 24, 8, "rgb");
+        s.execute("edit.fill", json!({"color": "#c03030"})).unwrap();
+        s.execute("edit.fill", json!({"color": "#d04848"})).unwrap();
+        let steps = s.active().unwrap().history.past_len();
+        s.execute("paint.artHistoryBrush", json!({"points": [[4, 12], [30, 12]], "size": 10, "hardness": 100, "state": 1})).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+        let p = rgba(&s, 12, 12);
+        assert!((p[0] - 0xc0 as f32 / 255.0).abs() < 0.02, "painted back to #c03030, got {p:?}");
+    }
+
+    /// A stroke whose every dab is within the tolerance writes nothing, so it must not leave an
+    /// empty History step.
+    #[test]
+    fn a_stroke_within_the_tolerance_adds_no_step() {
+        let mut s = session(40, 24, 8, "rgb");
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        let steps = s.active().unwrap().history.past_len();
+        assert!(stroke(&mut s, json!({"state": 1, "tolerance": 100})).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
+        assert!(rgba(&s, 20, 16)[2] > 0.9, "still blue");
+    }
+
+    /// With no `state`, the brush paints from the History panel's source, like the History Brush.
+    #[test]
+    fn paints_from_the_history_panel_source() {
+        let mut s = session(40, 24, 8, "rgb");
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("edit.fill", json!({"color": "#00ff00"})).unwrap();
+        s.execute("history.setSource", json!({"state": 1})).unwrap();
+        s.execute("paint.artHistoryBrush", json!({"points": [[4, 12], [30, 12]], "size": 10, "hardness": 100})).unwrap();
+        let p = rgba(&s, 12, 12);
+        assert!(p[0] > 0.9 && p[1] < 0.2, "the source row is red, got {p:?}");
+    }
+
+    /// A source of another canvas size is refused, not painted shifted.
+    #[test]
+    fn a_source_of_another_canvas_size_is_refused() {
+        let mut s = session(40, 24, 8, "rgb");
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("image.canvasSize", json!({"width": 60, "height": 30, "anchor": "center"})).unwrap();
+        let steps = s.active().unwrap().history.past_len();
+        let e = stroke(&mut s, json!({"state": 1})).unwrap_err().to_string();
+        assert!(e.contains("canvas size"), "{e}");
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
     }
 
     #[test]
