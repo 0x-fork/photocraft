@@ -4331,9 +4331,18 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             && !crate::layer_pick_ui::is_gesture(tool, mods)
             && let Some(p) = response.interact_pointer_pos()
         {
+            // A pending crop: its menu, also outside the image, where the frame can reach (#6561).
             // Outside the image: the pasteboard colour menu (#2462), else the tool's own. The view
-            // menu belongs to the selected Zoom or Hand, not to Space or a held zoom key.
-            if crate::canvas_tool_menu::pasteboard_at(app, tool, xf.to_doc(p)) {
+            // menu belongs to the selected Zoom or Hand, not to Space or a held zoom key. A crop
+            // frame or Straighten line still dragged by the left button gets no menu over it: the
+            // gesture and the held button both, as either alone can outlive a lost release. A
+            // finger held still (egui's press-and-hold right-click) is down too, but drags nothing.
+            let crop_gesture = tool == Tool::Crop
+                && !response.long_touched()
+                && (app.crop.drag.is_some() || app.crop.straighten.line.is_some())
+                && ctx.input(|i| i.pointer.primary_down());
+            if crop_gesture || crate::canvas_tool_menu::open_crop(app, &ctx, tool, [p.x, p.y]) {
+            } else if crate::canvas_tool_menu::pasteboard_at(app, tool, xf.to_doc(p)) {
                 crate::canvas_tool_menu::open_pasteboard(app, &ctx, tool, [p.x, p.y]);
             } else if crate::canvas_tool_menu::is_view_tool(tool) {
                 if tool == app.ui.tool {
