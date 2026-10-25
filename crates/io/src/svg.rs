@@ -206,8 +206,9 @@ fn system_generic_family(_generic: &str) -> Option<String> {
 /// Parse options for an untrusted drawing. `<image href>` resolves only `data:` URLs: a file path
 /// or relative href is never read, so opening an SVG cannot pull local files (`/etc/...`,
 /// `~/.ssh/...`) into the document. Embedded SVG images get no `<image>` resolution at all
-/// (`usvg` already blanks it for sub-SVGs).
-fn options(fontdb: Arc<usvg::fontdb::Database>) -> usvg::Options<'static> {
+/// (`usvg` already blanks it for sub-SVGs). An embedded SVG may nest `depth_left` levels: it is
+/// parsed on top of the drawing's own recursion, so the two depths share [`MAX_XML_DEPTH`].
+fn options(fontdb: Arc<usvg::fontdb::Database>, depth_left: usize) -> usvg::Options<'static> {
     let default_resolver = usvg::ImageHrefResolver::default_data_resolver();
     let resolve_data: usvg::ImageHrefDataResolverFn<'static> = Box::new(move |mime, data, opts| {
         // Reject embedded images whose decoded RGBA storage would exceed the budget before
@@ -227,15 +228,15 @@ fn options(fontdb: Arc<usvg::fontdb::Database>) -> usvg::Options<'static> {
         // checks, so they run here. It can itself be gzip-compressed (SVGZ-in-data-URL), and the
         // default resolver's sub-SVG loader would decompress again with no byte limit of its
         // own: hand it our bounded inflate's output instead, which no longer starts with the
-        // gzip magic. Nesting deeper than [`MAX_XML_DEPTH`] drops the image rather than
-        // overflowing the parser's stack.
+        // gzip magic. Nesting deeper than `depth_left` drops the image rather than overflowing
+        // the parser's stack.
         if mime == "image/svg+xml" || (mime == "text/plain" && probed.is_none()) {
             let (mime, xml) = match inflate(&data) {
                 Ok(std::borrow::Cow::Borrowed(_)) => (mime, Arc::clone(&data)),
                 Ok(std::borrow::Cow::Owned(xml)) if !xml.starts_with(&[0x1f, 0x8b]) => ("image/svg+xml", Arc::new(xml)),
                 _ => return None,
             };
-            if nesting_depth(&xml, MAX_XML_DEPTH) > MAX_XML_DEPTH {
+            if nesting_depth(&xml, depth_left) > depth_left {
                 return None;
             }
             return default_resolver(mime, xml, opts);
@@ -270,13 +271,14 @@ fn parse(bytes: &[u8]) -> Result<Parsed, IoError> {
 /// [`parse`] with the font database `fonts` supplies (the tests hand in an empty one).
 fn parse_with(bytes: &[u8], fonts: fn() -> Arc<usvg::fontdb::Database>) -> Result<Parsed, IoError> {
     let xml = inflate(bytes)?;
-    if nesting_depth(&xml, MAX_XML_DEPTH) > MAX_XML_DEPTH {
+    let depth = nesting_depth(&xml, MAX_XML_DEPTH);
+    if depth > MAX_XML_DEPTH {
         return Err(IoError::Svg(format!("elements are nested more than {MAX_XML_DEPTH} levels deep")));
     }
     let has_text = xml.windows(4).any(|w| w == b"text");
     let fontdb = if has_text { fonts() } else { Arc::new(usvg::fontdb::Database::new()) };
     let fontless_text = has_text && fontdb.faces().next().is_none();
-    let opt = options(fontdb);
+    let opt = options(fontdb, MAX_XML_DEPTH.saturating_sub(depth));
     // Parse the already-bounded-and-decoded text with from_str, not from_data: from_data
     // re-checks the gzip magic and would decompress a second time without our size limit if
     // the inflated content happened to start with a nested gzip stream.
@@ -1186,7 +1188,7 @@ mod tests {
 
     #[test]
     fn resolve_data_rejects_oversized_and_malformed_embedded_png_and_webp() {
-        let opt = options(Arc::new(usvg::fontdb::Database::new()));
+        let opt = options(Arc::new(usvg::fontdb::Database::new()), MAX_XML_DEPTH);
         let resolve = &opt.image_href_resolver.resolve_data;
         let img = photocraft_codecs::Image::from_u8(2, 2, photocraft_codecs::ChannelLayout::Rgb, vec![255; 12]).unwrap();
         let valid_png = photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap();
@@ -1218,7 +1220,7 @@ mod tests {
         assert_eq!(jpeg_dimensions(&jpeg(40_000, 30_000)), Some((30_000, 40_000)));
         assert_eq!(jpeg_dimensions(&[0xFF, 0xD8, 0xFF, 0xDA, 0, 2]), None);
         assert_eq!(jpeg_dimensions(&[0xFF, 0xD8]), None);
-        let opt = options(Arc::new(usvg::fontdb::Database::new()));
+        let opt = options(Arc::new(usvg::fontdb::Database::new()), MAX_XML_DEPTH);
         let resolve = &opt.image_href_resolver.resolve_data;
         // 1.2 billion pixels would be 4.8 GB of RGBA before resvg scaled anything down.
         assert!(resolve("image/jpeg", Arc::new(jpeg(40_000, 30_000)), &opt).is_none());
@@ -1233,7 +1235,7 @@ mod tests {
             e.write_all(bytes).unwrap();
             e.finish().unwrap()
         }
-        let opt = options(Arc::new(usvg::fontdb::Database::new()));
+        let opt = options(Arc::new(usvg::fontdb::Database::new()), MAX_XML_DEPTH);
         let resolve = &opt.image_href_resolver.resolve_data;
         let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\"><rect width=\"4\" height=\"4\"/></svg>";
         let once = gz(svg);
