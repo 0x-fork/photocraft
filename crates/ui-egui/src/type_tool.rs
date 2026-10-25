@@ -3404,11 +3404,17 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 }
 
 /// Character and paragraph style at the target (selection start, else the layer's first run).
+/// The paragraph at a collapsed caret is the caret's, as Photoshop's options bar and Paragraph
+/// panel show it.
 pub(crate) fn styles_at(app: &PhotocraftApp) -> Option<(photocraft_doc::text::CharStyle, photocraft_doc::text::ParagraphStyle)> {
     let (layer, range) = target(app)?;
     let t = text_layer(&target_doc(app)?.doc, LayerId(layer))?;
     let at = range.map_or(0, |r| byte_of(&t.text, r[0]));
-    let pick = |lens: Vec<usize>| -> usize {
+    let para_at = match (range, &app.ui.text_edit) {
+        (None, Some(ed)) => byte_of(&t.text, ed.caret),
+        _ => at,
+    };
+    let pick_at = |at: usize, lens: Vec<usize>| -> usize {
         let mut acc = 0;
         for (i, len) in lens.iter().enumerate() {
             acc += len;
@@ -3420,8 +3426,8 @@ pub(crate) fn styles_at(app: &PhotocraftApp) -> Option<(photocraft_doc::text::Ch
     };
     let runs = t.char_runs();
     let paras = t.paragraph_runs();
-    let c = runs.get(pick(runs.iter().map(|r| r.len).collect())).map(|r| r.style.clone())?;
-    let p = paras.get(pick(paras.iter().map(|r| r.len).collect())).map(|r| r.style.clone()).unwrap_or_default();
+    let c = runs.get(pick_at(at, runs.iter().map(|r| r.len).collect())).map(|r| r.style.clone())?;
+    let p = paras.get(pick_at(para_at, paras.iter().map(|r| r.len).collect())).map(|r| r.style.clone()).unwrap_or_default();
     Some((c, p))
 }
 

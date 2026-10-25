@@ -3177,3 +3177,32 @@ fn styles_at_follows_the_text_edit_document() {
     let (_, p) = super::styles_at(&app).unwrap();
     assert_eq!(p.align, photocraft_doc::text::TextAlign::Center, "the edited document's paragraph");
 }
+
+/// A collapsed caret shows the paragraph it is in, as Photoshop's options bar and Paragraph panel
+/// do; it read the first paragraph's (byte 0) wherever the caret was.
+#[test]
+fn styles_at_a_collapsed_caret_shows_the_caret_s_paragraph() {
+    let mut app = new_app();
+    let id = app.run("type.create", json!({"text": "First\rSecond", "size": 20, "x": 300, "y": 420})).unwrap()["layer"].as_u64().unwrap();
+    app.run("type.setStyle", json!({"layer": id, "range": [6, 12], "align": "right"})).unwrap();
+    let edit = |caret: usize| crate::state::TextEdit {
+        layer: id,
+        document: None,
+        caret,
+        anchor: caret,
+        session: "s".into(),
+        created: false,
+        mask: false,
+        dragging: false,
+        resize: None,
+        preedit: None,
+    };
+    use photocraft_doc::text::TextAlign;
+    for (caret, want) in
+        [(0, TextAlign::Left), (3, TextAlign::Left), (5, TextAlign::Left), (6, TextAlign::Right), (9, TextAlign::Right), (12, TextAlign::Right)]
+    {
+        app.ui.text_edit = Some(edit(caret));
+        let (_, p) = super::styles_at(&app).unwrap();
+        assert_eq!(p.align, want, "caret {caret}");
+    }
+}
