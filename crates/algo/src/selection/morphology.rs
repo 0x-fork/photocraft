@@ -44,12 +44,9 @@ pub(super) fn modify(m: &[f32], w: usize, h: usize, r: f32, kind: Kind) -> Vec<f
     if w == 0 || h == 0 || w.checked_mul(h) != Some(m.len()) || m.len() > isize::MAX as usize / 4 || !r.is_finite() || r < 0.0 {
         return Vec::new();
     }
-    let mut out = match kind {
-        Kind::Expand => m.to_vec(),
-        // Retain the old complement's rounding for fractional input coverage.
-        Kind::Contract => m.iter().map(|v| 1.0 - (1.0 - v)).collect(),
-        Kind::Border => vec![0.0; m.len()],
-    };
+    // The window includes every nonzero sample, including fractional coverage, so all
+    // pixels beyond it are zero for every operation. No canvas-sized copy is needed.
+    let mut out = vec![0.0; m.len()];
     if matches!(kind, Kind::Border) && r == 0.0 {
         return out;
     }
