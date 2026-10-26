@@ -28,7 +28,6 @@ pub mod channel_cmds;
 mod clip_group;
 pub mod color_cmds;
 pub mod color_to_alpha_cmds;
-pub mod commands;
 pub mod comps_cmds;
 pub mod contour_lib_cmds;
 mod crop_fill;
@@ -153,10 +152,12 @@ pub use photocraft_doc as doc;
 pub use photocraft_paint as paint;
 pub use photocraft_paint::BrushSettings;
 
+pub mod cmd;
 mod doc_state;
 mod error;
 mod session;
 
+pub use cmd as commands;
 pub use doc_state::{CopiedStyle, DocState, PRECHECKED, ToolState};
 pub use error::{EngineError, Result};
 pub(crate) use session::fix_selection;
