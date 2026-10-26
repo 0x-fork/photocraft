@@ -15,7 +15,6 @@ use crate::image::{Image, premultiply};
 use crate::{BlurPath, Ctx, FieldPin, IrisPin, SpinPin};
 
 #[cfg(test)]
-#[path = "tests_iris.rs"]
 mod tests;
 
 #[cfg(test)]
