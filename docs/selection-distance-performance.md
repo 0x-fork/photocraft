@@ -117,19 +117,17 @@ Measurements from [scratch CI job 121583341033](https://github.com/wanikhawar/ph
 2026-10-26, commit `5afd231138368f9be856e8c21c2946f2e386797c`, GitHub-hosted Ubuntu 26.04,
 stable Rust, normal release profile. The benchmark step completed successfully; the
 superseded run was cancelled during the later quick performance build. The full validation
-run is recorded in the PR. Times below are milliseconds; all twelve outputs match exactly.
+run is recorded in the PR. Times below are milliseconds; this table reports Expand and Border (eight cases).
+All twelve output comparisons, including Contract, matched exactly. The current benchmark
+also times Contract using its original owning iterator so allocation reuse is preserved.
 
 | Selection | Operation | Radius | Before p50 | After p50 | Speedup |
 |---|---|---:|---:|---:|---:|
 | 50×50 | Expand | 3 | 359.55 | 94.51 | 3.80× |
-| 50×50 | Contract | 3 | 614.64 | 81.47 | 7.54× |
 | 50×50 | Border | 3 | 738.30 | 19.52 | 37.82× |
 | 50×50 | Expand | 50 | 357.84 | 99.76 | 3.59× |
-| 50×50 | Contract | 50 | 601.19 | 81.19 | 7.41× |
 | 50×50 | Border | 50 | 738.50 | 20.08 | 36.79× |
 | 4000×4000 | Expand | 3 | 416.83 | 171.26 | 2.43× |
-| 4000×4000 | Contract | 3 | 615.49 | 283.26 | 2.17× |
 | 4000×4000 | Border | 3 | 802.48 | 377.78 | 2.12× |
 | 4000×4000 | Expand | 50 | 414.50 | 268.96 | 1.54× |
-| 4000×4000 | Contract | 50 | 610.98 | 260.77 | 2.34× |
 | 4000×4000 | Border | 50 | 784.89 | 467.06 | 1.68× |

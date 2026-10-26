@@ -363,7 +363,7 @@ i7-9750H, 12 workers, 24 MP RGBA8, Good quality, amount 1: Spin 66.10 → 16.43 
 (4.02×), Zoom 19.19 → 5.35 s (3.59×), one paired run each, exact output equality.
 These are local measurements at amount 1; see [method and limits](radial-blur-performance.md).
 
-2026-10-26: cropped Expand, Contract and Border measure 1.54–37.82× faster across twelve
+2026-10-26: cropped Expand, Contract and Border measure 1.54–37.82× faster across eight
 36 MP synthetic mask cases on GitHub Actions, with exact output equality. Radii up to 5 px
 use capped distances; Contract avoids inverted float masks and Border retains one distance
 plane. Full-canvas mask conversion/output remain; no GUI budget or percentage changes.
@@ -580,7 +580,7 @@ See [method, raw measurements and reproduction](five-algorithm-performance.md).
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-26 | minor | Expand/Contract/Border distance work cropped to nonzero bounds; bounded distances for radii ≤5; 36 MP exact-output comparisons improve 1.54–37.82× across twelve cases; percentages, estimates and scorecard budgets unchanged |
+| 2026-10-26 | minor | Expand/Contract/Border distance work cropped to nonzero bounds; bounded distances for radii ≤5; 36 MP exact-output comparisons improve 1.54–37.82× across eight cases; percentages, estimates and scorecard budgets unchanged |
 | 2026-10-25 | minor | UI / UX and Workspace rows: 12 of 178 preferences do nothing, the scorecard's count. Camera Raw row: the Calibration panel landed on 2026-10-13 (#5128); what is missing is per-camera colour for non-DNG cameras ([gaps.md](gaps.md) G14). Percentages and estimates unchanged |
 | 2026-10-23 | minor | Colour management and modes: PSD spot plates are stored as Photoshop stores them (ink 0 = solid), and PSDs from earlier PhotoCraft versions keep their ink (#7415 split, part 4); estimates unchanged |
 | 2026-10-23 | minor | Colour management and modes: spot plates now save and open in TIFF (#7415); estimates unchanged |

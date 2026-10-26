@@ -11,7 +11,7 @@ fn old_expand(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {
 }
 fn old_contract(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {
     let inv: Vec<f32> = m.iter().map(|v| 1.0 - v).collect();
-    old_expand(&inv, w, h, r).iter().map(|v| 1.0 - v).collect()
+    old_expand(&inv, w, h, r).into_iter().map(|v| 1.0 - v).collect()
 }
 fn old_border(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {
     let inside: Vec<bool> = m.iter().map(|v| *v >= 0.5).collect();

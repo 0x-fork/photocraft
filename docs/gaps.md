@@ -296,7 +296,7 @@ what an agent can't finish alone.
 ### G2. Interactive performance
 - **Measured progress (2026-10-26):** Expand, Contract and Border restrict distance work to
   the nonzero bounds plus a radius halo. Small radii use capped distances; Contract avoids
-  inverted float masks and Border retains one distance plane. On 36 MP, twelve synthetic
+  inverted float masks and Border retains one distance plane. On 36 MP, eight synthetic
   comparisons measure 1.54–37.82× faster with exact output equality. Full-canvas mask
   conversion and output remain; no GUI budget or readiness percentage changes.
   [Method, measurements and limits](selection-distance-performance.md#cropped-selection-morphology-2026-10-26).
@@ -396,7 +396,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-26 | minor | Expand/Contract/Border distance work cropped to nonzero bounds; bounded distances for radii ≤5; 36 MP exact-output comparisons improve 1.54–37.82× across twelve cases; percentages, estimates and scorecard budgets unchanged |
+| 2026-10-26 | minor | Expand/Contract/Border distance work cropped to nonzero bounds; bounded distances for radii ≤5; 36 MP exact-output comparisons improve 1.54–37.82× across eight cases; percentages, estimates and scorecard budgets unchanged |
 | 2026-10-25 | minor | G9: the count of preferences that do nothing is the scorecard's again, 12 of 178 (it still said 24 of 171, from 2026-10-15); no estimate changed |
 | 2026-10-25 | minor | G6: Art History Brush landed as partial (TOOL-213-20, #1610), so no toolbar tool is missing; no percentage or estimate changed |
 | 2026-10-23 | minor | G4: hard-round built-in presets use 5% spacing (#8842), guarded by large-stroke outline and pressure-opacity pixel regressions at 8/16/32-bit; percentages and estimates unchanged |
