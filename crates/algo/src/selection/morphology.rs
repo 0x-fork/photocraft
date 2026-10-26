@@ -63,6 +63,12 @@ pub(super) fn modify(m: &[f32], w: usize, h: usize, r: f32, kind: Kind) -> Vec<f
             }));
         }
     }
+    // A uniform binary mask has no edge inside the supplied canvas. Preserve the
+    // finite no-seed sentinel behavior for enormous library radii, but skip both
+    // distance planes and coverage passes at normal radii (including Select All).
+    if matches!(kind, Kind::Border) && r < EMPTY_DISTANCE && seeds.first().is_some_and(|first| seeds.iter().all(|seed| seed == first)) {
+        return out;
+    }
     let distance = |seeds: &[bool]| {
         if r <= 5.0 { edt_bounded(seeds, cw, ch, r + 1.0) } else { edt(seeds, cw, ch) }
     };

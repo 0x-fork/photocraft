@@ -172,3 +172,7 @@ return the finite empty-distance sentinel; all seeds return zero. The current al
 benchmark also includes a full-canvas selected mask to check Select All alongside the
 sparse and dense partial selections. The historical table above covers its recorded
 Expand/Border sparse and dense cases.
+Border also skips distance planes and coverage passes when its binary mask is uniform:
+there is no edge inside the supplied rectangle. Extreme library radii retain the finite
+no-seed sentinel behavior; the command's canvas-edge padding still creates a real edge
+for Select All.
