@@ -597,10 +597,12 @@ mod tests {
                 crate::menus::invoke(h.state_mut(), &ctx, "window.workspace.select", json!({"name": "Embedded"})).unwrap();
                 h.run_steps(4);
                 assert_eq!(h.state().ui.theme, theme, "the fixture renders the requested theme");
-                for name in ["title_bar", "rail"] {
-                    if egui::containers::panel::PanelState::load(&h.ctx, crate::panels::panel_state_id(&h.ctx, name)).is_some() {
-                        failures.push(format!("{theme:?}, width={width}: {name} is drawn"));
-                    }
+                if egui::containers::panel::PanelState::load(&h.ctx, crate::panels::panel_state_id(&h.ctx, "title_bar")).is_some() {
+                    failures.push(format!("{theme:?}, width={width}: title_bar is drawn"));
+                }
+                // The rail is drawn inside the canvas panel: find it by a button only it has.
+                if egui_kittest::kittest::Queryable::query_by_label(&h, "Color & Swatches").is_some() {
+                    failures.push(format!("{theme:?}, width={width}: rail is drawn"));
                 }
                 if h.state().ui.panels.menu_bar || h.state().ui.panels.rail {
                     failures.push(format!("{theme:?}, width={width}: host flags were overwritten"));

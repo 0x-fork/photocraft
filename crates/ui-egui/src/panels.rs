@@ -6793,6 +6793,12 @@ mod embedding_tests {
         egui::containers::panel::PanelState::load(&h.ctx, panel_state_id(&h.ctx, panel)).is_some()
     }
 
+    /// The rail is drawn inside the canvas panel, so its panel state is keyed under that panel's
+    /// scope: find it by a button only the rail has.
+    fn rail_drawn(h: &egui_kittest::Harness<'_, PhotocraftApp>) -> bool {
+        h.query_by_label("Color & Swatches").is_some()
+    }
+
     /// An app that embeds the UI can hide the icon rail and the menu bar; both are on by default.
     #[test]
     fn rail_and_menu_bar_follow_their_panel_flags() {
@@ -6800,11 +6806,11 @@ mod embedding_tests {
         assert!(panels.rail && panels.menu_bar);
 
         let h = whole_app(true, true);
-        assert!(drawn(&h, "rail") && drawn(&h, "title_bar"));
+        assert!(rail_drawn(&h) && drawn(&h, "title_bar"));
         assert!(h.query_by_label("File").is_some());
 
         let h = whole_app(false, false);
-        assert!(!drawn(&h, "rail"), "the icon rail is drawn");
+        assert!(!rail_drawn(&h), "the icon rail is drawn");
         assert!(!drawn(&h, "title_bar"), "the title bar is drawn");
         assert!(h.query_by_label("File").is_none(), "the menus are drawn");
         assert!(crate::panel_docking::last_bodies(&h.ctx).iter().any(|(id, _)| id == "layers"), "the dock itself stays");
