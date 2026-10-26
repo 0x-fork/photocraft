@@ -1058,7 +1058,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                             let opts: Vec<(String, &str)> =
                                 photocraft_color::BlendMode::LAYER_MODES.iter().map(|m| (m.label().to_string(), m.label())).collect();
                             // One id per mode: Bevel & Emboss has two (Highlight, Shadow), which must not share a list (#9368).
-                            if widgets::dropdown(ui, &format!("fx-blend-{sel_kind}-{key}"), tl!("Blend Mode"), &mut cur, &opts, 150.0) {
+                            if widgets::dropdown(ui, &format!("fx-blend-{sel_kind}-{key}"), tl!(&label), &mut cur, &opts, 150.0) {
                                 let value = json!(cur);
                                 disp[key] = value.clone();
                                 set_param(f, &selected, key, value);
