@@ -5082,8 +5082,10 @@ dependencies = [
 name = "photocraft-gpu"
 version = "0.16.0"
 dependencies = [
+ "bytemuck",
  "half",
  "log",
+ "photocraft-algo",
  "photocraft-cms",
  "photocraft-color",
  "photocraft-compose",
@@ -5132,6 +5134,9 @@ dependencies = [
  "roxmltree 0.21.1",
  "serde_json",
  "thiserror 2.0.21",
+ "tiff",
+ "zune-core 0.5.3",
+ "zune-jpegxl",
 ]
 
 [[package]]
@@ -5149,9 +5154,11 @@ dependencies = [
 name = "photocraft-paint"
 version = "0.16.0"
 dependencies = [
+ "photocraft-cms",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
+ "rayon",
  "serde",
  "serde_json",
 ]
