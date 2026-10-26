@@ -1775,5 +1775,4 @@ mod tests {
 }
 
 #[cfg(test)]
-#[path = "adjust_editors_tests.rs"]
 mod ui_tests;
