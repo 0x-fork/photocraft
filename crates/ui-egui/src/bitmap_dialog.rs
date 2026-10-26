@@ -164,5 +164,4 @@ pub(crate) fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, V
 }
 
 #[cfg(test)]
-#[path = "bitmap_dialog_tests.rs"]
 mod tests;
