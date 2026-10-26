@@ -6140,7 +6140,6 @@ mod opacity_row_layout_tests {
 mod clipping_indicator_tests;
 
 #[cfg(test)]
-#[path = "mask_props_ui_tests.rs"]
 mod mask_properties_tests;
 
 #[cfg(test)]
