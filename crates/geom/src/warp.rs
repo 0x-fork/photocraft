@@ -1047,6 +1047,12 @@ pub struct Warp {
     pub values: Vec<f64>,
 }
 
+/// Relative to the magnitude so the fit's rounding at large origins isn't rejected.
+fn point_fits(expected: [f64; 2], actual: [f64; 2]) -> bool {
+    let tol = |e: f64| (1e-9 * e.abs().max(1.0)).min(1e-6);
+    !((actual[0] - expected[0]).abs() >= tol(expected[0]) || (actual[1] - expected[1]).abs() >= tol(expected[1]))
+}
+
 impl Warp {
     /// No warp over `bounds`.
     pub fn none(bounds: [f64; 4]) -> Warp {
@@ -1080,34 +1086,51 @@ impl Warp {
             WarpStyle::None => true,
             WarpStyle::Custom | WarpStyle::Cylinder => match &self.mesh {
                 None => true,
-                Some(m) => {
-                    if !m.is_valid() {
-                        return false;
-                    }
-                    let nx = m.nx();
-                    let (pc, pr) = (m.us.len() - 1, m.vs.len() - 1);
-                    for pj in 0..pr {
-                        for j in 0..4 {
-                            let v = m.vs[pj] + (m.vs[pj + 1] - m.vs[pj]) * j as f64 / 3.0;
-                            for pi in 0..pc {
-                                for i in 0..4 {
-                                    let u = m.us[pi] + (m.us[pi + 1] - m.us[pi]) * i as f64 / 3.0;
-                                    let expected = self.box_point(u, v);
-                                    let actual = m.points[(3 * pj + j) * nx + 3 * pi + i];
-                                    // Relative to the magnitude so the fit's rounding at large origins isn't rejected.
-                                    let tol = |e: f64| (1e-9 * e.abs().max(1.0)).min(1e-6);
-                                    if (actual[0] - expected[0]).abs() >= tol(expected[0]) || (actual[1] - expected[1]).abs() >= tol(expected[1]) {
-                                        return false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    true
-                }
+                Some(m) => self.mesh_is_box_fit(m),
             },
             _ => self.style_warp().is_none(),
         }
+    }
+
+    /// True when every control point of `m` sits where the box's own grid puts it.
+    fn mesh_is_box_fit(&self, m: &BezierMesh) -> bool {
+        if !m.is_valid() {
+            return false;
+        }
+        let (pc, pr) = (m.us.len() - 1, m.vs.len() - 1);
+        for pj in 0..pr {
+            for j in 0..4 {
+                if !self.mesh_row_is_box_fit(m, pj, j, pc) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// One sample row (`j` within patch row `pj`) of [`Self::mesh_is_box_fit`].
+    fn mesh_row_is_box_fit(&self, m: &BezierMesh, pj: usize, j: usize, pc: usize) -> bool {
+        let nx = m.nx();
+        let (Some(&v0), Some(&v1)) = (m.vs.get(pj), m.vs.get(pj + 1)) else {
+            return false;
+        };
+        let v = v0 + (v1 - v0) * j as f64 / 3.0;
+        for pi in 0..pc {
+            let (Some(&u0), Some(&u1)) = (m.us.get(pi), m.us.get(pi + 1)) else {
+                return false;
+            };
+            for i in 0..4 {
+                let u = u0 + (u1 - u0) * i as f64 / 3.0;
+                let expected = self.box_point(u, v);
+                let Some(&actual) = m.points.get((3 * pj + j) * nx + 3 * pi + i) else {
+                    return false;
+                };
+                if !point_fits(expected, actual) {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     fn box_point(&self, s: f64, t: f64) -> [f64; 2] {
