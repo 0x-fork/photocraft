@@ -166,3 +166,9 @@ undoable edit; session creation and full-canvas equality checks are outside timi
 Three rounds alternate execution order, with radii 3 and 50 on a 50×50 selection in a
 6000×6000 canvas. The cropped path dispatches the actual command; the reference calls
 the prior conversion/edit sequence directly. GUI rendering remains excluded.
+
+Uniform bounded-distance masks retain the general EDT's no-sweep shortcuts: no seeds
+return the finite empty-distance sentinel; all seeds return zero. The current algorithm
+benchmark also includes a full-canvas selected mask to check Select All alongside the
+sparse and dense partial selections. The historical table above covers its recorded
+Expand/Border sparse and dense cases.

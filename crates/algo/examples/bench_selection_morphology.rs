@@ -22,7 +22,7 @@ fn old_border(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (w, h) = (6000, 6000);
     println!("36 MP; median of three runs including allocation; RAYON_NUM_THREADS={}", std::env::var("RAYON_NUM_THREADS").unwrap_or_default());
-    for (case, size) in [("sparse", 50), ("dense", 4000)] {
+    for (case, size) in [("sparse", 50), ("dense", 4000), ("full", 6000)] {
         let mut m = vec![0.0; w * h];
         let start = (w - size) / 2;
         for row in m.chunks_exact_mut(w).skip(start).take(size) {

@@ -13,6 +13,13 @@ pub(super) fn edt_bounded(seeds: &[bool], w: usize, h: usize, reach: f32) -> Vec
     if w == 0 || h == 0 || w.checked_mul(h) != Some(seeds.len()) || !(0.0..=6.0).contains(&reach) {
         return Vec::new();
     }
+    // Select All and empty complements need no sweeps, just as in the general EDT.
+    if !seeds.iter().any(|seed| *seed) {
+        return vec![EMPTY_DISTANCE; seeds.len()];
+    }
+    if seeds.iter().all(|seed| *seed) {
+        return vec![0.0; seeds.len()];
+    }
     let radius = reach.ceil() as usize;
     let cap = radius as u8 + 1;
     let mut vertical: Vec<u8> = seeds.iter().map(|s| if *s { 0 } else { cap }).collect();
