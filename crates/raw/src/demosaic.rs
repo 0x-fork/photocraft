@@ -426,9 +426,10 @@ const GRAD_EPS: f32 = 1.0 / 256.0;
 /// Regularizes the green-similarity weights of the colour differences.
 const DIFF_EPS: f32 = 1.0 / 64.0;
 
-/// CIE f(t) for L*a*b*, tabulated on 0..2 with linear interpolation.
+/// CIE f(t) for L*a*b*, tabulated on 0..2 with linear interpolation. Each entry holds the
+/// sample and the step to the next one (one load per lookup; the same `a + (b - a) * f`).
 struct LabF {
-    table: Vec<f32>,
+    pairs: Vec<[f32; 2]>,
 }
 
 const LABF_STEPS: usize = 1 << 14;
@@ -436,7 +437,8 @@ const LABF_RANGE: f32 = 2.0;
 
 impl LabF {
     fn new() -> Self {
-        LabF { table: (0..=LABF_STEPS + 1).map(|i| Self::exact(i as f32 * LABF_RANGE / LABF_STEPS as f32)).collect() }
+        let table: Vec<f32> = (0..=LABF_STEPS + 1).map(|i| Self::exact(i as f32 * LABF_RANGE / LABF_STEPS as f32)).collect();
+        LabF { pairs: table.windows(2).map(|p| [p[0], p[1] - p[0]]).collect() }
     }
 
     fn exact(t: f32) -> f32 {
@@ -450,8 +452,8 @@ impl LabF {
         }
         let x = t * (LABF_STEPS as f32 / LABF_RANGE);
         let i = (x as usize).min(LABF_STEPS);
-        let a = self.table[i];
-        a + (self.table[i + 1] - a) * (x - i as f32)
+        let [a, step] = self.pairs[i];
+        a + step * (x - i as f32)
     }
 }
 
@@ -487,7 +489,7 @@ pub(crate) fn ahd_bands(h: usize) -> usize {
     h.div_ceil(AHD_BAND)
 }
 
-pub(crate) const AHD_TABLE_BYTES: u64 = (LABF_STEPS as u64 + 2) * 4;
+pub(crate) const AHD_TABLE_BYTES: u64 = (LABF_STEPS as u64 + 1) * 8;
 
 /// `v` limited to `lo..=hi` like `f32::clamp`, without its panic on NaN bounds (hostile black
 /// levels can put NaN in the plane): same result for every non-NaN bound.
@@ -846,12 +848,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ahd_survives_nan_planes() {
-        let p = Padded::from_plane(&[f32::NAN; 64], 8, 8);
-        assert_eq!(demosaic(&p, [0, 1, 1, 2], Demosaic::Ahd, &IDENTITY, 1).len(), 192);
-    }
-
     /// Bytes the scratch planes actually hold.
     fn scratch_bytes(sc: &AhdScratch) -> u64 {
         let f = sc.g.iter().chain(sc.rgb.iter().flatten()).chain(sc.lab.iter().flatten()).map(|v| v.capacity() * 4).sum::<usize>();
@@ -920,6 +916,12 @@ mod tests {
                 assert!(want.iter().zip(&got).all(|(a, b)| a.to_bits() == b.to_bits()), "{phase:?}");
             }
         });
+    }
+
+    #[test]
+    fn ahd_survives_nan_planes() {
+        let p = Padded::from_plane(&[f32::NAN; 64], 8, 8);
+        assert_eq!(demosaic(&p, [0, 1, 1, 2], Demosaic::Ahd, &IDENTITY, 1).len(), 192);
     }
 
     /// Mosaics an RGB image with the given phase.
