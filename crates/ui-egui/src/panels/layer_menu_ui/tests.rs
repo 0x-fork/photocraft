@@ -133,12 +133,11 @@ fn smart_object_context_menu_edits_the_clicked_layer() {
         s.execute("paint.stroke", json!({"points": [[100, 100]], "size": 20})).unwrap();
         let smart = s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
         s.execute("layer.new.layer", json!({"name": "Other active layer"})).unwrap();
-        let mut h = Harness::builder().with_size(vec2(1440.0, 900.0)).with_pixels_per_point(ppp).with_step_dt(1.0 / 60.0).with_max_steps(64).build_eframe(
-            move |cc| {
+        let mut h =
+            Harness::builder().with_size(vec2(1440.0, 900.0)).with_pixels_per_point(ppp).with_step_dt(1.0 / 60.0).with_max_steps(64).build_eframe(move |cc| {
                 PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
                 PhotocraftApp::new(s, crate::Services::default())
-            },
-        );
+            });
         let ctx = h.ctx.clone();
         let (req, _rx) = crate::control::ControlRequest::new("ui.set", json!({"dock": {"collapsed": ["color", "properties", "history", "navigator"]}}));
         crate::control::handle(h.state_mut(), &ctx, &req);
@@ -330,15 +329,13 @@ fn open_multi_selection_menu() -> (egui_kittest::Harness<'static, crate::Photocr
     let other = s.execute("shape.create", json!({"kind": "rect", "rect": [300, 100, 380, 160]})).unwrap()["layer"].as_u64().unwrap();
     s.execute("layer.select", json!({"layer": text})).unwrap();
     s.execute("layer.select", json!({"layer": shape, "mode": "add"})).unwrap();
-    let mut h = egui_kittest::Harness::builder()
-        .with_size(vec2(1440.0, 900.0))
-        .with_pixels_per_point(1.0)
-        .with_step_dt(1.0 / 60.0)
-        .with_max_steps(64)
-        .build_eframe(move |cc| {
-            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
-            PhotocraftApp::new(s, crate::Services::default())
-        });
+    let mut h =
+        egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).with_pixels_per_point(1.0).with_step_dt(1.0 / 60.0).with_max_steps(64).build_eframe(
+            move |cc| {
+                PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+                PhotocraftApp::new(s, crate::Services::default())
+            },
+        );
     let ctx = h.ctx.clone();
     let (req, _rx) = crate::control::ControlRequest::new("ui.set", json!({"dock": {"collapsed": ["color", "properties", "history", "navigator"]}}));
     crate::control::handle(h.state_mut(), &ctx, &req);
@@ -400,13 +397,9 @@ fn multi_selection_menu_greys_what_acts_on_one_layer() {
 /// [`single_layer_only`]; a new single-layer command added to the menu must be classified.
 #[test]
 fn single_layer_only_covers_the_per_layer_commands() {
-    for id in [
-        "layer.layerStyle.blendingOptions",
-        "layer.layerStyle.copyLayerStyle",
-        "layer.layerMask.enabled",
-        "layer.layerMask.apply",
-        "layer.layerMask.delete",
-    ] {
+    for id in
+        ["layer.layerStyle.blendingOptions", "layer.layerStyle.copyLayerStyle", "layer.layerMask.enabled", "layer.layerMask.apply", "layer.layerMask.delete"]
+    {
         assert!(single_layer_only(id), "{id}");
     }
     for id in [
@@ -549,8 +542,7 @@ fn every_entry_is_a_known_command() {
     let mut s = photocraft_engine::Session::new();
     s.execute("file.new", json!({"width": 10, "height": 10})).unwrap();
     let l = s.active().unwrap().doc.layers[0].clone();
-    for (_, id) in entries(&l, false, true).into_iter().chain(entries(&l, false, false)).chain(entries(&l, true, false)).chain(effects_entries()).flatten()
-    {
+    for (_, id) in entries(&l, false, true).into_iter().chain(entries(&l, false, false)).chain(entries(&l, true, false)).chain(effects_entries()).flatten() {
         assert!(crate::menu_catalog::CATALOG.iter().any(|m| m.3 == id) || photocraft_engine::commands::find(id).is_some(), "{id}");
     }
 }

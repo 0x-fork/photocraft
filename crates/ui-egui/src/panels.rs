@@ -11,31 +11,67 @@ use crate::state::Tool;
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
 
+pub mod actions;
+pub mod adjust_ui;
+pub mod apply_color;
+pub(crate) mod blend_preview;
+pub(super) mod brand;
 mod brush_controls;
+pub mod brush_panel;
+pub mod brush_preview;
+pub mod brush_sections;
+pub mod brushes_tab;
+pub mod channels_panel;
+pub mod chrome_ui;
+pub mod clip_line_ui;
 mod color;
+pub mod color_panel_ui;
+pub mod comps_ui;
+pub mod doc_props_ui;
 mod dock;
+pub mod histogram_panel;
 mod history;
+pub mod history_menu_ui;
 mod info;
 mod layer_drag;
+pub mod layer_filter_ui;
+pub mod layer_menu_ui;
+pub mod layer_props_ui;
+pub(super) mod layer_reveal;
 mod layer_row;
+pub mod layer_row_ui;
+pub(super) mod layer_transfer;
+pub mod layer_tree_ui;
 mod layers;
+pub mod layers_panel_ui;
+pub(super) mod mask_props_ui;
+pub mod mask_thumbs_ui;
 mod navigator;
 mod options_bar;
+pub(super) mod panel_docking;
 mod panel_state;
+pub mod preset_panels;
 mod properties;
+pub mod props_layout;
+pub mod smart_ui;
 mod status_bar;
+pub mod swatches_ui;
+pub(super) mod timeline_ui;
 mod title_bar;
+pub(super) mod titlebar;
 mod toolbar;
+pub mod type_panels_ui;
+pub(super) mod variables_ui;
 
 #[cfg(test)]
 use color::color_field_height;
-#[cfg(test)]
-pub(crate) use color::{hsva_color32, hsva_srgb, srgb_bytes};
 pub(crate) use color::{color_field, color_field_fill_id, field_chips, field_hsva, offer_color_field_fill, srgb_hsva};
 #[cfg(test)]
+pub(crate) use color::{hsva_color32, hsva_srgb, srgb_bytes};
+#[cfg(test)]
 pub(crate) use dock::DOCK_MIN_WIDTH;
-pub use dock::{dock_area, request_dock_width};
 pub(crate) use dock::{canvas_panel, dock_body, dock_width_id, dock_width_range};
+pub use dock::{dock_area, request_dock_width};
 #[cfg(test)]
 use history::history;
 #[cfg(test)]
@@ -43,14 +79,14 @@ pub(crate) use history::select_snapshot;
 pub(crate) use history::selected_snapshot;
 #[cfg(test)]
 use info::info_panel;
-pub(crate) use info::{sampler_readouts, SamplerReadouts};
+pub(crate) use info::{SamplerReadouts, sampler_readouts};
 #[cfg(test)]
 use layer_drag::{background_drop_refused, layer_drop_payload};
 pub(crate) use layer_drag::{dropped_on, layer_drag_edge_scroll};
 #[cfg(test)]
-use layer_row::{layer_thumb_fit, paint_clipping_indicator};
-#[cfg(test)]
 pub(crate) use layer_row::thumb_load_badge;
+#[cfg(test)]
+use layer_row::{layer_thumb_fit, paint_clipping_indicator};
 #[cfg(test)]
 use layers::{layers, opacity_row_layout, simple_lock_toggle};
 #[cfg(test)]
@@ -58,21 +94,21 @@ use navigator::{NAV_ROW_H, navigator, navigator_zoom_drag_id, navigator_zoom_to}
 #[cfg(test)]
 pub(crate) use navigator::{last_navigator_controls, last_navigator_preview};
 #[cfg(test)]
-use options_bar::options_bar_height;
-#[cfg(test)]
 use options_bar::LAYER_PCT_W;
 pub use options_bar::options_bar;
+#[cfg(test)]
+use options_bar::options_bar_height;
 pub(crate) use options_bar::{FIXED_SIZE_MAX_PX, opt_label};
 pub use panel_state::{migrate_panel_state, panel_state_id, remember_panel_state};
+pub use properties::properties_window;
 #[cfg(test)]
 use properties::{adjustments_grid, properties_body};
-pub use properties::properties_window;
 pub use status_bar::{status_bar, status_bar_heights};
 #[cfg(test)]
 use title_bar::title_x;
 pub use title_bar::{sync_window_title, system_title_bar, title_bar, window_title};
 #[cfg(test)]
-use toolbar::{chips_height, color_chips, STUDIO_CHIP, tool_flyout_drag_open, tool_flyout_release, TOOL_SECTIONS, toolbar_icon_size, visible_sections};
+use toolbar::{STUDIO_CHIP, TOOL_SECTIONS, chips_height, color_chips, tool_flyout_drag_open, tool_flyout_release, toolbar_icon_size, visible_sections};
 pub use toolbar::{paint_toolbar_flyout_indicator, toolbar};
 
 fn c32(c: [f32; 4]) -> Color32 {

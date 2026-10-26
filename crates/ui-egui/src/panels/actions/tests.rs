@@ -439,9 +439,7 @@ fn recorded_save_as_and_save_replay_and_write_the_file() {
     let written = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
     let log = written.clone();
     let services = crate::Services {
-        export: Some(Box::new(|doc, path, _| {
-            photocraft_io::export(doc, path, &Default::default()).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string())
-        })),
+        export: Some(Box::new(|doc, path, _| photocraft_io::export(doc, path, &Default::default()).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string()))),
         write: Some(Box::new(move |path, _| {
             log.borrow_mut().push(path.to_string());
             Ok(())
@@ -472,9 +470,7 @@ fn disk_app(answers: Vec<Option<crate::file_dialog::FileDialogAnswer>>) -> Photo
         import: Some(Box::new(|name, bytes, opts| {
             photocraft_io::import_with_options(name, bytes, opts).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())
         })),
-        export: Some(Box::new(|doc, path, _| {
-            photocraft_io::export(doc, path, &Default::default()).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string())
-        })),
+        export: Some(Box::new(|doc, path, _| photocraft_io::export(doc, path, &Default::default()).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string()))),
         write: Some(Box::new(|path, bytes| std::fs::write(path, bytes).map_err(|e| e.to_string()))),
         file_dialog: Some(crate::file_dialog::fake(answers).0),
         ..Default::default()
