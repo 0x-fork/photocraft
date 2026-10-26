@@ -676,10 +676,10 @@ fn full_canvas_layer_scenarios(b: &mut Bench, sz: &Sizes) {
     }
 }
 
-/// #1015, #9330: a huge document with one painted layer, refreshed zoomed out (the reduced CPU
-/// canvas `canvas::ensure_texture` draws when the document is too large for GPU textures).
+/// #1015, #9330: a huge document with one painted layer, zoomed out: times only the reduced CPU
+/// composite `canvas::ensure_texture` draws when the document is too large for GPU textures.
 fn huge_document_scenarios(b: &mut Bench, sz: &Sizes) {
-    let name = "zoomed-out refresh of a 30000x30000 document with one painted layer";
+    let name = "zoomed-out reduced composite of a 30000x30000 document with one painted layer";
     if !b.wanted(name) {
         return;
     }

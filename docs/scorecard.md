@@ -95,7 +95,7 @@ Baseline: 2026-10-05, commit `f5d2bcb54a`, Apple M4 Pro (48 GB), GPU Apple M4 Pr
 | P76 | Change layer opacity with Advanced Blending on another layer | ≤ 40 ms p95 | – | – | – | – | – | not run | [#6689](https://github.com/storytold/photocraft/issues/6689) |
 | P77 | Toggle an adjustment layer's visibility | ≤ 10 ms p95 | – | – | – | – | – | not run | [#6535](https://github.com/storytold/photocraft/issues/6535) |
 | P78 | Hide the top adjustment layer among 150 full-canvas layers, 6 MP, GPU budget forced to 512 MB (CPU fallback) | ≤ 30 ms p95 | – | – | – | – | – | not run | [#6533](https://github.com/storytold/photocraft/issues/6533) |
-| P79 | Zoomed-out refresh of a 30000x30000 document with one painted layer (#9330 target: 60000x60000) | track only | – | – | – | – | – | not run | [#1015](https://github.com/storytold/photocraft/issues/1015) |
+| P79 | Zoomed-out reduced composite of a 30000x30000 document with one painted layer (#9330 target: 60000x60000) | track only | – | – | – | – | – | not run | [#1015](https://github.com/storytold/photocraft/issues/1015) |
 
 **Not measurable yet** (the code can't do it yet; no number is recorded):
 
