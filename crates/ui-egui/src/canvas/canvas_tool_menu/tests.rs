@@ -323,8 +323,7 @@ fn right_click_during_free_transform_switches_modes_rotates_and_flips_the_box() 
     right_click(&mut h, center, Modifiers::NONE);
     let menu = h.state().ui.canvas_tool_menu.clone().expect("the transform menu");
     assert!(menu.transform && rows(&menu) == TRANSFORM_MENU);
-    for (id, on) in
-        [("edit.contentAwareScale", false), ("edit.puppetWarp", false), ("edit.transform.rotate90Cw", true), ("edit.transform.flipVertical", true)]
+    for (id, on) in [("edit.contentAwareScale", false), ("edit.puppetWarp", false), ("edit.transform.rotate90Cw", true), ("edit.transform.flipVertical", true)]
     {
         assert_eq!(entry_enabled(h.state(), &menu, id), on, "{id}");
     }

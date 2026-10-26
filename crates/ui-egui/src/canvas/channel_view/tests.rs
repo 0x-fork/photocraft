@@ -246,10 +246,7 @@ fn show_channels_in_color_tints_the_canvas() {
     let st = s.active().unwrap();
     let b = st.doc.bounds();
     assert_eq!(render(&st.doc, &st.channel_view, b, 1, Look::default(), st.active_layer).unwrap()[0], Color32::from_gray(128));
-    assert_eq!(
-        render(&st.doc, &st.channel_view, b, 1, Look { in_color: true, ..Look::default() }, st.active_layer).unwrap()[0],
-        Color32::from_rgb(0, 128, 0)
-    );
+    assert_eq!(render(&st.doc, &st.channel_view, b, 1, Look { in_color: true, ..Look::default() }, st.active_layer).unwrap()[0], Color32::from_rgb(0, 128, 0));
 
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 4, "height": 4, "mode": "cmyk"})).unwrap();

@@ -43,12 +43,12 @@ mod setup;
 mod shaders;
 mod texels;
 
+#[cfg(test)]
+use budget::drm_video_memory;
 pub use budget::{
     DEFER_PX, MIN_GPU_BUDGET, OVER_BUDGET, OVER_CANVAS_BUDGET, REFRESH_DEFERRED, REFRESH_OVER_BUDGET, canvas_budget, canvas_texture_bytes, memory_budget,
     physical_memory, video_memory, vram_share,
 };
-#[cfg(test)]
-use budget::drm_video_memory;
 #[cfg(all(test, windows))]
 use budget::{detect_physical_memory, detect_video_memory};
 use callback::CanvasCallback;
@@ -66,11 +66,11 @@ use setup::texture_buffer;
 pub use setup::{Refresh, device_descriptor, device_limits, display_texels, timing_features, use_adapter_limits, use_adapter_limits_with, wgpu_setup};
 #[cfg(test)]
 use shaders::{CANVAS_WGSL, ENCODE_WGSL, MIP_WGSL};
+#[cfg(not(target_arch = "wasm32"))]
+use texels::texel_to_f32;
 pub use texels::{LayerFit, premultiply_rgba8, premultiply_rgba16f};
 #[cfg(test)]
 use texels::{f16_to_f32, f32_to_f16};
-#[cfg(not(target_arch = "wasm32"))]
-use texels::texel_to_f32;
 use texels::{texel_bytes, texels, texels_into};
 
 /// Default tile side; documents up to this size (and the device limit) use a single texture.

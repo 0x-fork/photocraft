@@ -63,8 +63,7 @@ fn mover_bounds(app: &PhotocraftApp) -> photocraft_geom::Rect {
 #[test]
 fn drawing_a_new_crop_snaps_its_corner_not_the_default_frame() {
     // In both crop modes: the default mode draws a new box inside the untouched frame too.
-    for (classic, snap, end) in [(true, false, [300.0, 220.0]), (true, true, [294.0, 217.0]), (false, false, [300.0, 220.0]), (false, true, [294.0, 217.0])]
-    {
+    for (classic, snap, end) in [(true, false, [300.0, 220.0]), (true, true, [294.0, 217.0]), (false, false, [300.0, 220.0]), (false, true, [294.0, 217.0])] {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 640, "height": 480, "background": "white"})).unwrap();
         app.run("shape.create", json!({"kind": "rect", "rect": [100, 80, 200, 140], "fill": "#d59b40"})).unwrap();
