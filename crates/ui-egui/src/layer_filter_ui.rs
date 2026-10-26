@@ -158,5 +158,4 @@ pub fn bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 }
 
 #[cfg(test)]
-#[path = "layer_filter_ui_tests.rs"]
 mod tests;
