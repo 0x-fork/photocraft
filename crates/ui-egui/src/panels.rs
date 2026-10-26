@@ -6137,7 +6137,6 @@ mod opacity_row_layout_tests {
 }
 
 #[cfg(test)]
-#[path = "clipping_indicator_tests.rs"]
 mod clipping_indicator_tests;
 
 #[cfg(test)]
