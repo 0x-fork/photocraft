@@ -7550,7 +7550,6 @@ mod zoom_animation_tests {
 mod display_memo_tests;
 
 #[cfg(test)]
-#[path = "canvas_cpu_background_tests.rs"]
 mod cpu_background_tests;
 
 #[cfg(test)]
