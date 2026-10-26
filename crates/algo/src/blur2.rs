@@ -181,7 +181,6 @@ fn conv_spans(src: &Image, out: Rect, ctx: &Ctx, spans: &Spans) -> Vec<f32> {
 }
 
 #[cfg(test)]
-#[path = "shape_blur_tests.rs"]
 mod shape_tests;
 
 // ---------- smart blur ----------
