@@ -1446,6 +1446,16 @@ fn tint_stops() -> Vec<Color32> {
 }
 
 /// One labelled slider; marks the dialog dirty when it moves.
+/// The track of Color Mixer band `k` on `tab` (0 Hue, 1 Saturation, 2 Luminance). A Hue slider
+/// turns its band towards the neighbouring bands, so its track runs from the previous band's hue
+/// through its own to the next one's (Reds: magenta, red, orange; #9550); Saturation and Luminance
+/// run from grey to the band's colour.
+fn mixer_gradient(tab: usize, k: usize) -> Vec<Color32> {
+    let bands = &photocraft_algo::camera_raw::HSL_BANDS;
+    let hue = |i: usize| widgets::hue_color(bands.get(i % bands.len()).copied().unwrap_or(0.0));
+    if tab == 0 { vec![hue(k + bands.len() - 1), hue(k), hue(k + 1)] } else { vec![Color32::from_gray(128), hue(k)] }
+}
+
 fn row(ui: &mut egui::Ui, dirty: &mut bool, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, grad: Option<&[Color32]>) {
     let _ = slider(ui, dirty, label, v, range, grad);
 }
@@ -1746,9 +1756,7 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
                     _ => &mut p.hsl_lum,
                 };
                 for (k, name) in BANDS.iter().enumerate() {
-                    let c = photocraft_algo::camera_raw::HSL_BANDS[k];
-                    let base = widgets::hue_color(c);
-                    let grad = [Color32::from_gray(128), base];
+                    let grad = mixer_gradient(d.mixer_tab, k);
                     row(ui, &mut dirty, name, &mut arr[k], -100.0..=100.0, Some(&grad));
                 }
             });
@@ -1863,6 +1871,19 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #9550: a Color Mixer Hue track runs through the neighbouring bands' hues (Reds: magenta to
+    /// orange, wrapping round), not from grey; Saturation and Luminance keep grey to the colour.
+    #[test]
+    fn hue_tracks_run_between_the_neighbouring_bands() {
+        let hue = |d: f32| widgets::hue_color(d);
+        assert_eq!(mixer_gradient(0, 0), vec![hue(300.0), hue(0.0), hue(30.0)], "Reds");
+        assert_eq!(mixer_gradient(0, 7), vec![hue(270.0), hue(300.0), hue(0.0)], "Magentas");
+        assert_eq!(mixer_gradient(0, 3), vec![hue(60.0), hue(120.0), hue(180.0)], "Greens");
+        for tab in [1, 2] {
+            assert_eq!(mixer_gradient(tab, 3), vec![Color32::from_gray(128), hue(120.0)]);
+        }
+    }
 
     #[test]
     fn preview_texture_uses_linear_document_display_encoding() {
