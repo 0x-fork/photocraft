@@ -2022,7 +2022,6 @@ mod tests;
 mod path_selection_tests;
 
 #[cfg(test)]
-#[path = "pen_draw_tests.rs"]
 mod pen_draw_tests;
 
 #[cfg(test)]
