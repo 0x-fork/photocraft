@@ -92,10 +92,11 @@ plane at a time.
 
 A 50×50 selection at radius 5 needs a 62×62 distance window (3,844 samples), even on a
 36 MP canvas. Seed, vertical and output-distance buffers total about 23 KB on the bounded
-path, excluding allocator overhead. The flat API still scans its input for bounds and
-returns a full-sized output (144 MB at 36 MP). Engine mask conversion, tiled writeback,
-undo and compositing remain outside this optimization; this does not establish a GUI
-latency budget or solve sparse document storage.
+path, excluding allocator overhead. The flat API still scans its supplied input for bounds and
+returns an output of the same size (144 MB for a direct 36 MP call). The three Modify
+commands now supply only the cropped selection window, including for mask conversion
+and tiled replacement. Undo and compositing retain their existing behavior; this does
+not establish a GUI latency budget or solve arbitrary sparse document operations.
 
 Regression tests compare against the previous full-canvas formulas for empty/full masks,
 one-row/column canvases, holes, edge-touching shapes, fractional radii, and fractional
@@ -131,3 +132,37 @@ also times Contract using its original owning iterator so allocation reuse is pr
 | 4000×4000 | Border | 3 | 802.48 | 377.78 | 2.12× |
 | 4000×4000 | Expand | 50 | 414.50 | 268.96 | 1.54× |
 | 4000×4000 | Border | 50 | 784.89 | 467.06 | 1.68× |
+
+
+### Cropped command reads and writeback
+
+The engine gets the selection surface's nonzero content bounds, inflates by
+`ceil(radius) + 1`, clips to the canvas and reads only that rectangle for Expand,
+Contract and Border. Internal rectangle edges have a zero halo, so existing padding
+only replicates nonzero values at real canvas edges. A nonzero surface default selects
+implicit pixels throughout the canvas and therefore uses the full canvas. Empty
+selections clear normally. The existing oversized-canvas safety limit remains.
+
+Replacement already accepts a rectangle and builds a fresh sparse selection surface,
+so it writes only affected tiles and retains the existing undoable transaction. The
+shared `current_mask` helper and Grow/Similar are unchanged. Smooth and Feather keep
+their existing command paths.
+
+Command tests compare against full-canvas reads, padding and replacement for empty/full
+selections, both canvas-bounds settings, edge-touching masks, holes, fractional coverage,
+nonzero implicit defaults and entirely off-canvas pixels. Undo and redo preserve the
+selection. A synthetic 36 MP test verifies that a 50×50 selection at radius 5 supplies
+only 62×62 samples and executes all three commands without full-canvas mask allocation.
+
+The optional CI benchmark also runs:
+
+```sh
+cargo test --release -p photocraft-engine --lib sparse_modify_release_comparison -- --ignored --nocapture
+```
+
+This isolates command-window savings: both paths use the optimized algorithm kernels,
+but the reference keeps full-canvas mask conversion and replacement. Both include the
+undoable edit; session creation and full-canvas equality checks are outside timing.
+Three rounds alternate execution order, with radii 3 and 50 on a 50×50 selection in a
+6000×6000 canvas. The cropped path dispatches the actual command; the reference calls
+the prior conversion/edit sequence directly. GUI rendering remains excluded.

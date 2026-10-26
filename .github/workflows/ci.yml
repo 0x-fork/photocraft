@@ -444,6 +444,10 @@ jobs:
         run: |
           set -o pipefail
           cargo run --release -p photocraft-algo --example bench_selection_morphology | tee selection-morphology-perf.txt
+      - name: Compare cropped command reads and writeback on 36 MP
+        run: |
+          set -o pipefail
+          cargo test --release -p photocraft-engine --lib sparse_modify_release_comparison -- --ignored --nocapture | tee -a selection-morphology-perf.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

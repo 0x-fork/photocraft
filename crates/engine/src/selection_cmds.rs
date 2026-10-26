@@ -11,6 +11,8 @@ use serde_json::{Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
+mod modify_window;
+
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
@@ -452,11 +454,15 @@ fn modify(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     // or a Select All would border to nothing.
     let at_bounds = op == "border" || b(p, "applyAtCanvasBounds", false);
     let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
-    let area = doc.bounds();
-    if area.size().area() > MAX_MODIFY_PIXELS as u64 {
+    let canvas = doc.bounds();
+    if canvas.size().area() > MAX_MODIFY_PIXELS as u64 {
         return Err(EngineError::BadParams { cmd: format!("select.modify.{op}"), msg: "the selection is too large to modify".into() });
     }
-    let (_, m) = current_mask(doc);
+    // Keep both mask conversion and tiled replacement within the affected region. The
+    // zero halo makes internal window edges inert; nonzero edges can only be canvas edges,
+    // so the existing Apply effect at canvas bounds padding still has the same meaning.
+    let area = if matches!(op, "expand" | "contract" | "border") { modify_window::area(doc, r) } else { canvas };
+    let m = sel::mask_from_surface(doc.selection.as_ref(), area);
     let (w, h) = (area.width() as usize, area.height() as usize);
     // Feather reaches 3σ = 3 r (σ = r, as in Photoshop); the others reach r. A margin past that
     // keeps the canvas edge out of reach. A selection clear of the canvas edge needs none: both
