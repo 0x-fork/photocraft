@@ -227,9 +227,8 @@ fn paired_bevel_fields_equal_the_fields_one_at_a_time() {
             let banded =
                 fields_in_windows(false, &shape, region, out, halo, |s, w, h| photocraft_compose::effects::bevel_distance_fields(s, w, h, reach as f32));
             for (k, kind) in [FieldKind::BevelInside, FieldKind::BevelOutside].into_iter().enumerate() {
-                let [one] = fields_in_windows(false, &shape, region, out, halo, |s, w, h| {
-                    [photocraft_compose::effects::distance_field(kind, s, w, h, reach as f32)]
-                });
+                let [one] =
+                    fields_in_windows(false, &shape, region, out, halo, |s, w, h| [photocraft_compose::effects::distance_field(kind, s, w, h, reach as f32)]);
                 assert_eq!(bits(&banded[k]), bits(&one), "banded {kind:?}, reach {reach}, {out:?}");
             }
         }

@@ -99,9 +99,7 @@ fn outer_glow_plan_knocks_out_see_through_fill() {
         let glow = planned
             .passes
             .iter()
-            .find(|pass| {
-                pass.kernel == Kernel::FxPaint && pass.flags & F_KNOCKOUT != 0 && pass.color[0] > 0.9 && pass.color[1] > 0.9 && pass.color[2] < 0.1
-            })
+            .find(|pass| pass.kernel == Kernel::FxPaint && pass.flags & F_KNOCKOUT != 0 && pass.color[0] > 0.9 && pass.color[1] > 0.9 && pass.color[2] < 0.1)
             .expect("outer glow paint pass");
         assert!((glow.extra[3] - (1.0 - fill)).abs() < 1e-6, "fill {fill}");
     }
@@ -227,10 +225,7 @@ fn exterior_effects_merge_from_the_shape() {
     let merge = p.passes.last().unwrap();
     assert!(merge.flags & F_LAYER_SHAPE != 0);
     assert_eq!(merge.params[0][0], 0.7);
-    d.layers[1]
-        .effects
-        .items
-        .push(photocraft_doc::Effect::ColorOverlay { common: photocraft_doc::FxCommon::new(BlendMode::Normal, 1.0), color: Color::WHITE });
+    d.layers[1].effects.items.push(photocraft_doc::Effect::ColorOverlay { common: photocraft_doc::FxCommon::new(BlendMode::Normal, 1.0), color: Color::WHITE });
     let p = plan(&d).unwrap();
     assert!(p.passes.iter().all(|p| p.flags & F_LAYER_SHAPE == 0));
     assert!(p.passes.iter().any(|p| p.kernel == Kernel::FxInit));

@@ -91,8 +91,7 @@ fn runs_of_normal_layers_draw_with_normal_code_alone() {
     let normal = pass(BlendMode::Normal, plan::F_HDR);
     assert_eq!(batch_kernel(&[normal.clone(), pass(BlendMode::Normal, 0)]), Kernel::LayerBatchNormal);
     // Any other mode, text gamma or a Lab document anywhere in the run takes the full shader.
-    for other in
-        [pass(BlendMode::Multiply, 0), pass(BlendMode::Dissolve, 0), pass(BlendMode::Normal, plan::F_TEXT_GAMMA), pass(BlendMode::Normal, plan::F_LAB)]
+    for other in [pass(BlendMode::Multiply, 0), pass(BlendMode::Dissolve, 0), pass(BlendMode::Normal, plan::F_TEXT_GAMMA), pass(BlendMode::Normal, plan::F_LAB)]
     {
         assert_eq!(batch_kernel(&[normal.clone(), other.clone()]), Kernel::LayerBatch);
         assert_eq!(batch_kernel(&[other, normal.clone()]), Kernel::LayerBatch);
@@ -375,11 +374,7 @@ fn colour_managed_tiles_match_the_per_pixel_conversion() {
                             }
                         })
                         .collect();
-                    assert!(
-                        bytes == want.as_slice(),
-                        "{fmt:?} {c:?} with {}",
-                        if space.is_some() { "the document's profile" } else { "the built-in profile" }
-                    );
+                    assert!(bytes == want.as_slice(), "{fmt:?} {c:?} with {}", if space.is_some() { "the document's profile" } else { "the built-in profile" });
                     assert_eq!(convert_tile(&s, s.tile(c), kind, c), want, "{fmt:?} {c:?}");
                     seen += 1;
                 }
