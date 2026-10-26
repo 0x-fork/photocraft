@@ -441,7 +441,8 @@ against a baseline from the same machine class and mode, or when a bench fails. 
 different machine classes are never compared, and `--quick` numbers are only compared with a
 quick baseline. Machines that run other work give noisy numbers: check the load average in the
 summary before trusting a regression, and record it next to any number you quote. A run whose
-1-minute load at the start is above `settings.max_load_per_core` per core is marked **contended**
+1-minute load at the start (sampled before the release build, so the harness's own compile doesn't
+count) is above `settings.max_load_per_core` per core is marked **contended**
 in the summary, and `--update-baseline` refuses to record it unless `--allow-contended` is given.
 
 **Recording a baseline.** One run is noisy, especially on the shared nightly runner, so build the

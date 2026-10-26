@@ -731,7 +731,10 @@ pub fn baseline_from_runs(old: Option<&Value>, runs: &[Value], rules: &BaselineR
     }
     let mut scenarios = serde_json::Map::new();
     for (k, st) in &per {
-        failed.remove(k);
+        // A row that crashed in any run stays failed: no partial aggregate.
+        if failed.contains_key(k) {
+            continue;
+        }
         let mut p50: Vec<f64> = st.iter().filter_map(|s| s.p50).collect();
         let mut p95: Vec<f64> = st.iter().filter_map(|s| s.p95).collect();
         let fmax = |f: fn(&Stats) -> Option<f64>| st.iter().filter_map(f).reduce(f64::max);
@@ -898,6 +901,9 @@ pub fn run(root: &Path, rest: &[&str]) -> Result<(), String> {
         plan.push((b, args));
     }
 
+    // Sampled before the build: the harness's own compile isn't contention. The load after the
+    // build is still recorded, as the first bench's `load_avg_before`.
+    let load_start = load_avg();
     if !o.skip_build {
         let mut by_pkg: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
         for (b, _) in &plan {
@@ -913,7 +919,6 @@ pub fn run(root: &Path, rest: &[&str]) -> Result<(), String> {
         }
     }
 
-    let load_start = load_avg();
     let mut reports: BTreeMap<String, Result<Value, String>> = BTreeMap::new();
     let mut bench_meta = serde_json::Map::new();
     for (b, args) in &plan {
@@ -1373,6 +1378,18 @@ not_measurable = "needs a frame harness"
         assert_eq!((p44.p50, p44.p50_max, p44.n), (Some(2300.0), Some(2868.0), 25));
         assert_eq!(got["P46"].p50, Some(31.0));
         assert_eq!(median(&mut [4.0, 1.0, 3.0, 2.0]), Some(2.5));
+    }
+
+    #[test]
+    fn baseline_from_runs_keeps_a_row_failed_in_any_run() {
+        let mut runs: Vec<Value> = (1..=3).map(|d| run_of(&format!("2026-10-2{d}"), 1.0, &[("P1", 3.0), ("P2", 5.0)])).collect();
+        runs[1]["scenarios"]["P1"] = json!({"status": format!("{MISSING_PREFIX}bench crashed")});
+        let b = baseline_from_runs(None, &runs, &rules(3, false)).unwrap();
+        let m = &b["modes"]["full"];
+        assert!(m["scenarios"].get("P1").is_none(), "no partial aggregate: {m}");
+        assert_eq!(m["failed"]["P1"], json!("bench crashed"));
+        assert_eq!(m["scenarios"]["P2"]["p50_ms"], json!(5.0));
+        assert!(m["failed"].get("P2").is_none());
     }
 
     #[test]
