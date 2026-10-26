@@ -690,9 +690,7 @@ fn bevel_maps_do_not_depend_on_the_threads() {
 
 /// The four fields that use the distance transform, of `m`.
 fn distance_field_of(m: &Map, reach: f32) -> Vec<Vec<f32>> {
-    [FieldKind::Inside, FieldKind::Outside, FieldKind::BevelInside, FieldKind::BevelOutside]
-        .map(|k| distance_field(k, m.v.clone(), m.w, m.h, reach))
-        .to_vec()
+    [FieldKind::Inside, FieldKind::Outside, FieldKind::BevelInside, FieldKind::BevelOutside].map(|k| distance_field(k, m.v.clone(), m.w, m.h, reach)).to_vec()
 }
 
 fn aa_disc(w: usize, h: usize, r: f32) -> Map {
@@ -774,11 +772,8 @@ fn bevel_contour_and_texture_shape_the_height() {
         photocraft_doc::adjust::CurvePoint { input: 0.5, output: 1.0 },
         photocraft_doc::adjust::CurvePoint { input: 1.0, output: 0.0 },
     ];
-    c.contour = Some(photocraft_doc::BevelContour {
-        contour: Contour::Custom { name: "fold".into(), points: fold, corners: vec![] },
-        range: 1.0,
-        anti_alias: false,
-    });
+    c.contour =
+        Some(photocraft_doc::BevelContour { contour: Contour::Custom { name: "fold".into(), points: fold, corners: vec![] }, range: 1.0, anti_alias: false });
     let (b, _) = bevel_maps(&shape, &c, &l, &no_tex(), &PreparedPatterns::new(&[], PREPARED_PATTERN_BYTES));
     let diff: f32 = a[1].v.iter().zip(&b[1].v).map(|(x, y)| (x - y).abs()).sum();
     assert!(diff > 5.0, "{diff}");
@@ -788,15 +783,8 @@ fn bevel_contour_and_texture_shape_the_height() {
     sf.fill_rect(Rect::new(0, 2, 4, 4), &[1.0, 1.0, 1.0, 1.0]);
     let pats = [Pattern::new("stripes", sf, 4, 4)];
     let mut t = plain.clone();
-    t.texture = Some(photocraft_doc::BevelTexture {
-        name: "stripes".into(),
-        id: String::new(),
-        scale: 1.0,
-        depth: 1.0,
-        invert: false,
-        link: true,
-        phase: (0.0, 0.0),
-    });
+    t.texture =
+        Some(photocraft_doc::BevelTexture { name: "stripes".into(), id: String::new(), scale: 1.0, depth: 1.0, invert: false, link: true, phase: (0.0, 0.0) });
     let tex = TextureCtx { rect: Rect::new(0, 0, 40, 40), patterns: &pats, anchor: (0.0, 0.0) };
     let (m, _) = bevel_maps(&shape, &t, &l, &tex, &PreparedPatterns::new(&pats, PREPARED_PATTERN_BYTES));
     let mid: f32 = (16..24).map(|y| m[0].v[y * 40 + 20] + m[1].v[y * 40 + 20]).sum();
