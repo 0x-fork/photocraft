@@ -477,5 +477,4 @@ mod tests {
 }
 
 #[cfg(test)]
-#[path = "menu_keys_tests.rs"]
 mod harness_tests;
