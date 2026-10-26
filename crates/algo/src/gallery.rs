@@ -18,7 +18,6 @@ use crate::{BlurPath, Ctx, FieldPin, IrisPin, SpinPin};
 mod tests;
 
 #[cfg(test)]
-#[path = "tests_tilt_shift.rs"]
 mod tilt_shift_tests;
 
 /// Gaussian σ for a gallery blur amount in px.

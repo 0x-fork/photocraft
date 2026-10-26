@@ -2,7 +2,6 @@ use super::*;
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
 use photocraft_raster::{Interrupt, Surface};
 
-#[path = "tests_tilt_shift_reference.rs"]
 mod reference;
 
 fn image(rect: Rect, ch: usize) -> Image {
