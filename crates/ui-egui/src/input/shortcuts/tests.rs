@@ -373,8 +373,7 @@ fn an_image_paste_released_after_command_still_pastes() {
 fn web_paste_key_and_paste_event_are_one_press() {
     let ctx = egui::Context::default();
     let key = |key, pressed| egui::Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers: Modifiers::COMMAND };
-    let mut r =
-        egui::RawInput { events: vec![key(Key::V, true), egui::Event::Paste("x".into()), key(Key::X, true), egui::Event::Cut], ..Default::default() };
+    let mut r = egui::RawInput { events: vec![key(Key::V, true), egui::Event::Paste("x".into()), key(Key::X, true), egui::Event::Cut], ..Default::default() };
     clipboard_keys(&ctx, false, &mut r);
     let presses = |k| r.events.iter().filter(|e| matches!(e, egui::Event::Key { key, pressed: true, .. } if *key == k)).count();
     assert_eq!((presses(Key::V), presses(Key::X)), (1, 1));
