@@ -101,5 +101,4 @@ pub fn below() -> egui::RectAlign {
 }
 
 #[cfg(test)]
-#[path = "direction_tests.rs"]
 mod tests;
