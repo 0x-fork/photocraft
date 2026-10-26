@@ -229,7 +229,8 @@ pub(crate) fn stem(path: &str) -> String {
 
 /// Whether `a` and `b` name the same file: the same text, or, when both exist, the same file on
 /// disk (a hard link, a different case on a case-insensitive volume, `./` or `..` in one of them).
-pub fn same_file(a: &str, b: &str) -> bool {
+pub fn same_file(a: impl AsRef<std::path::Path>, b: impl AsRef<std::path::Path>) -> bool {
+    let (a, b) = (a.as_ref(), b.as_ref());
     if a == b {
         return true;
     }
@@ -576,6 +577,17 @@ pub(crate) fn flattened(doc: &Document, fmt: PixelFormat) -> Surface {
     photocraft_compose::flatten_to_surface(doc, fmt, None)
 }
 
+/// [`flattened`] for documents that came from a file (Save a Copy, Place, Load Files into Stack):
+/// a sparse bundle declares its canvas, and one the size of the format allows would be rendered
+/// in full, however little it holds. Refused past the compositor's own per-render limit.
+pub(crate) fn flattened_checked(doc: &Document, fmt: PixelFormat, cmd: &str) -> Result<Surface> {
+    let b = doc.bounds();
+    if u64::from(b.width()) * u64::from(b.height()) > photocraft_compose::MAX_RENDER_PIXELS {
+        return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("the document's {}×{} canvas is too large to flatten", b.width(), b.height()) });
+    }
+    Ok(flattened(doc, fmt))
+}
+
 // ---------- close / revert / save a copy / open as ----------
 
 fn close_all(s: &mut Session) -> Result<Value> {
@@ -637,7 +649,7 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
     if p.get("layers").and_then(Value::as_bool) == Some(false) {
         // "Layers" unchecked in Save a Copy: write the flattened image.
         let fmt = doc.pixel_format();
-        let px = flattened(&doc, fmt);
+        let px = flattened_checked(&doc, fmt, "file.saveACopy")?;
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(px))];
     }
     let warnings = save_doc(&doc, &path, SaveOpts::from_params(s, p, "file.saveACopy")?)?;
@@ -744,7 +756,7 @@ pub fn place_bytes(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<S
         _ => (cw / 2.0, ch / 2.0),
     };
     let (dx, dy) = ((center.0 - w * scale / 2.0).round(), (center.1 - h * scale / 2.0).round());
-    let mut px = flattened(&src, fmt);
+    let mut px = flattened_checked(&src, fmt, "file.place")?;
     if (scale - 1.0).abs() > 1e-9 {
         px = resize_surface(&px, scale, scale, Resample::Bicubic);
     }
@@ -1455,42 +1467,72 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
             list
         }
     };
-    let actions = crate::actions_cmds::ActionState { list, playing: s.actions.playing, playback_stack: s.actions.playback_stack.clone(), ..Default::default() };
+    // A batch inside a played action charges its inputs × steps (at least one each: an input is read,
+    // decoded and saved even with no steps) to the playback tree it is in and
+    // hands the count on, so a batch of batches can't multiply past the limit. A top-level batch
+    // is not limited by it.
+    let mut playback_steps = 0;
+    if s.actions.playing > 0 {
+        playback_steps = s.actions.playback_steps.saturating_add((steps.len().max(1) as u64).saturating_mul(inputs.len() as u64));
+        if playback_steps > crate::actions_cmds::MAX_PLAYBACK_STEPS {
+            return Err(EngineError::BadParams { cmd: cmd.into(), msg: "this batch would exceed the playback step limit of the action that runs it".into() });
+        }
+        s.actions.playback_steps = playback_steps;
+    }
+    let actions = crate::actions_cmds::ActionState {
+        list,
+        playing: s.actions.playing,
+        playback_stack: s.actions.playback_stack.clone(),
+        playback_steps,
+        ..Default::default()
+    };
     let names = batch_naming::plan(&inputs, &output, &format, p)?;
     let save = SaveOpts::from_params(s, p, cmd)?;
     let authorize = s.authorize;
+    // Each input runs in its own scratch session, so what the played steps spend is carried from
+    // one input to the next (failed or not) and back to this session, not restarted per input.
+    let carried = std::cell::Cell::new(playback_steps);
+    let carried = &carried;
     let run = move |scratch: &mut Session, out: &str| {
         scratch.authorize = authorize;
         scratch.actions = actions.clone();
-        // The document as the last recorded save found it, written once the action has run so a
-        // failing step still writes nothing.
-        let mut saved: Option<Arc<Document>> = None;
-        for (id, params) in &steps {
-            if batch_save_point(id) {
-                saved = Some(scratch.active().ok_or(EngineError::NoDocument)?.doc.clone());
-                continue;
+        scratch.actions.playback_steps = carried.get();
+        let result = (|| {
+            // The document as the last recorded save found it, written once the action has run so a
+            // failing step still writes nothing.
+            let mut saved: Option<Arc<Document>> = None;
+            for (id, params) in &steps {
+                if batch_save_point(id) {
+                    saved = Some(scratch.active().ok_or(EngineError::NoDocument)?.doc.clone());
+                    continue;
+                }
+                let r = scratch.execute(id, params.clone())?;
+                // A failed step inside a called action makes this file an error, not a saved result.
+                if let Some(error) = crate::actions_cmds::nested_failure(id, &r) {
+                    return Err(EngineError::Other(error));
+                }
             }
-            let r = scratch.execute(id, params.clone())?;
-            // A failed step inside a called action makes this file an error, not a saved result.
-            if let Some(error) = crate::actions_cmds::nested_failure(id, &r) {
-                return Err(EngineError::Other(error));
+            // While the saved document is still open the steps after the save reach the result too
+            // (#3058), so it is saved after the action as usual. Closed after its save, or with another
+            // document left active, it is written as the save found it.
+            match saved {
+                Some(doc) if scratch.active().is_none_or(|d| d.doc.id != doc.id) => {
+                    save_doc(&doc, out, save)?;
+                    Ok(true)
+                }
+                _ => Ok(false),
             }
-        }
-        // While the saved document is still open the steps after the save reach the result too
-        // (#3058), so it is saved after the action as usual. Closed after its save, or with another
-        // document left active, it is written as the save found it.
-        match saved {
-            Some(doc) if scratch.active().is_none_or(|d| d.doc.id != doc.id) => {
-                save_doc(&doc, out, save)?;
-                Ok(true)
-            }
-            _ => Ok(false),
-        }
+        })();
+        carried.set(scratch.actions.playback_steps);
+        result
     };
     let r = match names {
         Some(names) => process_outputs(s, inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
         None => process_tree(s, &inputs, &output, &format, save, "", &run),
     };
+    if s.actions.playing > 0 {
+        s.actions.playback_steps = carried.get();
+    }
     Ok(r)
 }
 
@@ -1540,7 +1582,7 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
     let fmt = stack.pixel_format();
     // First file at the bottom, like Photoshop's script.
     for (name, d) in &docs {
-        stack.layers.push(Layer::new(name.clone(), LayerContent::Raster(flattened(d, fmt))));
+        stack.layers.push(Layer::new(name.clone(), LayerContent::Raster(flattened_checked(d, fmt, cmd)?)));
     }
     let n = stack.layers.len();
     let smart = p.get("createSmartObject").and_then(Value::as_bool).unwrap_or(false);

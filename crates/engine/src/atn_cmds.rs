@@ -1949,7 +1949,8 @@ fn conditional_from(d: &Descriptor) -> Mapped {
         return Mapped::Unsupported { harmless: false };
     }
     let branch = |key: &str| match get_ref(d, key).map(target) {
-        Some(Target::Name(n)) => Some(n),
+        // Clipped like the stored action names, so the load-time rename map finds it.
+        Some(Target::Name(n)) => Some(clip_name(&n)),
         _ => None,
     };
     step("actions.conditional", json!({"if": condition, "then": branch("then"), "else": branch("else")}))
@@ -2468,7 +2469,7 @@ fn apply_comp_to(_: &str, p: &Value) -> Option<Descriptor> {
 
 fn play_from(d: &Descriptor) -> Mapped {
     match get_ref(d, "null").map(target) {
-        Some(Target::Name(n)) => step("actions.play", json!({"action": n})),
+        Some(Target::Name(n)) => step("actions.play", json!({"action": clip_name(&n)})),
         _ => Mapped::Unsupported { harmless: false },
     }
 }
@@ -3877,10 +3878,18 @@ fn normalise(v: &mut Value) {
     }
 }
 
+/// Longest action or set name kept (Photoshop's own limit is 255). A file's names are lengths it
+/// chooses, and each is copied into every action and every unsupported-step diagnostic.
+const MAX_NAME_CHARS: usize = 1024;
+
+fn clip_name(s: &str) -> String {
+    s.chars().take(MAX_NAME_CHARS).collect()
+}
+
 fn convert_action(a: &AtnAction, set: &str, unsupported: &mut Vec<Unsupported>) -> Action {
-    let name = a.name.to_string_lossy();
+    let name = clip_name(&a.name.to_string_lossy());
     let mut action = Action::new(name.clone(), Vec::new());
-    action.set = Some(set.to_string());
+    action.set = Some(clip_name(set));
     for (i, item) in a.items.iter().enumerate() {
         let mapped = match (event_for(&item.event), &item.descriptor) {
             (Some(e), Some(d)) => (e.from)(d),
@@ -3914,7 +3923,7 @@ fn convert_action(a: &AtnAction, set: &str, unsupported: &mut Vec<Unsupported>) 
 pub fn import(bytes: &[u8]) -> std::result::Result<Imported, String> {
     let file = atn::parse(bytes).map_err(|e| e.to_string())?;
     let set = file.name.to_string_lossy();
-    let set = if set.trim().is_empty() { DEFAULT_SET.to_string() } else { set };
+    let set = if set.trim().is_empty() { DEFAULT_SET.to_string() } else { clip_name(&set) };
     let mut out = Imported { set: set.clone(), warnings: file.warnings.clone(), ..Default::default() };
     for a in &file.actions {
         let action = convert_action(a, &set, &mut out.unsupported);
@@ -3939,9 +3948,9 @@ pub struct Skipped {
 fn export_item(id: &str, params: &Value, set: &str) -> Option<AtnItem> {
     if id == PHOTOSHOP_STEP {
         let event = jstr(params, "event")?;
-        let event = match jstr(params, "eventKind") {
-            Some("code") => AtnEvent::Code(event.as_bytes().try_into().ok()?),
-            Some("name") => AtnEvent::name(event),
+        let event = match params.get("eventKind") {
+            Some(Value::String(kind)) if kind == "code" => AtnEvent::Code(event.as_bytes().try_into().ok()?),
+            Some(Value::String(kind)) if kind == "name" => AtnEvent::name(event),
             Some(_) => return None,
             // Older PhotoCraft action data did not retain the event kind. Keep its previous
             // best-effort export behavior for compatibility.
