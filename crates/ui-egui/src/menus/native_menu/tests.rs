@@ -33,21 +33,7 @@ fn photocraft_gets_a_mac_app_menu() {
     assert_eq!((app.title.as_str(), app.role), ("PhotoCraft", MenuRole::App));
     assert_eq!(
         ids(&app.children),
-        [
-            "help.about",
-            "---",
-            "[Settings]",
-            "[Language]",
-            "[Appearance]",
-            "---",
-            "<Services>",
-            "---",
-            HIDE,
-            "<HideOthers>",
-            "<ShowAll>",
-            "---",
-            "file.exit"
-        ]
+        ["help.about", "---", "[Settings]", "[Language]", "[Appearance]", "---", "<Services>", "---", HIDE, "<HideOthers>", "<ShowAll>", "---", "file.exit"]
     );
     let quit = l.bar.find("file.exit").unwrap();
     assert_eq!((quit.label.as_str(), quit.shortcut.as_deref()), ("Quit PhotoCraft", Some("Cmd+Q")));
@@ -379,9 +365,7 @@ fn cut_selected_type_from_native_menu_matches_keyboard_cut() {
         });
         out.textures_delta.clear();
         assert_eq!(out.platform_output.commands, [egui::OutputCommand::CopyText("Hello".into())]);
-        let photocraft_doc::LayerContent::Text(text) = &app.session.active().unwrap().doc.layer(id).unwrap().content else {
-            panic!("type layer changed kind")
-        };
+        let photocraft_doc::LayerContent::Text(text) = &app.session.active().unwrap().doc.layer(id).unwrap().content else { panic!("type layer changed kind") };
         assert!(text.text.is_empty());
         let edit = app.ui.text_edit.as_ref().unwrap();
         assert_eq!((edit.anchor, edit.caret), (0, 0));
