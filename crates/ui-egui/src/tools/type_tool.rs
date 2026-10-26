@@ -36,20 +36,20 @@ use defaults::{apply, default_style_params, default_styles, shown_scale};
 pub use defaults::{foreground_changed, open_color_picker};
 pub(crate) use defaults::{formatting_params, target, target_text, type_unit, with_target};
 #[cfg(test)]
-use editing::{insert, insert_typed, smart_quotes};
-#[cfg(test)]
 pub(crate) use editing::{CharToggle, step_char_metric, toggle_char_style, toggle_hyphenate};
 pub use editing::{cancel, commit, commit_with, edit_active, edit_at, end_if_left};
 pub(crate) use editing::{copy_selection, cut_selection, request_paste, select_all};
 #[cfg(test)]
-use fonts::{font_labels_id, FONT_MENU_HEIGHT, font_menu_rows, font_picker_in, style_names, wheel_family_index};
+use editing::{insert, insert_typed, smart_quotes};
 #[cfg(test)]
 pub(crate) use fonts::{Axis, axis_value, slider_axes};
+#[cfg(test)]
+use fonts::{FONT_MENU_HEIGHT, font_labels_id, font_menu_rows, font_picker_in, style_names, wheel_family_index};
 pub use fonts::{families, style_label, styles, sync_font_names, warm_fonts};
 pub(crate) use fonts::{family_picker_in, fonts_ready, selected_style};
+pub(crate) use ime::{ImeState, controls_only, finish_reset_logic, finish_reset_pass, in_ui_pass, install_reset_hooks};
 #[cfg(test)]
 use ime::{IncomingComposition, ResetPhase};
-pub(crate) use ime::{controls_only, finish_reset_logic, finish_reset_pass, ImeState, in_ui_pass, install_reset_hooks};
 #[cfg(test)]
 use ime_edit::ime_update;
 pub(crate) use ime_edit::sync_ime;
@@ -60,10 +60,10 @@ pub use layout::layout;
 pub(crate) use layout::{hit_layer, offset_at, shows_own_layout};
 #[cfg(test)]
 use options_bar::num_field;
-#[cfg(test)]
-pub(crate) use options_bar::{kerning_label, parse_kerning};
 pub use options_bar::options_bar;
 pub(crate) use options_bar::styles_at;
+#[cfg(test)]
+pub(crate) use options_bar::{kerning_label, parse_kerning};
 #[cfg(test)]
 use overlay::CARET_STROKES;
 pub use overlay::draw_overlay;
@@ -71,11 +71,11 @@ pub use overlay::draw_overlay;
 pub(crate) use panel::{OPENTYPE_BUTTONS, toggle_opentype};
 pub use panel::{character_panel, type_properties};
 #[cfg(test)]
-use pointer::{handle_sides, MIN_BOX, word_boundary};
+use pointer::{MIN_BOX, handle_sides, word_boundary};
+pub(crate) use pointer::{PathClick, box_handle_at, hover_path_target, inside_box};
 #[cfg(test)]
 pub(crate) use pointer::{box_shape, click_selection, next_click_count, path_target};
 pub use pointer::{multi_click, pointer_down, pointer_move, pointer_up};
-pub(crate) use pointer::{box_handle_at, hover_path_target, inside_box, PathClick};
 
 pub const PLACEHOLDER: &str = "Lorem Ipsum";
 

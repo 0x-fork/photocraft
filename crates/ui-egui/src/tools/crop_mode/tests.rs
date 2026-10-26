@@ -625,9 +625,7 @@ fn ui_pointer_drives_the_default_mode_in_press_coordinates() {
 #[test]
 fn degenerate_input_never_panics() {
     let mut app = app();
-    for frame in
-        [[0.0, 0.0, 0.0, 0.0], [5.0, 5.0, 5.0, 5.0], [f64::NAN, 0.0, 10.0, 10.0], [f64::INFINITY, 0.0, 1e300, 1e300], [-1e300, -1e300, 1e300, 1e300]]
-    {
+    for frame in [[0.0, 0.0, 0.0, 0.0], [5.0, 5.0, 5.0, 5.0], [f64::NAN, 0.0, 10.0, 10.0], [f64::INFINITY, 0.0, 1e300, 1e300], [-1e300, -1e300, 1e300, 1e300]] {
         for angle in [0.0, f64::NAN, f64::INFINITY, 1e300, -720.5] {
             app.ui.crop_rect = Some(frame);
             app.ui.crop_angle = angle;
@@ -739,8 +737,7 @@ fn a_recrop_handle_snaps_exactly_to_the_hidden_pixels_edge() {
                                 .iter()
                                 .any(|l| l.vertical == vertical && l.pos == pos && l.kind == photocraft_engine::snap::SnapKind::LayerEdge)
                         };
-                        (hx == 0 || on(true, if hx < 0 { hidden[0] } else { hidden[2] }))
-                            && (hy == 0 || on(false, if hy < 0 { hidden[1] } else { hidden[3] }))
+                        (hx == 0 || on(true, if hx < 0 { hidden[0] } else { hidden[2] })) && (hy == 0 || on(false, if hy < 0 { hidden[1] } else { hidden[3] }))
                     };
                     let mut end = None;
                     for i in 1..=80 {

@@ -158,8 +158,8 @@ fn delete_surrounding_bytes_with_preedit_excludes_the_composition() {
 
     // `c` is the byte immediately before the pre-edit; deleting it must not delete or
     // report the composing `x`.
-    let deleted = run(&mut app, &ctx, vec![egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes: 1, after_bytes: 0 })])
-        .expect("deletion descriptor");
+    let deleted =
+        run(&mut app, &ctx, vec![egui::Event::Ime(egui::ImeEvent::DeleteSurroundingBytes { before_bytes: 1, after_bytes: 0 })]).expect("deletion descriptor");
     assert_eq!(deleted.change_cause, ImeChangeCause::InputMethod);
     assert_eq!(payload(&deleted).text, "ab");
     assert_eq!((payload(&deleted).cursor, payload(&deleted).anchor), (2, 2));
@@ -266,8 +266,8 @@ fn external_edit_invalidates_the_preedit_and_rejects_its_late_commit() {
                 unchanged(&app);
                 assert!(matches!(app.type_ime.incoming, Some(IncomingComposition::Stale)), "terminal input cannot acknowledge cancellation");
 
-                let fresh = run(&mut app, &ctx, vec![completed(invalidated.reset_request.expect("reset request")), preedit("Q")])
-                    .expect("fresh preview descriptor");
+                let fresh =
+                    run(&mut app, &ctx, vec![completed(invalidated.reset_request.expect("reset request")), preedit("Q")]).expect("fresh preview descriptor");
                 assert_eq!(layer_text(&app), "bcにdQef");
                 assert_eq!(payload(&fresh).text, "bcにdef", "fresh preview is excluded from committed text");
                 assert!(!fresh.should_interrupt_composition);
@@ -432,8 +432,7 @@ fn the_real_app_logic_and_ui_publish_the_descriptor() {
     // The first pass registers fonts; the next passes run the real logic → ui orchestration
     // (where `handle_keys` and the final `sync_ime` live).
     for _ in 0..3 {
-        let raw =
-            egui::RawInput { focused: true, screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(1200.0, 800.0))), ..Default::default() };
+        let raw = egui::RawInput { focused: true, screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(1200.0, 800.0))), ..Default::default() };
         let mut out = ctx.run_ui(raw, |ui| {
             app.logic(ui.ctx(), &mut frame);
             app.ui(ui, &mut frame);
@@ -536,10 +535,7 @@ fn raw_application_selection_changes_reject_old_terminal_input_and_allow_later_f
                 let revision = app.session.active().unwrap().revision;
                 let transition = run(&mut app, &ctx, vec![raw_key(key, command, shift)]).expect("selection reset");
                 let selected = app.ui.text_edit.as_ref().unwrap().clone();
-                assert!(
-                    (selected.anchor, selected.caret) != (before.chars().count(), before.chars().count()),
-                    "actual raw selection key changed the caret"
-                );
+                assert!((selected.anchor, selected.caret) != (before.chars().count(), before.chars().count()), "actual raw selection key changed the caret");
                 for _ in 0..3 {
                     run(&mut app, &ctx, vec![]);
                 }
@@ -624,8 +620,7 @@ fn the_real_app_pointer_interruption_rejects_idle_delayed_terminal_then_accepts_
             }
             let before = layer_text(&app);
             let button = |pressed| egui::Event::PointerButton { pos: point, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
-            let press =
-                actual_app_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(point), button(true)]).platform_output.ime.expect("press descriptor");
+            let press = actual_app_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(point), button(true)]).platform_output.ime.expect("press descriptor");
             let release = actual_app_frame(&mut app, &ctx, vec![button(false)]).platform_output.ime.expect("release descriptor");
             let request = release.reset_request.or(press.reset_request).expect("pointer reset");
             assert_eq!(app.ui.text_edit.as_ref().unwrap().caret, 1, "actual canvas pointer moved the caret");
@@ -763,10 +758,8 @@ fn foreign_viewport_and_context_completions_cannot_release_root() {
     let foreign_input = || {
         let rect = egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 300.0));
         let mut raw = egui::RawInput { viewport_id: viewport, screen_rect: Some(rect), focused: true, ..Default::default() };
-        raw.viewports.insert(
-            viewport,
-            egui::ViewportInfo { inner_rect: Some(rect), native_pixels_per_point: Some(1.0), minimized: Some(false), ..Default::default() },
-        );
+        raw.viewports
+            .insert(viewport, egui::ViewportInfo { inner_rect: Some(rect), native_pixels_per_point: Some(1.0), minimized: Some(false), ..Default::default() });
         raw
     };
     let mut text = String::new();
@@ -963,8 +956,7 @@ fn pointer_press_without_a_guard_defers_the_same_batch_custom_suffix() {
     let before = layer_text(&app);
     let revision = app.session.active().unwrap().revision;
     let selection = app.ui.text_edit.as_ref().map(|ed| (ed.anchor, ed.caret));
-    let press =
-        egui::Event::PointerButton { pos: Pos2::new(20.0, 20.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() };
+    let press = egui::Event::PointerButton { pos: Pos2::new(20.0, 20.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() };
     let output = run(
         &mut app,
         &ctx,
