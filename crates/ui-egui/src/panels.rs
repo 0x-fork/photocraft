@@ -5432,7 +5432,6 @@ mod snapshot_row_tests {
 }
 
 #[cfg(test)]
-#[path = "layer_pct_slider_tests.rs"]
 mod layer_pct_slider_tests;
 
 #[cfg(test)]
