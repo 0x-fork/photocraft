@@ -2741,7 +2741,6 @@ mod recovery_tests;
 #[cfg(test)]
 mod shortcut_capture_tests;
 #[cfg(test)]
-#[path = "shortcut_set_tests.rs"]
 mod shortcut_set_tests;
 
 #[cfg(test)]
