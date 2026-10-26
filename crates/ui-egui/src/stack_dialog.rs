@@ -239,5 +239,4 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
 }
 
 #[cfg(test)]
-#[path = "stack_dialog_tests.rs"]
 mod tests;
