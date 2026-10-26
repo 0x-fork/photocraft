@@ -2431,6 +2431,9 @@ pub(crate) enum Readout {
     /// Clockwise degrees in document space (`rotation_degrees`), whatever the view's turn or flip.
     Angle(f64),
     /// Width and height in percent of the original box, and the box's size in document pixels.
+    /// The size is the scaled width and height (what W and H 100 % mean in the options bar),
+    /// not the edge lengths: a skew leans the sides, which lengthens them but not the height
+    /// between the top and bottom edges.
     Scale { percent: [f64; 2], px: [f64; 2] },
     /// Document pixels moved since the press.
     Offset([f64; 2]),
