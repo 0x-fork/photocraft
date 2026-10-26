@@ -4107,7 +4107,6 @@ fn undo_session(app: &mut PhotocraftApp, ed: &TextEdit) {
 mod canvas_tests;
 
 #[cfg(test)]
-#[path = "type_font_picker_tests.rs"]
 mod font_picker_tests;
 
 #[cfg(test)]
