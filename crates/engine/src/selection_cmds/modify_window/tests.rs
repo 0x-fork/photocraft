@@ -154,3 +154,21 @@ fn sparse_modify_release_comparison() {
         }
     }
 }
+
+#[test]
+fn corrupt_tile_coordinates_do_not_panic_while_finding_the_window() {
+    use photocraft_geom::TileCoord;
+    use std::sync::Arc;
+    let mut selection = Surface::new(PixelFormat::GRAY8);
+    let tile = selection.solid_tile(&[1.0]);
+    selection.put_tiles([(TileCoord::new(i32::MIN, i32::MIN), Arc::clone(&tile)), (TileCoord::new(i32::MAX, i32::MAX), tile)]);
+    let doc = document(75, 61, selection);
+    // Without the guard, content_bounds overflows while sorting these coordinates.
+    assert_eq!(area(&doc, 5.0), doc.bounds());
+    for op in ["expand", "contract", "border"] {
+        let mut session = Session::new();
+        session.add_document(doc.clone(), None);
+        session.execute(&format!("select.modify.{op}"), json!({"radius": 5})).unwrap();
+        assert!(session.active().unwrap().doc.selection.is_none());
+    }
+}
