@@ -2025,5 +2025,4 @@ mod path_selection_tests;
 mod pen_draw_tests;
 
 #[cfg(test)]
-#[path = "vector_paint_tests.rs"]
 mod paint_tests;
