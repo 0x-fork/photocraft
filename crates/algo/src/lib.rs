@@ -1376,9 +1376,6 @@ const RESULT_BUDGET: usize = 256 << 20;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_ext;
-
-#[cfg(test)]
 mod tests_mosaic;
 
 #[cfg(test)]
