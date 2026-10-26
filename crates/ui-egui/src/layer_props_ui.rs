@@ -34,8 +34,6 @@ pub fn transform_params(layer: u64, b: [f64; 4], w: Option<f32>, h: Option<f32>,
     Some(json!({"layer": layer, "rect": b, "quad": quad}))
 }
 
-/// A number field that reports a value once committed (drag released, Enter, focus lost). `label` is its own
-/// label and the one stacked with it in the same column ("W" over "X"), which share a centre.
 /// The smallest W/H change, in px, that counts as an edit. A pixel frame is whole pixels: under
 /// half a pixel is noise. A shape's path is fractional and is scaled to exactly the typed size,
 /// so anything past the field's own rounding (half its last shown decimal) is an edit: 400.25 px
@@ -48,6 +46,8 @@ fn edit_tolerance(layer: &Layer, u: LenUnit, extent: f64) -> f32 {
     }
 }
 
+/// A number field that reports a value once committed (drag released, Enter, focus lost). `label` is its own
+/// label and the one stacked with it in the same column ("W" over "X"), which share a centre.
 /// `len` is the unit shown and its 100% extent (for percent); `name` is the field's accessible name.
 // The explicit accessible name accompanies the existing numeric-field parameters.
 #[expect(clippy::too_many_arguments)]

@@ -1647,6 +1647,31 @@ mod tests {
         app.distort.caf.as_ref().unwrap()
     }
 
+    #[test]
+    fn settings_dropdowns_are_named_for_their_visible_labels() {
+        use egui::accesskit::Role;
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::{NodeT, Queryable};
+
+        let mut app = app_with_selection();
+        open(&mut app).unwrap();
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 900.0))
+            .with_context_setup(|ctx| PhotocraftApp::setup_context(ctx, crate::theme::ThemeKind::ALL[0]))
+            .build_ui_state(|ui, app: &mut PhotocraftApp| show(app, ui.ctx()), app);
+        h.run_steps(2);
+        // The Indicates dropdown lives inside a collapsed "Sampling Area Overlay" header.
+        h.get_by_role_and_label(Role::DisclosureTriangle, "Sampling Area Overlay").click();
+        h.run_steps(3);
+        let labels: Vec<String> = h.query_all_by_role(Role::ComboBox).filter_map(|n| n.accesskit_node().label()).collect();
+        for label in ["Indicates", "Color Adaptation", "Rotation Adaptation", "Output To"] {
+            assert!(labels.iter().any(|have| have == label), "{label} names its dropdown: {labels:?}");
+        }
+        for wrong in ["Contents:", "Color", "Rotation", "Source"] {
+            assert!(!labels.iter().any(|have| have == wrong), "{wrong} names no control here: {labels:?}");
+        }
+    }
+
     /// Photoshop opens the workspace with the Sampling Brush subtracting at a tenth of the
     /// window's side, Auto sampling, output to a new layer.
     #[test]

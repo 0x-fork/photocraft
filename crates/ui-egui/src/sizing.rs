@@ -536,6 +536,24 @@ mod tests {
         assert!(app.ui.dialogs.iter().any(|x| x.id == id), "reset leaves the dialog open");
     }
 
+    #[test]
+    fn canvas_extension_dropdown_is_named_for_its_setting() {
+        use egui::accesskit::Role;
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::{NodeT, Queryable};
+
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 100, "height": 50})).unwrap();
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(|ui, app: &mut PhotocraftApp| crate::dialogs::show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        open(h.state_mut(), "image.canvasSize").unwrap();
+        h.run_steps(3);
+        let labels: Vec<String> = h.query_all_by_role(Role::ComboBox).filter_map(|n| n.accesskit_node().label()).collect();
+        assert!(labels.iter().any(|label| label == "Canvas extension color:"), "{labels:?}");
+        assert!(!labels.iter().any(|label| label == "Size"), "the dialog's Size label names a different field: {labels:?}");
+    }
+
     /// #6019: on an Indexed Color document the dialog opens on, and offers only, Automatic and Nearest Neighbor.
     #[test]
     fn indexed_color_resamples_with_nearest_neighbor_only() {

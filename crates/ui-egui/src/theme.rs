@@ -873,28 +873,11 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
         fonts.families.entry(FontFamily::Monospace).or_default().insert(0, mono);
     }
     // The optional craft-fonts input carries Japanese, Simplified Chinese, Korean, Arabic, Thai and
-    // other faces. Register them up front: the lazy loader cannot react before the first frame
-    // shapes (and a headless frame panics on a missing glyph rather than drawing tofu).
-    if cjk.eager_craft_fonts {
-        // The UI Japanese face comes first, as in the lazy loader (`japanese_for_ui`): egui uses
-        // the first family member that covers a glyph, and the manifest lists Shippori Mincho
-        // before BIZ UDPGothic, so manifest order alone would draw Japanese UI in serif glyphs
-        // and shared Han characters in Japanese forms.
-        let craft = photocraft_text::craft_fonts::CRAFT_FONTS;
-        let ui_first: Vec<usize> =
-            photocraft_text::craft_fonts::japanese_for_ui().iter().filter_map(|f| craft.iter().position(|c| std::ptr::eq(c, *f))).collect();
-        let order = ui_first.iter().copied().chain((0..craft.len()).filter(|i| !ui_first.contains(i)));
-        for i in order {
-            let f = &craft[i];
-            if f.bytes.is_empty() {
-                continue;
-            }
-            let name = format!("craft-font-{i}");
-            fonts.font_data.insert(name.clone(), Arc::new(FontData::from_static(f.bytes)));
-            fonts.families.entry(FontFamily::Proportional).or_default().push(name.clone());
-            fonts.families.entry(FontFamily::Monospace).or_default().push(name);
-        }
-    }
+    // other faces. They are not registered into this static stack: `cjk_fonts` installs a
+    // per-character font provider for them, so a broad Simplified Chinese face is not put in the
+    // family stack ahead of the Japanese or Korean face, and a locale without a Traditional Chinese
+    // craft face leaves Han to the system font. (A single linear per-family chain still decides a
+    // glyph once a broad face is discovered; see `cjk_fonts`.)
     // Named weights fall back to the default stack for missing glyphs.
     let fallback: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     for (fam, primary) in [("medium", medium), ("semibold", semibold)] {
@@ -936,6 +919,11 @@ fn ui_fonts_id() -> egui::Id {
 
 fn ui_font_size(ctx: &egui::Context) -> UiFontSize {
     ctx.data(|d| d.get_temp::<UiFontSize>(ui_fonts_id())).unwrap_or_default()
+}
+
+/// The Interface > UI Font Size multiplier for the current context (including the default Small).
+pub(crate) fn ui_font_scale(ctx: &egui::Context) -> f32 {
+    font_scale(ui_font_size(ctx))
 }
 
 fn font_scale(size: UiFontSize) -> f32 {
@@ -999,6 +987,10 @@ impl egui::Plugin for UiFontSizePlugin {
             Arc::make_mut(data).tweak.scale = original * font_scale(size);
         }
         ctx.set_fonts(fonts);
+        // The provider must use the scale of the definitions that were active while this pass
+        // laid out text. A face it discovers during the pass is inserted at that old scale; after
+        // `set_fonts` the rescaled definitions take effect and the provider follows them.
+        crate::cjk_fonts::set_craft_font_scale(ctx, font_scale(size));
         self.applied = size;
         ctx.request_repaint();
     }

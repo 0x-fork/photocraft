@@ -141,6 +141,30 @@ fn click_slop_scales_with_zoom() {
     assert!(is_click([10.0, 10.0], &[], 0.0));
 }
 
+#[test]
+fn radius_fields_are_named_for_their_corners() {
+    use egui::accesskit::Role;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    let mut app = app();
+    let id = open(&mut app, Tool::Rectangle, [10.0, 20.0]).unwrap();
+    let fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+    let mut h = Harness::builder().with_size(egui::vec2(520.0, 520.0)).build_ui_state(move |ui, fields| body(&app, ui, fields), fields);
+    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+    h.run_steps(2);
+    let labels: Vec<String> = h.query_all_by_role(Role::SpinButton).filter_map(|n| n.accesskit_node().label()).collect();
+    // The visible rows are [top-left, top-right], [bottom-left, bottom-right]; the field for each
+    // radius index must carry its own corner name (a permutation would still pass a set check).
+    let corners: Vec<&str> = labels.iter().map(String::as_str).filter(|label| !matches!(*label, "Width:" | "Height:")).collect();
+    assert_eq!(
+        corners,
+        vec!["Top Left Radius:", "Top Right Radius:", "Bottom Left Radius:", "Bottom Right Radius:"],
+        "radius fields name their corner in layout order: {labels:?}"
+    );
+    assert!(!labels.iter().any(|label| label == "Radius:"), "the generic name would leave the corners indistinguishable");
+}
+
 /// #4205: the click slop is in screen points, so on a 2x (HiDPI) display at 100 % a 2 pt jitter
 /// (4 device px = 4 document px) is still a click that opens Create Rectangle, not a tiny shape.
 #[test]
