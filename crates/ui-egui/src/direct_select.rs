@@ -564,5 +564,4 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, to_scr: &dyn F
 }
 
 #[cfg(test)]
-#[path = "direct_select_tests.rs"]
 mod tests;
