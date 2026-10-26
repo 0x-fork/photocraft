@@ -1859,54 +1859,65 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 // ----------------------------------------------------------------------------- dock
 
-pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    // Even legacy destinations must discard gestures captured by an earlier workspace.
-    let customized = crate::panel_docking::show(app, ui);
+/// The panels and the canvas in the space left by the menus, bars and toolbar: craft-ui's
+/// docking layout, with the icon rail at the window's end edge in the Studio themes.
+pub fn dock_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
-    let p = app.ui.panels.clone();
-    if t.pro && !customized {
-        dock_panels(app, ui, &p, &t);
+    if app.ui.panels.rail && !t.pro {
+        rail(app, ui, &t);
     }
-    // Narrow icon rail, unless an embedding app hides it: shows, expands or collapses panel groups.
-    if p.rail {
-        let (rw, rb) = if t.pro { (36.0, 28.0) } else { (44.0, 32.0) };
-        crate::direction::end_panel("rail")
-            .resizable(false)
-            .exact_size(rw)
-            .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(4, 8)))
-            .show(ui, |ui| {
-                // The separator is on the canvas side.
-                let r = ui.max_rect();
-                let x = if crate::direction::is_rtl() { r.right() + 6.0 } else { r.left() - 6.0 };
-                ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
-                ui.spacing_mut().item_spacing.y = 4.0;
-                use crate::dock::Group;
-                let entries: [(&str, &str, Group); 6] = [
-                    ("sliders-horizontal", tl!("Properties"), Group::Properties),
-                    ("navigation", tl!("Navigator"), Group::Navigator),
-                    ("palette", tl!("Color & Swatches"), Group::Color),
-                    ("layers", tl!("Layers"), Group::Layers),
-                    ("clock", tl!("History"), Group::History),
-                    ("brush", tl!("Brushes"), Group::Brushes),
-                ];
-                for (icon, name, g) in entries {
-                    // Studio floats Properties outside the dock.
-                    let docked = t.pro || g != Group::Properties;
-                    let on = if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(&p) && !(docked && app.ui.dock.is_collapsed(g)) };
-                    if icons::rail_button(ui, icon, rb, on, name).clicked() {
-                        if customized {
-                            crate::panel_docking::rail_click(app, g);
-                        } else {
-                            crate::dock::rail_click(app, g, docked);
-                        }
+    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| crate::panel_docking::show(app, ui));
+    crate::dock::persist(app, ui.ctx());
+}
+
+/// The docking layout's protected canvas panel: the document area, with the icon rail on its end
+/// side, beside the dock, in the Pro themes.
+pub(crate) fn canvas_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    let backdrop = if app.ui.view.hides_chrome() { egui::Color32::BLACK } else { crate::prefs_ui::pasteboard_color(app).unwrap_or(t.canvas) };
+    if app.ui.panels.rail && t.pro {
+        rail(app, ui, &t);
+    }
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| crate::canvas::document_area(app, ui));
+}
+
+/// Narrow icon rail, unless an embedding app hides it: shows, expands or collapses panel groups.
+fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
+    let customized = app.ui.docking.is_some();
+    let p = app.ui.panels.clone();
+    let (rw, rb) = if t.pro { (36.0, 28.0) } else { (44.0, 32.0) };
+    crate::direction::end_panel("rail")
+        .resizable(false)
+        .exact_size(rw)
+        .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(4, 8)))
+        .show(ui, |ui| {
+            // The separator is on the canvas side.
+            let r = ui.max_rect();
+            let x = if crate::direction::is_rtl() { r.right() + 6.0 } else { r.left() - 6.0 };
+            ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
+            ui.spacing_mut().item_spacing.y = 4.0;
+            use crate::dock::Group;
+            let entries: [(&str, &str, Group); 6] = [
+                ("sliders-horizontal", tl!("Properties"), Group::Properties),
+                ("navigation", tl!("Navigator"), Group::Navigator),
+                ("palette", tl!("Color & Swatches"), Group::Color),
+                ("layers", tl!("Layers"), Group::Layers),
+                ("clock", tl!("History"), Group::History),
+                ("brush", tl!("Brushes"), Group::Brushes),
+            ];
+            for (icon, name, g) in entries {
+                // Studio floats Properties outside the dock.
+                let docked = t.pro || g != Group::Properties;
+                let on = if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(&p) && !(docked && app.ui.dock.is_collapsed(g)) };
+                if icons::rail_button(ui, icon, rb, on, name).clicked() {
+                    if customized {
+                        crate::panel_docking::rail_click(app, g);
+                    } else {
+                        crate::dock::rail_click(app, g, docked);
                     }
                 }
-            });
-    }
-    if !t.pro && !customized {
-        dock_panels(app, ui, &p, &t);
-    }
-    crate::dock::persist(app, ui.ctx());
+            }
+        });
 }
 
 /// The dock's narrowest width (points). It is the right dock, on the left in a right-to-left UI.
@@ -1931,38 +1942,6 @@ pub fn request_dock_width(ctx: &egui::Context, w: f32) {
     let range = dock_width_range(ctx.content_rect().width());
     let w = if w.is_finite() { w.clamp(*range.start(), *range.end()) } else { *range.start() };
     ctx.data_mut(|d| d.insert_temp(dock_width_id(), w));
-}
-
-fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Panels, t: &Tokens) {
-    use crate::dock::Group;
-    // Floating in Studio, Properties docks only in Pro (Photoshop).
-    let shown: Vec<Group> = [
-        (Group::Color, p.color),
-        (Group::Properties, t.pro && p.properties),
-        (Group::Character, p.character),
-        (Group::Navigator, p.navigator),
-        (Group::History, p.history),
-        (Group::Layers, p.layers),
-        (Group::Brushes, p.brushes),
-    ]
-    .into_iter()
-    .filter_map(|(g, on)| on.then_some(g))
-    .collect();
-    if shown.is_empty() {
-        return;
-    }
-    let margin = if t.pro { 2 } else { 8 };
-    let mut panel = crate::direction::end_panel("dock")
-        .resizable(true)
-        .default_size(if t.pro { 290.0 } else { 300.0 })
-        .size_range(dock_width_range(ui.ctx().content_rect().width()));
-    if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
-        panel = panel.exact_size(w);
-    }
-    panel.frame(egui::Frame::NONE.fill(t.dock).inner_margin(egui::Margin::same(margin))).show(ui, |ui| {
-        // Groups keep their heights whatever they show (#88): see `dock`.
-        crate::dock::show(app, ui, &shown, dock_body);
-    });
 }
 
 /// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
@@ -6980,6 +6959,12 @@ mod embedding_tests {
         egui::containers::panel::PanelState::load(&h.ctx, panel_state_id(&h.ctx, panel)).is_some()
     }
 
+    /// The rail is drawn inside the canvas panel, so its panel state is keyed under that panel's
+    /// scope: find it by a button only the rail has.
+    fn rail_drawn(h: &egui_kittest::Harness<'_, PhotocraftApp>) -> bool {
+        h.query_by_label("Color & Swatches").is_some()
+    }
+
     /// An app that embeds the UI can hide the icon rail and the menu bar; both are on by default.
     #[test]
     fn rail_and_menu_bar_follow_their_panel_flags() {
@@ -6987,14 +6972,14 @@ mod embedding_tests {
         assert!(panels.rail && panels.menu_bar);
 
         let h = whole_app(true, true);
-        assert!(drawn(&h, "rail") && drawn(&h, "title_bar"));
+        assert!(rail_drawn(&h) && drawn(&h, "title_bar"));
         assert!(h.query_by_label("File").is_some());
 
         let h = whole_app(false, false);
-        assert!(!drawn(&h, "rail"), "the icon rail is drawn");
+        assert!(!rail_drawn(&h), "the icon rail is drawn");
         assert!(!drawn(&h, "title_bar"), "the title bar is drawn");
         assert!(h.query_by_label("File").is_none(), "the menus are drawn");
-        assert!(drawn(&h, "dock"), "the dock itself stays");
+        assert!(crate::panel_docking::last_bodies(&h.ctx).iter().any(|(id, _)| id == "layers"), "the dock itself stays");
     }
 
     /// Settings saved before the flags existed load with both on.

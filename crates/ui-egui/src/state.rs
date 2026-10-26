@@ -1578,12 +1578,17 @@ pub struct UiState {
     pub dock: crate::dock::DockLayout,
     /// Authoritative custom panel membership and placement; legacy fields are compatibility projections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub docking: Option<craft_ui::docking::Layout<String>>,
+    pub docking: Option<craft_ui::docking::Workspace<String>>,
+    /// Where each floating panel docks back to.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub docking_hidden: std::collections::BTreeMap<String, craft_ui::docking::Location<String>>,
+    pub docking_returns: std::collections::BTreeMap<String, craft_ui::docking::Location<String>>,
     /// Invalidates in-flight gestures when a workspace is replaced.
     #[serde(skip)]
     pub docking_generation: u64,
+    /// The saved `docking`, `dockingReturns` and `dockingCollapsed` of a workspace from a newer
+    /// version, which shows the default layout: saved again unchanged until the layout changes.
+    #[serde(skip)]
+    pub docking_kept: Option<serde_json::Map<String, serde_json::Value>>,
     /// Panels belonging to explicitly collapsed custom tab groups.
     #[serde(default)]
     pub docking_collapsed: Vec<String>,
@@ -1740,7 +1745,8 @@ impl Default for UiState {
             dock_tabs: DockTabs::default(),
             dock: Default::default(),
             docking: None,
-            docking_hidden: Default::default(),
+            docking_returns: Default::default(),
+            docking_kept: None,
             docking_generation: 0,
             docking_collapsed: Vec::new(),
             docking_reveal: None,
