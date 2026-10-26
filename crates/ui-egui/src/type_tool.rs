@@ -4104,7 +4104,6 @@ fn undo_session(app: &mut PhotocraftApp, ed: &TextEdit) {
 }
 
 #[cfg(test)]
-#[path = "type_tool_tests.rs"]
 mod canvas_tests;
 
 #[cfg(test)]
