@@ -2,7 +2,7 @@ use super::*;
 use photocraft_geom::Rect;
 
 /// The example Invert plug-in, built from `examples/plugins/invert-rs`.
-const INVERT: &[u8] = include_bytes!("../../../plugins/tests/fixtures/invert.wasm");
+const INVERT: &[u8] = include_bytes!("../../../../plugins/tests/fixtures/invert.wasm");
 const INVERT_ID: &str = "org.photocraft.example.invert";
 
 fn b64(b: &[u8]) -> String {
