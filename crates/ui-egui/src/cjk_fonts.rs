@@ -1189,6 +1189,16 @@ mod tests {
         assert_eq!(fonts.font_data.get("test-static").map(|d| d.tweak.coords.clone()), Some(Default::default()));
     }
 
+    /// A corrupt or non-font blob has no `hhea`, `head` or `fvar` table: the fallback tweaks
+    /// must leave it untouched rather than deriving a baseline or weight from garbage.
+    #[test]
+    fn font_tweaks_ignore_bytes_without_metrics_or_weight_axes() {
+        let mut data = FontData::from_static(b"");
+        apply_font_tweaks(&mut data);
+        assert_eq!(data.tweak.y_offset_factor, 0.0);
+        assert_eq!(data.tweak.coords, Default::default());
+    }
+
     static DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 
     #[test]
@@ -1239,6 +1249,81 @@ mod tests {
 
     fn fake(name: &str) -> FontFile {
         FontFile { path: fake_dir().join(name), family: String::new() }
+    }
+
+    #[test]
+    fn font_reads_skip_missing_empty_oversized_and_non_file_candidates() {
+        let dir = fake_dir();
+        assert!(read_font(&dir.join("missing-read-test.ttf")).is_none(), "a missing path is skipped");
+        assert!(read_font(&dir).is_none(), "a directory is not a font file");
+        assert!(read_font(&dir.join("empty.ttf")).is_none(), "an empty file is skipped");
+
+        let oversized = dir.join("oversized-read-test.ttf");
+        let file = std::fs::File::create(&oversized).expect("create a sparse oversized test file");
+        file.set_len(MAX_FONT_BYTES + 1).expect("set the sparse file size");
+        drop(file);
+        assert!(read_font(&oversized).is_none(), "an oversized file is not read");
+        std::fs::remove_file(&oversized).expect("remove the sparse test file");
+
+        let valid = dir.join("font.ttf");
+        assert_eq!(read_font(&valid).expect("the valid font is read").as_slice(), std::fs::read(&valid).expect("test font bytes").as_slice());
+    }
+
+    fn provider_corrupt_thai_candidates(script: Script) -> Vec<PathBuf> {
+        if script == Script::Thai {
+            vec![
+                fake_dir().join("provider-missing-thai.ttf"),
+                fake_dir().join("provider-corrupt-thai.ttf"),
+                fake_dir().join("provider-corrupt-selected-thai.ttc"),
+                fake_dir().join("font.ttf"),
+                fake_dir().join("thai.ttf"),
+            ]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn provider_missing_thai_candidate(script: Script) -> Vec<PathBuf> {
+        if script == Script::Thai { vec![fake_dir().join("provider-only-missing-thai.ttf")] } else { Vec::new() }
+    }
+
+    /// The provider's non-CJK script route must reject a structurally invalid file, a readable
+    /// collection whose selected covering face is unreadable, and a missing file, then use the
+    /// next real candidate. The rejected and missing paths stay negative-cached.
+    #[test]
+    fn provider_skips_missing_and_corrupt_script_candidates_before_registering() {
+        let malformed = fake_dir().join("provider-corrupt-thai.ttf");
+        let collection = fake_dir().join("provider-corrupt-selected-thai.ttc");
+        std::fs::write(&malformed, font_with_out_of_bounds_table()).expect("write the malformed test font");
+        std::fs::write(&collection, two_face_ttc(include_bytes!("../../../assets/fonts/Inter-Regular.ttf"), &font_with_out_of_bounds_table()))
+            .expect("write the malformed selected-face collection");
+
+        let sources = Sources {
+            locale: || Some("en".into()),
+            files: no_files,
+            last_resort: Vec::new,
+            pending: || false,
+            scripts: provider_corrupt_thai_candidates,
+            covers: scripts::covering_face,
+            embedded: no_embedded,
+            eager_craft_fonts: false,
+        };
+        let provider = CraftFontProvider::new(&sources, 1.0);
+        let insert = provided_insert(&provider, 'ก').expect("the valid Thai candidate is reached");
+        assert_eq!(insert.data.index, 0);
+        assert_eq!(insert.data.bytes(), std::fs::read(fake_dir().join("thai.ttf")).expect("Thai test font").as_slice());
+        let cache = provider.system.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(cache.failed_reads.contains(&fake_dir().join("provider-missing-thai.ttf")), "the missing file is remembered");
+        assert!(cache.invalid_fonts.contains(&malformed), "the readable non-font is remembered as invalid");
+        assert!(cache.files.iter().any(|file| file.path == collection), "the readable collection is retained for its other faces");
+        drop(cache);
+
+        let missing_only = Sources { scripts: provider_missing_thai_candidate, ..sources };
+        let provider = CraftFontProvider::new(&missing_only, 1.0);
+        assert!(provided(&provider, 'ก').is_none(), "no readable script candidate leaves the character missing");
+        let cache = provider.system.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(cache.failed_reads.len(), 1);
+        assert_eq!(cache.reads, 0);
     }
 
     fn fake_sources(locale: fn() -> Option<String>) -> Sources {
@@ -1653,6 +1738,59 @@ mod tests {
         assert!(craft_face_installs_coverage(face, 'ก'), "face 0 maps Thai");
     }
 
+    static EMPTY_CRAFT_FACE: CraftFont = CraftFont { family: "Empty", style: "Regular", scripts: &["Zsym"], bytes: &[] };
+
+    fn only_empty_craft_face(_: &'static str) -> Vec<&'static CraftFont> {
+        vec![&EMPTY_CRAFT_FACE]
+    }
+
+    /// A craft entry without bytes, or a face injected only by a test that is absent from the
+    /// global manifest, has no installable face index: selection must return `None`, not a face
+    /// name egui cannot resolve.
+    #[test]
+    fn craft_face_selection_ignores_empty_and_unindexed_faces() {
+        assert!(!craft_face_installs_coverage(&EMPTY_CRAFT_FACE, '☃'));
+        assert!(craft_face_for(only_empty_craft_face, "Zsym", '☃').is_none());
+        assert!(craft_face_manifest(only_empty_craft_face, "Zsym", '☃').is_none());
+    }
+
+    /// Every script the lazy fallback can see has a valid ISO 15924 tag, so its injected craft
+    /// faces and the CJK scripts are selected by the same tags the manifest declares.
+    #[test]
+    fn fallback_scripts_map_to_iso_15924_tags() {
+        assert_eq!(cjk_iso(CjkScript::Japanese), "Jpan");
+        assert_eq!(cjk_iso(CjkScript::SimplifiedChinese), "Hans");
+        assert_eq!(cjk_iso(CjkScript::TraditionalChinese), "Hant");
+        assert_eq!(cjk_iso(CjkScript::Korean), "Kore");
+        let expected = [
+            (Script::Thai, "Thai"),
+            (Script::Lao, "Laoo"),
+            (Script::Khmer, "Khmr"),
+            (Script::Myanmar, "Mymr"),
+            (Script::Tibetan, "Tibt"),
+            (Script::Arabic, "Arab"),
+            (Script::Hebrew, "Hebr"),
+            (Script::Armenian, "Armn"),
+            (Script::Georgian, "Geor"),
+            (Script::Ethiopic, "Ethi"),
+            (Script::Devanagari, "Deva"),
+            (Script::Bengali, "Beng"),
+            (Script::Gurmukhi, "Guru"),
+            (Script::Gujarati, "Gujr"),
+            (Script::Oriya, "Orya"),
+            (Script::Tamil, "Taml"),
+            (Script::Telugu, "Telu"),
+            (Script::Kannada, "Knda"),
+            (Script::Malayalam, "Mlym"),
+            (Script::Sinhala, "Sinh"),
+        ];
+        assert_eq!(expected.len(), Script::ALL.len(), "the test lists every fallback script");
+        for (script, iso) in expected {
+            assert_eq!(script_iso(script), iso, "{script:?}");
+        }
+        assert_eq!(craft_embedded(CjkScript::Japanese).len(), craft_embedded_iso("Jpan").len());
+    }
+
     /// No system fonts at all: craft-fonts alone draws CJK, in the locale's script order.
     #[test]
     fn craft_fonts_render_cjk_without_system_fonts() {
@@ -1695,10 +1833,14 @@ mod tests {
         }
     }
 
-    fn provided(provider: &CraftFontProvider, c: char) -> Option<String> {
+    fn provided_insert(provider: &CraftFontProvider, c: char) -> Option<FontInsert> {
         let mut buf = [0u8; 4];
         let cluster = c.encode_utf8(&mut buf);
-        provider.font_for(&FallbackRequest { cluster, family: &FontFamily::Proportional }).map(|insert| insert.name)
+        provider.font_for(&FallbackRequest { cluster, family: &FontFamily::Proportional })
+    }
+
+    fn provided(provider: &CraftFontProvider, c: char) -> Option<String> {
+        provided_insert(provider, c).map(|insert| insert.name)
     }
 
     fn test_sources(locale: fn() -> Option<String>) -> Sources {
@@ -2470,6 +2612,43 @@ mod tests {
         assert_eq!(data.index, 0);
     }
 
+    fn always_thai_candidate(_: Script) -> Vec<PathBuf> {
+        vec![fake_dir().join("thai.ttf")]
+    }
+
+    /// A path already registered through either route is not read or registered a second time.
+    #[test]
+    fn lazy_loader_registers_each_loaded_font_once() {
+        let valid = fake("font.ttf");
+        let mut fallback = CjkFallback::new(test_sources(|| Some("en".into())));
+        let files = vec![valid.clone()];
+        fallback.load_first(&files, 'A').expect("the font covers Latin A");
+        assert!(fallback.load_first(&files, 'A').is_none(), "a second request for the loaded file registers nothing");
+        assert_eq!(fallback.registered.len(), 1);
+
+        let sources = Sources { scripts: always_thai_candidate, ..test_sources(|| Some("en".into())) };
+        let mut fallback = CjkFallback::new(sources);
+        fallback.loaded.push(fake_dir().join("thai.ttf"));
+        assert!(fallback.next_script_font('ก').is_none(), "the script route skips a file the other route already loaded");
+        assert!(fallback.registered.is_empty());
+        assert_eq!(fallback.scripts_tried, vec![Script::Thai], "the script is still marked tried only once");
+    }
+
+    /// A craft face is registered once: a later request for the same embedded file must not add
+    /// another font with a new name and a duplicate blob.
+    #[test]
+    fn lazy_loader_registers_an_embedded_craft_face_once() {
+        if baseline_face('あ').is_none() {
+            eprintln!("skipping: built without craft-fonts (set CRAFT_FONTS_DIR to a craft-fonts checkout)");
+            return;
+        }
+        let mut fallback = CjkFallback::new(craft_only(|| Some("en".into())));
+        fallback.load_embedded(CjkScript::Japanese, 'あ').expect("the manifest covers kana");
+        assert!(fallback.load_embedded(CjkScript::Japanese, 'あ').is_none(), "the same embedded face is not registered twice");
+        assert_eq!(fallback.registered.len(), 1);
+        assert_eq!(fallback.loaded.len(), 1);
+    }
+
     #[test]
     fn provider_uses_system_script_candidates_and_last_resort_for_non_cjk() {
         let sources = Sources {
@@ -2490,6 +2669,80 @@ mod tests {
         assert!(tamil.starts_with("craft-system-"), "{tamil}");
         let ethiopic = provided(&provider, 'ሀ').expect("last-resort face");
         assert!(ethiopic.starts_with("craft-system-"), "{ethiopic}");
+    }
+
+    static PROVIDER_SCRIPT_CALLS: Mutex<Vec<CjkScript>> = Mutex::new(Vec::new());
+
+    fn recorded_provider_files(script: CjkScript) -> Vec<FontFile> {
+        PROVIDER_SCRIPT_CALLS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(script);
+        Vec::new()
+    }
+
+    /// A Hangul character's preferred script is the locale order's first script, so the provider
+    /// builds a list with Korean twice. It must still ask for Korean's files once, then try each
+    /// remaining script once, not restart the preferred script after a miss.
+    #[test]
+    fn provider_tries_each_script_once_when_the_preferred_script_repeats_the_order() {
+        PROVIDER_SCRIPT_CALLS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        let sources = Sources {
+            locale: || Some("ko_KR".into()),
+            files: recorded_provider_files,
+            last_resort: Vec::new,
+            pending: || false,
+            scripts: no_script_files,
+            covers: scripts::covering_face,
+            embedded: no_embedded,
+            eager_craft_fonts: false,
+        };
+        let provider = CraftFontProvider::new(&sources, 1.0);
+        assert!(provided(&provider, '한').is_none(), "the test source has no Hangul face");
+        let calls = PROVIDER_SCRIPT_CALLS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        assert_eq!(calls, vec![CjkScript::Korean, CjkScript::TraditionalChinese, CjkScript::SimplifiedChinese, CjkScript::Japanese]);
+    }
+
+    /// An unclassified symbol (not CJK, not one of the non-CJK scripts) only has the optional
+    /// craft `Zsym` face. Without one the provider must return missing rather than read unrelated
+    /// system fonts, and an empty cluster is likewise no request at all.
+    #[test]
+    fn provider_missing_symbol_and_empty_cluster_do_not_touch_system_fonts() {
+        let sources = Sources { embedded: no_embedded, ..test_sources(|| Some("en".into())) };
+        let provider = CraftFontProvider::new(&sources, 1.0);
+        assert!(provider.font_for(&FallbackRequest { cluster: "", family: &FontFamily::Proportional }).is_none());
+        assert!(provided(&provider, '☃').is_none(), "no injected Zsym craft face covers the symbol");
+        let cache = provider.system.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(cache.reads, 0, "a symbol is not a CJK or script fallback request");
+        assert!(cache.failed_reads.is_empty() && cache.invalid_fonts.is_empty());
+    }
+
+    #[test]
+    fn provider_applies_the_current_scale_to_craft_faces() {
+        if baseline_face('あ').is_none() {
+            eprintln!("skipping: built without craft-fonts (set CRAFT_FONTS_DIR to a craft-fonts checkout)");
+            return;
+        }
+        let provider = test_provider(|| Some("en".into()));
+        let first = provided_insert(&provider, 'あ').expect("the craft manifest covers kana");
+        assert_eq!(first.data.tweak.scale, 1.0);
+        assert!(first.families.iter().any(|f| f.family == FontFamily::Proportional));
+        assert!(first.families.iter().any(|f| f.family == FontFamily::Monospace));
+        provider.set_scale(4.0 / 3.0);
+        let second = provided_insert(&provider, 'あ').expect("the craft face is resolved again at the current scale");
+        assert_eq!(second.data.tweak.scale, 4.0 / 3.0, "a craft face must not bake in the scale of an earlier pass");
+    }
+
+    /// Face-name metadata is capped independently of the retained-blob budget: forgetting the
+    /// oldest name only makes egui install that face under a later name, it never drops bytes
+    /// from a file that still fits.
+    #[test]
+    fn system_face_names_are_bounded_independently_of_font_blobs() {
+        let mut cache = SystemCache::default();
+        for i in 0..MAX_SYSTEM_FACE_NAMES + 4 {
+            cache.remember_face(PathBuf::from(format!("face-{i}.ttf")), i as u32, format!("craft-system-{i}"));
+        }
+        assert_eq!(cache.faces.len(), MAX_SYSTEM_FACE_NAMES);
+        assert_eq!(cache.faces.first().map(|face| face.name.as_str()), Some("craft-system-4"), "the oldest names are evicted first");
+        assert_eq!(cache.faces.last().map(|face| face.name.as_str()), Some("craft-system-1027"));
+        assert!(cache.files.is_empty() && cache.retained_bytes == 0, "face names do not retain or charge font bytes");
     }
 
     #[test]
