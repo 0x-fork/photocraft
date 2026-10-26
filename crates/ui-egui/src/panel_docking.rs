@@ -894,7 +894,6 @@ pub(crate) mod probe {
 }
 
 #[cfg(test)]
-#[path = "panel_docking_tests.rs"]
 mod tests;
 
 #[cfg(test)]

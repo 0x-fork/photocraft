@@ -849,7 +849,7 @@ fn the_dock_can_be_as_wide_as_the_window_allows() {
 /// keys, and the first change saves a versioned workspace.
 #[test]
 fn main_workspace_file_loads_as_the_default_and_saves_as_a_workspace() {
-    let saved: Value = serde_json::from_str(include_str!("../tests/fixtures/main-docking-workspace.json")).unwrap();
+    let saved: Value = serde_json::from_str(include_str!("../../tests/fixtures/main-docking-workspace.json")).unwrap();
     let mut app = app();
     app.ui.theme = crate::theme::ThemeKind::ProMedium;
     crate::dock::apply(&mut app, &saved);
