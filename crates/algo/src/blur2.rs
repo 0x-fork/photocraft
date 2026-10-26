@@ -361,7 +361,6 @@ fn smart_rows<const N: usize, const A: bool>(src: &Image, out: Rect, inner: Rect
 }
 
 #[cfg(test)]
-#[path = "smart_blur_tests.rs"]
 mod smart_tests;
 
 // ---------- lens blur ----------
