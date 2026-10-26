@@ -426,10 +426,9 @@ const GRAD_EPS: f32 = 1.0 / 256.0;
 /// Regularizes the green-similarity weights of the colour differences.
 const DIFF_EPS: f32 = 1.0 / 64.0;
 
-/// CIE f(t) for L*a*b*, tabulated on 0..2 with linear interpolation. Each entry holds the
-/// sample and the step to the next one (one load per lookup; the same `a + (b - a) * f`).
+/// CIE f(t) for L*a*b*, tabulated on 0..2 with linear interpolation.
 struct LabF {
-    pairs: Vec<[f32; 2]>,
+    table: Vec<f32>,
 }
 
 const LABF_STEPS: usize = 1 << 14;
@@ -437,8 +436,7 @@ const LABF_RANGE: f32 = 2.0;
 
 impl LabF {
     fn new() -> Self {
-        let table: Vec<f32> = (0..=LABF_STEPS + 1).map(|i| Self::exact(i as f32 * LABF_RANGE / LABF_STEPS as f32)).collect();
-        LabF { pairs: table.windows(2).map(|p| [p[0], p[1] - p[0]]).collect() }
+        LabF { table: (0..=LABF_STEPS + 1).map(|i| Self::exact(i as f32 * LABF_RANGE / LABF_STEPS as f32)).collect() }
     }
 
     fn exact(t: f32) -> f32 {
@@ -452,8 +450,8 @@ impl LabF {
         }
         let x = t * (LABF_STEPS as f32 / LABF_RANGE);
         let i = (x as usize).min(LABF_STEPS);
-        let [a, step] = self.pairs[i];
-        a + step * (x - i as f32)
+        let a = self.table[i];
+        a + (self.table[i + 1] - a) * (x - i as f32)
     }
 }
 
@@ -489,7 +487,15 @@ pub(crate) fn ahd_bands(h: usize) -> usize {
     h.div_ceil(AHD_BAND)
 }
 
-pub(crate) const AHD_TABLE_BYTES: u64 = (LABF_STEPS as u64 + 1) * 8;
+pub(crate) const AHD_TABLE_BYTES: u64 = (LABF_STEPS as u64 + 2) * 4;
+
+/// `v` limited to `lo..=hi` like `f32::clamp`, without its panic on NaN bounds (hostile black
+/// levels can put NaN in the plane): same result for every non-NaN bound.
+#[inline(always)]
+fn clampf(v: f32, lo: f32, hi: f32) -> f32 {
+    let v = if v < lo { lo } else { v };
+    if v > hi { hi } else { v }
+}
 
 /// One AHD band's working planes, reused for every band a worker runs (sized for the tallest band).
 struct AhdScratch {
@@ -565,10 +571,10 @@ fn ahd_band(d: &[f32], w: usize, s: usize, phase: [u8; 4], m: &[[f32; 3]; 3], la
                 }
                 let (l, r) = (r0[x - 1], r0[x + 1]);
                 let gh = (l + r) * 0.5 + (2.0 * c - r0[x - 2] - r0[x + 2]) * 0.25;
-                gh_row[x] = gh.clamp(l.min(r), l.max(r));
+                gh_row[x] = clampf(gh, l.min(r), l.max(r));
                 let (u, dn) = (rm1[x], rp1[x]);
                 let gv = (u + dn) * 0.5 + (2.0 * c - rm2[x] - rp2[x]) * 0.25;
-                gv_row[x] = gv.clamp(u.min(dn), u.max(dn));
+                gv_row[x] = clampf(gv, u.min(dn), u.max(dn));
             }
         }
     }
@@ -719,10 +725,10 @@ fn ahd_ref(p: &Padded, phase: [u8; 4], to_xyz: &Mat3, out: &mut [f32], jobs: usi
                 }
                 let (l, r) = (d[i - 1], d[i + 1]);
                 let gh = (l + r) * 0.5 + (2.0 * c - d[i - 2] - d[i + 2]) * 0.25;
-                g[0][k] = gh.clamp(l.min(r), l.max(r));
+                g[0][k] = clampf(gh, l.min(r), l.max(r));
                 let (u, dn) = (d[i - s], d[i + s]);
                 let gv = (u + dn) * 0.5 + (2.0 * c - d[i - 2 * s] - d[i + 2 * s]) * 0.25;
-                g[1][k] = gv.clamp(u.min(dn), u.max(dn));
+                g[1][k] = clampf(gv, u.min(dn), u.max(dn));
             }
         }
         // 2. RGB candidates and their Lab, band rows 1..n-1, columns 3..s-3.
@@ -838,6 +844,12 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn ahd_survives_nan_planes() {
+        let p = Padded::from_plane(&[f32::NAN; 64], 8, 8);
+        assert_eq!(demosaic(&p, [0, 1, 1, 2], Demosaic::Ahd, &IDENTITY, 1).len(), 192);
     }
 
     /// Bytes the scratch planes actually hold.
