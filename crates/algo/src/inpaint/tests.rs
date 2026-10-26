@@ -119,8 +119,7 @@ fn busy(w: usize, h: usize, ch: usize, seed: u64) -> Vec<f32> {
             let (x, y) = (i % w, i / w);
             let flat = (x / 9 + y / 7) % 5 == 0;
             let n = (rng.next() % 1000) as f32 / 1000.0;
-            (0..ch)
-                .map(move |c| if flat { 0.25 + 0.1 * c as f32 } else { (0.2 + 0.004 * x as f32 + 0.1 * ((x + 2 * y + c) % 6) as f32 + 0.05 * n).min(1.0) })
+            (0..ch).map(move |c| if flat { 0.25 + 0.1 * c as f32 } else { (0.2 + 0.004 * x as f32 + 0.1 * ((x + 2 * y + c) % 6) as f32 + 0.05 * n).min(1.0) })
         })
         .collect()
 }
