@@ -562,5 +562,4 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-#[path = "brush_panel_tests.rs"]
 mod tests;
