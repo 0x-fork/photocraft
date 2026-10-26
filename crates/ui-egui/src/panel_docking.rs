@@ -898,7 +898,6 @@ mod tests;
 
 #[cfg(test)]
 #[cfg(not(target_arch = "wasm32"))]
-#[path = "panel_docking_native_tests.rs"]
 mod native_tests;
 
 /// Return positions for panels already hidden in a legacy workspace.
