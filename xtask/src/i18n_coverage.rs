@@ -156,7 +156,9 @@ fn source_files(root: &Path) -> Result<Vec<(PathBuf, String)>, String> {
             let entry = entry.map_err(|e| format!("{}: {e}", path.display()))?;
             let path = entry.path();
             if path.is_dir() {
-                stack.push(path);
+                if path.file_name().is_some_and(|name| name != "tests") {
+                    stack.push(path);
+                }
             } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
                 let stem = path.file_stem().and_then(|name| name.to_str()).unwrap_or_default();
                 if stem == "tests" || stem.ends_with("_tests") {
