@@ -658,10 +658,13 @@ fn full_canvas_layer_scenarios(b: &mut Bench, sz: &Sizes) {
                 g.set_memory_budget(photocraft_ui_egui::gpu_canvas::MIN_GPU_BUDGET);
             }
             let _ = b.refresh(&s, true);
-            // Each run is a from-scratch CPU composite of 150 full-canvas layers.
-            b.time(adjust, &mut s, reps.min(5), true, |b, s, i| {
+            // Each run is a from-scratch CPU composite of 150 full-canvas layers. Every timed run
+            // is a hide: the layer is shown again, untimed, before each one.
+            b.time(adjust, &mut s, reps.min(5), true, |b, s, _| {
+                exec(s, "layer.setProps", json!({"layer": adj, "visible": true}))?;
+                b.refresh(s, false)?;
                 let t = Instant::now();
-                exec(s, "layer.setProps", json!({"layer": adj, "visible": i % 2 == 1}))?;
+                exec(s, "layer.setProps", json!({"layer": adj, "visible": false}))?;
                 Ok(ms(t) + b.refresh(s, false)?)
             });
         }
