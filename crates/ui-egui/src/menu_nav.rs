@@ -553,5 +553,4 @@ fn scroll_request_id(key: egui::Id) -> egui::Id {
 }
 
 #[cfg(test)]
-#[path = "menu_nav_tests.rs"]
 mod tests;
