@@ -16,7 +16,7 @@ struct Language {
 
 pub fn run(root: &Path) -> Result<(), String> {
     let i18n_dir = root.join("crates/ui-egui/src/i18n");
-    let registry_path = i18n_dir.join("mod.rs");
+    let registry_path = root.join("crates/ui-egui/src/i18n.rs");
     let registry = fs::read_to_string(&registry_path).map_err(|e| format!("{}: {e}", registry_path.display()))?;
     let languages = registered_languages(&registry)?;
 
@@ -176,7 +176,7 @@ fn source_files(root: &Path) -> Result<Vec<(PathBuf, String)>, String> {
 fn tl_keys(sources: &[(PathBuf, String)]) -> BTreeSet<Key> {
     let mut keys = BTreeSet::new();
     for (path, source) in sources {
-        if path.ends_with("i18n/mod.rs") {
+        if path.ends_with("ui-egui/src/i18n.rs") {
             continue;
         }
         let code = before_test_module(source);
@@ -202,7 +202,7 @@ fn tl_keys(sources: &[(PathBuf, String)]) -> BTreeSet<Key> {
 fn plural_keys(sources: &[(PathBuf, String)]) -> BTreeSet<Key> {
     let mut keys = BTreeSet::new();
     for (path, source) in sources {
-        if path.ends_with("i18n/mod.rs") {
+        if path.ends_with("ui-egui/src/i18n.rs") {
             continue;
         }
         let code = before_test_module(source);
