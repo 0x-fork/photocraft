@@ -6229,7 +6229,6 @@ mod navigator_animated_zoom_tests {
 }
 
 #[cfg(test)]
-#[path = "history_panel_select_tests.rs"]
 mod history_panel_select_tests;
 #[cfg(test)]
 mod layer_click_type_commit_tests {
