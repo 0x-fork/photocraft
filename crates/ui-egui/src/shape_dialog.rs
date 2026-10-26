@@ -262,5 +262,4 @@ pub fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) 
 }
 
 #[cfg(test)]
-#[path = "shape_dialog_tests.rs"]
 mod tests;
