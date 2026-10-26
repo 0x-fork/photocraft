@@ -190,5 +190,4 @@ pub(crate) fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, V
 }
 
 #[cfg(test)]
-#[path = "pattern_fill_ui_tests.rs"]
 mod tests;
