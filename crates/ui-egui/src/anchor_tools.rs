@@ -188,5 +188,4 @@ fn draw_hit(painter: &egui::Painter, to_scr: &dyn Fn([f64; 2]) -> Pos2, accent: 
 }
 
 #[cfg(test)]
-#[path = "anchor_tools_tests.rs"]
 mod tests;
