@@ -246,5 +246,4 @@ pub fn show_offer(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-#[path = "kys_import_tests.rs"]
 mod tests;
