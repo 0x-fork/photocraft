@@ -248,5 +248,4 @@ pub fn run_pending(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-#[path = "rasterize_prompt_tests.rs"]
 mod tests;
