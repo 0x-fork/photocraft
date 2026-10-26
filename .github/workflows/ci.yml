@@ -453,5 +453,27 @@ jobs:
         with:
           name: selection-morphology-performance
           path: selection-morphology-perf.txt
+
+  selection-morphology-quick-perf:
+    if: inputs.selection_morphology == true
+    # Match perf-nightly.yml: Linux llvmpipe lacks the float render targets needed by
+    # bevel_bench, so its required GPU rows cannot be measured there.
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: perf-release
       - name: Quick performance suite
         run: cargo xtask perf --quick
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: selection-morphology-quick-perf
+          path: |
+            target/perf/*.json
+            target/perf/summary.md

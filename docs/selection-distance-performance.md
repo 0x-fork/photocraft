@@ -107,7 +107,7 @@ radii return empty buffers.
 
 Reproduce on the fork through the CI workflow's optional `selection_morphology` input.
 It runs `cargo run --release -p photocraft-algo --example bench_selection_morphology`
-and `cargo xtask perf --quick` remotely. The comparison uses a 6000×6000 mask with either
+on Linux, and `cargo xtask perf --quick` on the project’s macOS performance runner class. The comparison uses a 6000×6000 mask with either
 a centred 50×50 square or a centred 4000×4000 square, radii 3 and 50, and four Rayon
 workers. It checks every output sample against the previous formulas before timing;
 reported medians include output allocation and exclude output destruction, with three
