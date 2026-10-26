@@ -663,9 +663,7 @@ fn malformed_wind_extrude_tiles_are_kept_verbatim() {
         ("BckC", Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(0.0)))),
         (
             "BckC",
-            Value::Descriptor(
-                Descriptor::new("RGBC").with("Rd  ", Value::Double(f64::NAN)).with("Grn ", Value::Double(0.0)).with("Bl  ", Value::Double(0.0)),
-            ),
+            Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(f64::NAN)).with("Grn ", Value::Double(0.0)).with("Bl  ", Value::Double(0.0))),
         ),
     ] {
         let mut item = measured_item(tiles(long(6), long(20), "FlFr"), 0.0, 255.0);
@@ -929,8 +927,8 @@ fn color_halftone_round_trips_and_reads_photoshops_shape() {
     assert_eq!(f.params, json!({"maxRadius": 6, "channel1": 10, "channel2": 20, "channel3": 30, "channel4": 40}));
     assert_eq!(get_desc(&item_for_filter(&f).unwrap(), "Fltr"), Some(&measured));
     // Defaults and hostile values write longs within the dialog's ranges.
-    let d = item_for_filter(&sf("filter.pixelate.colorHalftone", json!({"maxRadius": f64::NAN, "channel1": 1e12, "channel2": -1e12, "channel3": "x"})))
-        .unwrap();
+    let d =
+        item_for_filter(&sf("filter.pixelate.colorHalftone", json!({"maxRadius": f64::NAN, "channel1": 1e12, "channel2": -1e12, "channel3": "x"}))).unwrap();
     let fltr = get_desc(&d, "Fltr").unwrap();
     let got: Vec<_> = ["Rds ", "Ang1", "Ang2", "Ang3", "Ang4"].iter().map(|k| int(fltr, k)).collect();
     assert_eq!(got, [Some(8), Some(360), Some(-360), Some(90), Some(45)]);
@@ -1182,10 +1180,7 @@ fn hue_saturation_ranges_are_not_lost() {
         let fltr = Descriptor::new("HStr").with("Clrz", Value::Boolean(false)).with("Adjs", Value::List(adjs));
         let item = Descriptor::new("filterFX")
             .with("Nm  ", Value::Text(UnicodeString::new_nul("Hue/Saturation...")))
-            .with(
-                "blendOptions",
-                Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "normal"))),
-            )
+            .with("blendOptions", Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "normal"))))
             .with("enab", Value::Boolean(true))
             .with("Fltr", Value::Descriptor(fltr))
             .with("filterID", Value::Integer(code(b"HStr")));
@@ -1254,12 +1249,7 @@ fn blur_family_matches_photoshop_shapes() {
     let cases = [
         (surface_blur(5.0, 15), 1135, "filter.blur.surfaceBlur", json!({"radius": 5.0, "threshold": 15})),
         (surface_blur(12.0, 40), 1135, "filter.blur.surfaceBlur", json!({"radius": 12.0, "threshold": 40})),
-        (
-            smart_blur(5.0, 25.0, "SBQH", "SBMN"),
-            smart,
-            "filter.blur.smartBlur",
-            json!({"radius": 5.0, "threshold": 25.0, "quality": "high", "mode": "normal"}),
-        ),
+        (smart_blur(5.0, 25.0, "SBQH", "SBMN"), smart, "filter.blur.smartBlur", json!({"radius": 5.0, "threshold": 25.0, "quality": "high", "mode": "normal"})),
         (
             smart_blur(3.0, 30.0, "SBQL", "SBME"),
             smart,
@@ -1555,8 +1545,7 @@ fn malformed_stylize_and_pixelate_filters_are_kept_verbatim() {
 
 /// A Filter Gallery item as Photopea writes it (Chrome, Detail 12, Smoothness 4).
 fn gallery_item_with(effects: Vec<Descriptor>) -> Descriptor {
-    let rgb =
-        |v: f64| Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(v)).with("Grn ", Value::Double(v)).with("Bl  ", Value::Double(v)));
+    let rgb = |v: f64| Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(v)).with("Grn ", Value::Double(v)).with("Bl  ", Value::Double(v)));
     Descriptor::new("filterFX")
         .with("Nm  ", Value::Text(UnicodeString::new_nul("Filtergalerie")))
         .with("blendOptions", Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "normal"))))
@@ -1605,10 +1594,8 @@ fn filter_gallery_chrome_imports_as_editable_gallery() {
 
 /// A single effect as Photoshop 27 writes it: inline in `Fltr`, no `GEfs` list or `GELv`.
 fn photoshop_chrome(detail: i32, smoothness: i32) -> Descriptor {
-    let rgb =
-        |v: f64| Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(v)).with("Grn ", Value::Double(v)).with("Bl  ", Value::Double(v)));
-    let mut fltr =
-        Descriptor::new("GEfc").with("GEfk", enumv("GEft", "Chrm")).with("Dtl ", Value::Integer(detail)).with("Smth", Value::Integer(smoothness));
+    let rgb = |v: f64| Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(v)).with("Grn ", Value::Double(v)).with("Bl  ", Value::Double(v)));
+    let mut fltr = Descriptor::new("GEfc").with("GEfk", enumv("GEft", "Chrm")).with("Dtl ", Value::Integer(detail)).with("Smth", Value::Integer(smoothness));
     fltr.name = UnicodeString::new_nul("Filter Gallery");
     Descriptor::new("filterFX")
         .with("Nm  ", Value::Text(UnicodeString::new_nul("Filter Gallery...")))
@@ -1732,8 +1719,7 @@ fn unwritable_filters_are_reported_not_fatal() {
 #[test]
 fn placed_blocks_parse_back() {
     let t = Affine { m: [0.5, 0.1, -0.1, 0.5, 10.0, 20.0] };
-    let stack =
-        FilterStack { enabled: false, filters: vec![sf("filter.blur.gaussianBlur", json!({"radius": 3.0}))], mask_enabled: false, mask_linked: true };
+    let stack = FilterStack { enabled: false, filters: vec![sf("filter.blur.gaussianBlur", json!({"radius": 3.0}))], mask_enabled: false, mask_linked: true };
     let mut w = Vec::new();
     let spec = PlacedSpec {
         idnt: "id-1",
@@ -2131,8 +2117,7 @@ fn cylinder_warp_round_trips_through_sold() {
     let v = [100.0, 800.0, 900.0, 200.0, 0.3, 0.3, 0.5];
     let warp = Warp::cylinder(&v, [0.0, 0.0, 1000.0, 1000.0]).unwrap();
     let transform = Affine { m: [0.5, 0.0, 0.0, 0.5, 40.0, 30.0] };
-    let mut spec =
-        PlacedSpec { idnt: "i", placed: "p", transform, perspective: None, size: (1000.0, 1000.0), dpi: 72.0, warp: Some(&warp), filter_fx: None };
+    let mut spec = PlacedSpec { idnt: "i", placed: "p", transform, perspective: None, size: (1000.0, 1000.0), dpi: 72.0, warp: Some(&warp), filter_fx: None };
     let mut warnings = Vec::new();
     let sold = sold_bytes(None, &spec, &mut warnings);
     assert!(warnings.is_empty(), "{warnings:?}");
