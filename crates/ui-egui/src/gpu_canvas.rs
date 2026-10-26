@@ -2665,7 +2665,6 @@ fn fs(in: V) -> @location(0) vec4<f32> {
 "#;
 
 #[cfg(test)]
-#[path = "gpu_canvas_mip_tests.rs"]
 mod mip_tests;
 
 #[cfg(test)]
