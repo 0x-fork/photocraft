@@ -866,5 +866,4 @@ pub fn inspect(app: &PhotocraftApp) -> Value {
 }
 
 #[cfg(test)]
-#[path = "histogram_panel_tests.rs"]
 mod tests;
