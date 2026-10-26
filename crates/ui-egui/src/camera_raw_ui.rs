@@ -1864,5 +1864,4 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
 mod tests;
 
 #[cfg(test)]
-#[path = "camera_raw_identity_tests.rs"]
 mod identity_tests;
