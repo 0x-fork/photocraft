@@ -54,34 +54,10 @@ fn cropped_commands_match_full_canvas_reads_padding_and_writeback() {
                 match case {
                     0 => 0.0,
                     1 => 1.0,
-                    2 => {
-                        if (28..39).contains(&x) && (22..33).contains(&y) {
-                            1.0
-                        } else {
-                            0.0
-                        }
-                    }
-                    3 => {
-                        if x < 12 && (15..35).contains(&y) {
-                            1.0
-                        } else {
-                            0.0
-                        }
-                    }
-                    4 => {
-                        if x >= 63 && y >= 48 {
-                            1.0
-                        } else {
-                            0.0
-                        }
-                    }
-                    5 => {
-                        if (25..45).contains(&x) && (18..38).contains(&y) && !(30..35).contains(&x) {
-                            (i % 255 + 1) as f32 / 255.0
-                        } else {
-                            0.0
-                        }
-                    }
+                    2 if (28..39).contains(&x) && (22..33).contains(&y) => 1.0,
+                    3 if x < 12 && (15..35).contains(&y) => 1.0,
+                    4 if x >= 63 && y >= 48 => 1.0,
+                    5 if (25..45).contains(&x) && (18..38).contains(&y) && !(30..35).contains(&x) => (i % 255 + 1) as f32 / 255.0,
                     _ => 0.0,
                 }
             })
