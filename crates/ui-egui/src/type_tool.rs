@@ -1936,23 +1936,22 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
                 // current completion arm above may open admission for the following element.
                 if reset_guarded(app, ctx.viewport_id()) {
                     continue;
-                } else {
-                    match ime_event {
-                        // A bare line break from the IME is the Enter key, which the key arm handles.
-                        egui::ImeEvent::Preedit { text: s, .. } | egui::ImeEvent::Commit(s) if s == "\n" || s == "\r" => handled[k] = false,
-                        egui::ImeEvent::Preedit { text, .. } => ime_update(app, text, false),
-                        egui::ImeEvent::Commit(s) => {
-                            ime_update(app, s, true);
-                            app.type_ime.incoming = None;
-                        }
-                        egui::ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
-                            ime_delete_chars(app, *before_chars, *after_chars);
-                        }
-                        egui::ImeEvent::DeleteSurroundingBytes { before_bytes, after_bytes } => {
-                            ime_delete_bytes(app, *before_bytes, *after_bytes);
-                        }
-                        _ => {}
+                }
+                match ime_event {
+                    // A bare line break from the IME is the Enter key, which the key arm handles.
+                    egui::ImeEvent::Preedit { text: s, .. } | egui::ImeEvent::Commit(s) if s == "\n" || s == "\r" => handled[k] = false,
+                    egui::ImeEvent::Preedit { text, .. } => ime_update(app, text, false),
+                    egui::ImeEvent::Commit(s) => {
+                        ime_update(app, s, true);
+                        app.type_ime.incoming = None;
                     }
+                    egui::ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
+                        ime_delete_chars(app, *before_chars, *after_chars);
+                    }
+                    egui::ImeEvent::DeleteSurroundingBytes { before_bytes, after_bytes } => {
+                        ime_delete_bytes(app, *before_bytes, *after_bytes);
+                    }
+                    _ => {}
                 }
             }
             egui::Event::PointerButton { button: egui::PointerButton::Primary, pressed, .. } => {

@@ -385,9 +385,7 @@ mod tests {
     }
 
     /// Alt-right dragging changes tip size without loading paint or touching document history.
-
     #[test]
-
     fn mixer_alt_right_drag_resizes_without_sampling_or_painting() {
         let mut a = app(Tool::MixerBrush);
         let before = a.session.tools.mixer.clone();

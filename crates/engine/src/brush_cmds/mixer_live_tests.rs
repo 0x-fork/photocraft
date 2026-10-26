@@ -33,9 +33,7 @@ fn target(s: &Session) -> Surface {
 }
 
 /// All-layer previews match replay and Undo exactly across supported depths without editing source layers.
-
 #[test]
-
 fn mixer_live_empty_layer_exact_commit_undo_source_preservation_and_chunking() {
     for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
         let mut s = fixture(fmt);
@@ -73,9 +71,7 @@ fn mixer_live_empty_layer_exact_commit_undo_source_preservation_and_chunking() {
 }
 
 /// Current-layer mixing matches the frozen kernel; dropping a preview and cleaning the load paint nothing.
-
 #[test]
-
 fn mixer_live_current_layer_matches_reference_and_cancels() {
     let mut s = fixture(PixelFormat::RGBA32F);
     let p = json!({"points":[[30,30],[60,34],[100,60]],"seed":9,"size":16,"sampleAllLayers":false,"wet":65,"mix":70,"load":90});
@@ -106,9 +102,7 @@ fn mixer_live_current_layer_matches_reference_and_cancels() {
 }
 
 /// Sampling retains a spatial two-color load while leaving document pixels and history alone.
-
 #[test]
-
 fn mixer_sample_is_spatial_and_never_edits_document() {
     let mut s = fixture(PixelFormat::RGBA8);
     let before = s.active().unwrap().doc.clone();
@@ -125,9 +119,7 @@ fn mixer_sample_is_spatial_and_never_edits_document() {
 }
 
 /// Smoothing tails match replay and invalid input cannot mutate the last valid preview.
-
 #[test]
-
 fn mixer_live_smoothing_tail_and_invalid_input() {
     let mut s = fixture(PixelFormat::RGBA16);
     let p = json!({"points":[[20,40]],"size":12,"seed":42,"brush":{"smoothing":{"amount":0.6,"catchUpOnEnd":true}}});
@@ -150,9 +142,7 @@ fn mixer_live_smoothing_tail_and_invalid_input() {
 }
 
 /// Composite sampling honors source masks and blending while current-layer mode ignores lower paint.
-
 #[test]
-
 fn mixer_sampling_obeys_masks_opacity_blend_and_current_layer_switch() {
     let mut s = fixture(PixelFormat::RGBA8);
     let source = s.active().unwrap().doc.layers.iter().find(|l| l.name == "Source").unwrap().id;
@@ -178,9 +168,7 @@ fn mixer_sampling_obeys_masks_opacity_blend_and_current_layer_switch() {
 }
 
 /// Later overlapping dabs pick up freshly deposited paint from the live composite.
-
 #[test]
-
 fn mixer_overlapping_dabs_resample_the_evolving_composite() {
     let mut s = fixture(PixelFormat::RGBA32F);
     s.execute("tools.setColors", json!({"foreground":"#0000ff"})).unwrap();
@@ -193,9 +181,7 @@ fn mixer_overlapping_dabs_resample_the_evolving_composite() {
 }
 
 /// The shared live commit keeps shown pixels and one Undo step, refusing stale document snapshots.
-
 #[test]
-
 fn mixer_prepared_commit_uses_displayed_pixels_and_rejects_stale_documents() {
     let mut s = fixture(PixelFormat::RGBA8);
     let p = json!({"points":[[20,40]],"size":16,"target":"pixels","seed":55});
@@ -219,9 +205,7 @@ fn mixer_prepared_commit_uses_displayed_pixels_and_rejects_stale_documents() {
 }
 
 /// Load and clean affect tool state without dropping a floating selection or creating document history.
-
 #[test]
-
 fn mixer_load_commands_preserve_floating_selection_and_history() {
     let mut s = fixture(PixelFormat::RGBA8);
     s.execute("select.all", json!({})).unwrap();
@@ -238,9 +222,7 @@ fn mixer_load_commands_preserve_floating_selection_and_history() {
 }
 
 /// Malformed reservoir input is rejected and automatic reload follows the selected setting.
-
 #[test]
-
 fn mixer_rejects_malformed_load_and_retains_or_reloads_paint() {
     let mut s = fixture(PixelFormat::RGBA8);
     let before = s.active().unwrap().doc.clone();
@@ -257,9 +239,7 @@ fn mixer_rejects_malformed_load_and_retains_or_reloads_paint() {
 }
 
 /// Large tips keep off-canvas layer pixels and commit the exact preview with reversible history.
-
 #[test]
-
 fn mixer_large_tip_retains_off_canvas_paint_and_commits_the_live_result() {
     let mut s = fixture(PixelFormat::RGBA8);
     let source = s.active().unwrap().doc.clone();
@@ -291,9 +271,7 @@ fn mixer_long_segments_are_interpolated_and_replay_matches_live() {
 }
 
 /// Authorization, validation, unknown commands and missing targets all discard the single-use offer.
-
 #[test]
-
 fn mixer_prepared_offer_is_dropped_on_every_early_dispatch_failure() {
     for failure in 0..4 {
         let mut s = fixture(PixelFormat::RGBA8);
@@ -319,9 +297,7 @@ fn mixer_prepared_offer_is_dropped_on_every_early_dispatch_failure() {
 }
 
 /// A stroke beyond the live tile budget still renders on command replay and remains undoable.
-
 #[test]
-
 fn mixer_command_outgrows_the_preview_tile_budget_without_losing_the_stroke() {
     let mut s = fixture(PixelFormat::RGBA8);
     let points: Vec<_> = (0..257).map(|i| [128.0 + (i % 17) as f64 * 512.0, 128.0 + (i / 17) as f64 * 512.0]).collect();
@@ -341,9 +317,7 @@ fn mixer_command_outgrows_the_preview_tile_budget_without_losing_the_stroke() {
 }
 
 /// An empty sample reports an error while retaining the previous paint load and document.
-
 #[test]
-
 fn mixer_empty_samples_preserve_the_previous_load_and_document() {
     let mut s = fixture(PixelFormat::RGBA8);
     s.execute("brush.mixer.sample", json!({"points": [[96,48]], "size": 40})).unwrap();
@@ -423,9 +397,7 @@ fn mixer_large_brushes_replay_after_the_preview_budget() {
 
 /// Long strokes past the live preview's sample and dab budgets still render on command replay
 /// (Stroke Path with Simulate Pressure sends up to 200,000 samples), as main painted them.
-
 #[test]
-
 fn mixer_command_paints_strokes_beyond_the_preview_sample_and_dab_budgets() {
     // 70,000 samples a pixel apart (above 65,536), or 2,000 samples 170 px apart (about 340,000 dabs).
     for (count, step, budget) in [(70_000, 1, "65536"), (2_000, 170, "250000 dabs")] {
