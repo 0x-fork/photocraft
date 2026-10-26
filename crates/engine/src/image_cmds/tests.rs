@@ -199,15 +199,9 @@ fn image_size_refuses_a_raster_past_the_budget() {
 #[test]
 fn image_size_keeps_canvas_edges_opaque() {
     for depth in [8, 16, 32] {
-        for (w, resample) in [
-            (60, "bicubic"),
-            (41, "lanczos"),
-            (15, "bilinear"),
-            (77, "preserveDetails"),
-            (21, "bicubicSharper"),
-            (47, "automatic"),
-            (9, "bicubicAutomatic"),
-        ] {
+        for (w, resample) in
+            [(60, "bicubic"), (41, "lanczos"), (15, "bilinear"), (77, "preserveDetails"), (21, "bicubicSharper"), (47, "automatic"), (9, "bicubicAutomatic")]
+        {
             let mut s = Session::new();
             s.execute("file.new", json!({"width": 30, "height": 20, "depth": depth, "background": "#336699"})).unwrap();
             s.execute("select.all", json!({})).unwrap();

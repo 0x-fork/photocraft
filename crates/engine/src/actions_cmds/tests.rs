@@ -813,10 +813,7 @@ fn nested_call_records_one_named_step_and_tracks_child_edits() {
     s.execute("file.new", json!({"width": 4, "height": 4})).unwrap();
     let result = s.execute("actions.play", json!({"action": "Parent"})).unwrap();
     assert!(result.get("failed").is_none(), "{result}");
-    assert_eq!(
-        s.active().unwrap().doc.layers.iter().skip(1).map(|l| l.name.as_str()).collect::<Vec<_>>(),
-        ["Before", "Child layer", "Added later", "After"]
-    );
+    assert_eq!(s.active().unwrap().doc.layers.iter().skip(1).map(|l| l.name.as_str()).collect::<Vec<_>>(), ["Before", "Child layer", "Added later", "After"]);
     assert!(s.actions.playback_stack.is_empty());
 }
 

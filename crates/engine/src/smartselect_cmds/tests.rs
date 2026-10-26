@@ -526,10 +526,7 @@ fn sel_bytes(s: &Session, w: i32, h: i32) -> Vec<u8> {
 #[test]
 fn refine_edge_refuses_a_selection_too_large_to_refine() {
     let mut s = Session::new();
-    s.add_document(
-        Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8),
-        None,
-    );
+    s.add_document(Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8), None);
     s.execute("select.rect", json!({"x": 10, "y": 60, "width": 10, "height": 10})).unwrap();
     let small = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
     let diagonal = json!({"edits": [{"tool": "brush", "points": [[0, 0], [99_999, 99_999]], "size": 1}]});
@@ -553,10 +550,7 @@ fn refine_edge_refuses_a_selection_too_large_to_refine() {
 #[test]
 fn refine_edge_refuses_edits_that_cross_too_many_tiles() {
     let mut s = Session::new();
-    s.add_document(
-        Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8),
-        None,
-    );
+    s.add_document(Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8), None);
     s.execute("select.rect", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap();
     let before = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
     let zigzag: Vec<[f32; 2]> = (0..20).map(|i| [if i % 2 == 0 { 0.0 } else { 99_999.0 }, i as f32 * 5000.0]).collect();
@@ -590,10 +584,8 @@ fn refine_edge_edits_apply_each_tool_at_every_depth() {
         // Quick Selection grows across the cool region; subtracting it again leaves the start.
         let quick = run(&mut s, json!([{"tool": "quick", "points": [[100, 50], [110, 50]], "size": 8}]));
         assert!(at(&quick, 120, 80) >= 128 && at(&quick, 5, 5) >= 128 && at(&quick, 40, 60) < 128, "depth {depth}: quick");
-        let back = run(
-            &mut s,
-            json!([{"tool": "quick", "points": [[100, 50]], "size": 8}, {"tool": "quick", "points": [[100, 50]], "size": 8, "mode": "subtract"}]),
-        );
+        let back =
+            run(&mut s, json!([{"tool": "quick", "points": [[100, 50]], "size": 8}, {"tool": "quick", "points": [[100, 50]], "size": 8, "mode": "subtract"}]));
         assert!(at(&back, 120, 80) < 128 && at(&back, 5, 5) >= 128, "depth {depth}: quick subtract");
         // The Brush paints exactly where it goes.
         let brush = run(&mut s, json!([{"tool": "brush", "points": [[30, 80], [60, 80]], "size": 10}]));
@@ -677,8 +669,7 @@ fn refine_edge_edits_match_the_tools_and_reach_the_outputs() {
 fn refine_edge_rejects_bad_edits_and_keeps_the_selection() {
     let mut s = blurred_edge_selected();
     let before = sel_bytes(&s, 80, 40);
-    for bad in
-        [json!(7), json!([{"tool": "nope"}]), json!([{"tool": "lasso", "points": [[0, 0]]}]), json!([{"tool": "brush", "points": [[0, 0]], "size": -1}])]
+    for bad in [json!(7), json!([{"tool": "nope"}]), json!([{"tool": "lasso", "points": [[0, 0]]}]), json!([{"tool": "brush", "points": [[0, 0]], "size": -1}])]
     {
         assert!(s.execute("select.refineEdge", json!({"edits": bad})).is_err(), "{bad}");
         assert_eq!(sel_bytes(&s, 80, 40), before, "{bad}");

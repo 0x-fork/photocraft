@@ -288,11 +288,9 @@ fn unselected_tiles_stay_shared() {
     s.execute("edit.fill", json!({"color": "#336699"})).unwrap();
     let id = s.active().unwrap().active_layer.unwrap();
     let surf = |s: &Session| s.active().unwrap().doc.layer(id).unwrap().surface().unwrap().clone();
-    for (cmd, params) in [
-        ("edit.fill", json!({"color": "#ff0000"})),
-        ("edit.stroke", json!({"width": 4, "color": "#00ff00", "location": "inside"})),
-        ("edit.clear", json!({})),
-    ] {
+    for (cmd, params) in
+        [("edit.fill", json!({"color": "#ff0000"})), ("edit.stroke", json!({"width": 4, "color": "#00ff00", "location": "inside"})), ("edit.clear", json!({}))]
+    {
         // Two small selections in opposite corners (256 px tiles): the selection's bounds
         // span every tile, but only the two corner tiles have anything selected.
         s.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 100})).unwrap();

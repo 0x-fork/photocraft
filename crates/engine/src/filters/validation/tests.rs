@@ -290,8 +290,7 @@ fn strict_extended_filters_keep_defaults_targets_history_and_last_filter() {
 #[test]
 fn stored_extended_filter_records_still_decode_tolerantly() {
     use photocraft_algo::{BlurQuality, BlurShape, FilterParams, SmartBlurMode};
-    let smart =
-        crate::filters::params_for("filter.blur.smartBlur", &json!({"radius":-2,"threshold":900,"quality":"old","mode":false,"extra":true})).unwrap();
+    let smart = crate::filters::params_for("filter.blur.smartBlur", &json!({"radius":-2,"threshold":900,"quality":"old","mode":false,"extra":true})).unwrap();
     assert!(matches!(smart, FilterParams::SmartBlur { radius: 0.1, threshold: 100.0, quality: BlurQuality::High, mode: SmartBlurMode::Normal }));
     let shape = crate::filters::params_for("filter.blur.shapeBlur", &json!({"radius":2000,"shape":"old"})).unwrap();
     assert!(matches!(shape, FilterParams::ShapeBlur { radius: 1000.0, shape: BlurShape::Circle }));

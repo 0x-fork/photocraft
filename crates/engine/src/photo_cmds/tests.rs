@@ -211,11 +211,8 @@ fn crop_and_straighten_keeps_duotone_inks() {
     let mut s = Session::new();
     s.add_document(scan_with_one_photo(), None);
     s.execute("image.mode.grayscale", json!({})).unwrap();
-    s.execute(
-        "image.mode.duotone",
-        json!({"type": "duotone", "inks": [{"name": "Black", "color": [0, 0, 0]}, {"name": "Orange", "color": [255, 128, 0]}]}),
-    )
-    .unwrap();
+    s.execute("image.mode.duotone", json!({"type": "duotone", "inks": [{"name": "Black", "color": [0, 0, 0]}, {"name": "Orange", "color": [255, 128, 0]}]}))
+        .unwrap();
     let src = s.documents()[0].doc.duotone.clone();
     assert!(src.is_some());
     let r = s.execute("file.automate.cropAndStraightenPhotos", json!({})).unwrap();

@@ -294,9 +294,7 @@ fn snapshot(fx: &Effect) -> Value {
 
 #[test]
 fn every_kind_has_factory_defaults() {
-    for kind in
-        ["dropShadow", "innerShadow", "outerGlow", "innerGlow", "stroke", "colorOverlay", "gradientOverlay", "patternOverlay", "satin", "bevelEmboss"]
-    {
+    for kind in ["dropShadow", "innerShadow", "outerGlow", "innerGlow", "stroke", "colorOverlay", "gradientOverlay", "patternOverlay", "satin", "bevelEmboss"] {
         assert!(effect_defaults(kind).as_object().is_some_and(|o| !o.is_empty()), "{kind}");
         assert!(effect_from_params(kind, &json!({})).is_some(), "{kind}");
     }
@@ -523,9 +521,7 @@ fn make_default_then_reset_restores_it() {
 /// black. Both now give Photoshop's Reset to Default: 1 px, inside, Normal, 100 %, black.
 #[test]
 fn fresh_effects_match_the_dialog_factory_defaults() {
-    for kind in
-        ["dropShadow", "innerShadow", "outerGlow", "innerGlow", "stroke", "colorOverlay", "gradientOverlay", "patternOverlay", "satin", "bevelEmboss"]
-    {
+    for kind in ["dropShadow", "innerShadow", "outerGlow", "innerGlow", "stroke", "colorOverlay", "gradientOverlay", "patternOverlay", "satin", "bevelEmboss"] {
         let bare = effect_from_params(kind, &json!({})).unwrap();
         let dialog = effect_from_params(kind, &effect_defaults(kind)).unwrap();
         assert_eq!(bare, dialog, "{kind}");

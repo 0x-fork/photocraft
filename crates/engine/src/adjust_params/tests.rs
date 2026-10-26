@@ -225,10 +225,7 @@ fn black_and_white_eyedroppers_round_trip_near_serialization_boundaries() {
             assert!(curve.windows(2).all(|pair| pair[1].input - pair[0].input >= CURVE_POINT_DUPLICATE_DISTANCE), "{picker:?} sample={sample}: {curve:?}");
         }
         let output = tone_output(&parsed, [sample; 3]);
-        assert!(
-            output.iter().all(|value| (*value - expected_output).abs() < 1e-3),
-            "{picker:?} sample={sample} output={output:?} expected={expected_output}"
-        );
+        assert!(output.iter().all(|value| (*value - expected_output).abs() < 1e-3), "{picker:?} sample={sample} output={output:?} expected={expected_output}");
     }
 }
 

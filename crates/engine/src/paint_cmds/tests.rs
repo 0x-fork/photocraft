@@ -265,8 +265,7 @@ fn gradient_dither_breaks_banding() {
     // per-pixel noise with dither on (which breaks 8-bit banding).
     let run = |dither: bool| {
         let mut s = session();
-        s.execute("paint.gradient", json!({"from": [0, 0], "to": [19, 0], "colors": [[0.5, 0.5, 0.5, 1.0], [0.5, 0.5, 0.5, 1.0]], "dither": dither}))
-            .unwrap();
+        s.execute("paint.gradient", json!({"from": [0, 0], "to": [19, 0], "colors": [[0.5, 0.5, 0.5, 1.0], [0.5, 0.5, 0.5, 1.0]], "dither": dither})).unwrap();
         (0..19).map(|x| px(&s, x, 5)[0]).collect::<Vec<f32>>()
     };
     let smooth = run(false);

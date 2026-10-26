@@ -1178,8 +1178,7 @@ fn ruler_origin_is_set_reset_and_undoable() {
     assert_eq!(s.active().unwrap().doc.ruler_origin, [0.0, 0.0]);
     s.undo();
     assert_eq!(s.active().unwrap().doc.ruler_origin, [40.0, 12.5]);
-    for bad in [json!({}), json!({"x": 1}), json!({"x": "a", "y": 2}), json!({"x": 1e300, "y": 0}), json!({"x": -2e7, "y": 0}), json!(null), json!([1, 2])]
-    {
+    for bad in [json!({}), json!({"x": 1}), json!({"x": "a", "y": 2}), json!({"x": 1e300, "y": 0}), json!({"x": -2e7, "y": 0}), json!(null), json!([1, 2])] {
         assert!(s.execute("view.setRulerOrigin", bad.clone()).is_err(), "{bad} is refused");
     }
     assert_eq!(s.active().unwrap().doc.ruler_origin, [40.0, 12.5]);

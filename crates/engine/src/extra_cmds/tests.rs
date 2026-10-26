@@ -136,9 +136,7 @@ fn stroke_widths_are_whole_opaque_pixels_like_photoshop() {
                 let (inside, outside) = band(loc, w);
                 // (edge pixel inside, step inward) for left, right, top and bottom; the other
                 // coordinate is the middle of the edge.
-                for (name, first_in, inward, horizontal) in
-                    [("left", 10, 1, false), ("right", 29, -1, false), ("top", 10, 1, true), ("bottom", 29, -1, true)]
-                {
+                for (name, first_in, inward, horizontal) in [("left", 10, 1, false), ("right", 29, -1, false), ("top", 10, 1, true), ("bottom", 29, -1, true)] {
                     for k in -7..7 {
                         // k ≥ 0: k px inside from the edge; k < 0: -k px outside.
                         let c = first_in + k * inward;

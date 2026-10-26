@@ -367,9 +367,8 @@ fn trailing_empty_paragraph_styles_without_changing_previous_lines() {
 #[test]
 fn set_style_paragraph_and_box() {
     let mut s = session();
-    let id = s.execute("type.create", json!({"box": [10, 10, 80, 80], "text": "one two three four five six seven", "size": 12})).unwrap()["layer"]
-        .as_u64()
-        .unwrap();
+    let id =
+        s.execute("type.create", json!({"box": [10, 10, 80, 80], "text": "one two three four five six seven", "size": 12})).unwrap()["layer"].as_u64().unwrap();
     let info = s.execute("type.setStyle", json!({"layer": id, "align": "center", "leading": 20})).unwrap();
     let lines = info["lines"].as_array().unwrap();
     assert!(lines.len() >= 3);
@@ -569,8 +568,7 @@ b", "size": 20}),
 Xb"}),
     )
     .unwrap();
-    let paragraphs: Vec<(usize, photocraft_doc::text::TextAlign)> =
-        text_layer(&s, id).paragraph_runs().into_iter().map(|r| (r.len, r.style.align)).collect();
+    let paragraphs: Vec<(usize, photocraft_doc::text::TextAlign)> = text_layer(&s, id).paragraph_runs().into_iter().map(|r| (r.len, r.style.align)).collect();
     assert_eq!(paragraphs.first().map(|p| p.0), Some(2), "{paragraphs:?}");
     assert_eq!(paragraphs.get(1).copied(), Some((2, photocraft_doc::text::TextAlign::Right)), "{paragraphs:?}");
 }
@@ -773,9 +771,11 @@ fn relative_steps_move_each_character_from_its_own_value() {
     // Clamped to the ranges.
     s.execute("type.setStyle", json!({"layer": id, "leadingBy": -5000, "baselineShiftBy": 10000, "trackingBy": -11000})).unwrap();
     let t = text_layer(&s, id);
-    assert!(t.char_runs().iter().all(|r| r.style.leading_pt == Some(LEADING_MIN_PT)
-        && r.style.baseline_shift_pt == BASELINE_SHIFT_MAX_PT
-        && r.style.tracking == TRACKING_MIN as f32));
+    assert!(
+        t.char_runs().iter().all(|r| r.style.leading_pt == Some(LEADING_MIN_PT)
+            && r.style.baseline_shift_pt == BASELINE_SHIFT_MAX_PT
+            && r.style.tracking == TRACKING_MIN as f32)
+    );
     // A collapsed range in non-empty text changes no character.
     let before = text_layer(&s, id).char_runs();
     s.execute("type.setStyle", json!({"layer": id, "range": [3, 3], "trackingBy": 100})).unwrap();
