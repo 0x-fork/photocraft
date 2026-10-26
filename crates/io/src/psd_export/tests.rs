@@ -245,8 +245,7 @@ fn photo_filter_psd_is_four_byte_aligned_and_round_trips() {
 
     let assert_phfl = |file: &PsdFile| {
         let records = &file.layer_info.as_ref().unwrap().layers;
-        let data =
-            records.iter().flat_map(|r| r.blocks.iter()).find(|b| b.key == *b"phfl").map(|b| b.data.as_slice()).expect("Photo Filter adjustment data");
+        let data = records.iter().flat_map(|r| r.blocks.iter()).find(|b| b.key == *b"phfl").map(|b| b.data.as_slice()).expect("Photo Filter adjustment data");
         assert_eq!(data.len(), 20, "PSD layer block length includes four-byte padding");
         assert_eq!(&data[0..2], &[0, 2], "version 2 RGB Photo Filter");
         assert_eq!(&data[17..], &[0, 0, 0], "three padding bytes after the 17-byte payload");
@@ -279,8 +278,7 @@ fn photo_filter_version_3_is_kept_until_edited() {
     let v3 = vec![0, 3, 0, 0, 0x5e, 0x7f, 0, 0, 0x61, 0xaa, 0, 0, 0x0e, 0xf3, 0, 0, 0, 0x3f, 1, 0];
     let adjustment = crate::adjust_map::parse(b"phfl", &v3, None, crate::adjust_map::Channels::Rgb);
     let photocraft_doc::Adjustment::PhotoFilter { color, .. } = adjustment else { panic!("{adjustment:?}") };
-    let mut doc =
-        Document::with_background("Photo Filter v3", photocraft_geom::Size::new(8, 8), ColorMode::Rgb, SampleType::U8, photocraft_doc::Color::WHITE);
+    let mut doc = Document::with_background("Photo Filter v3", photocraft_geom::Size::new(8, 8), ColorMode::Rgb, SampleType::U8, photocraft_doc::Color::WHITE);
     let mut layer = Layer::new("Photo Filter 1", LayerContent::Adjustment(adjustment.clone()));
     layer.psd_blocks = vec![(*b"phfl", std::sync::Arc::new(v3.clone()))];
     doc.layers.push(layer);
@@ -371,10 +369,8 @@ fn kept_psb_blocks_are_written_as_8bim_in_a_psd() {
     // Photoshop 27.11 refuses a PSD holding `8B64` blocks ("not compatible with this
     // version"); they came from re-saving a PSB as PSD with its global FMsk and cinf kept.
     let mut doc = document(4, 4);
-    doc.metadata.psd_global_blocks = vec![
-        (*b"8B64", *b"FMsk", std::sync::Arc::new(vec![0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50])),
-        (*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new())),
-    ];
+    doc.metadata.psd_global_blocks =
+        vec![(*b"8B64", *b"FMsk", std::sync::Arc::new(vec![0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50])), (*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new()))];
     let signatures = |force_psb| {
         let opts = PsdExportOptions { force_psb, ..PsdExportOptions::default() };
         let bytes = document_to_psd_with(&doc, &opts).0.to_bytes().unwrap();
