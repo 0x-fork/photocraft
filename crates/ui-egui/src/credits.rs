@@ -618,5 +618,4 @@ mod tests {
 }
 
 #[cfg(test)]
-#[path = "credits_tests.rs"]
 mod ui_tests;
