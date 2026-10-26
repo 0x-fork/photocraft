@@ -1,7 +1,8 @@
 //! Why a view left the GPU (#9328): one typed reason per document, recorded at **one** entry
 //! point ([`note`]) by every exit from the GPU path, logged once when it changes, kept in a short
 //! history, shown in the status bar (`chrome_ui::render_path_status`) and returned by the control
-//! channel (`perf.renderPath`). `perf.gpuFallback` mirrors the current reason as text.
+//! channel (`perf.renderPath`). `perf.gpuFallback` mirrors the active document's reason as text
+//! ([`sync_perf`]).
 //!
 //! Three slots, each written only by its own events: the canvas's reason per document ([`note`]),
 //! a reason for the whole window ([`note_app`]) and an adjustment dialog's CPU proxy preview
@@ -176,7 +177,7 @@ pub fn note(app: &mut PhotocraftApp, doc: u64, path: Path) {
         Some(r) => rp.docs.insert(doc, r.clone()),
         None => rp.docs.remove(&doc),
     };
-    app.perf.gpu_fallback = app.render_path.current(doc).map(ToString::to_string);
+    sync_perf(app);
     if changed {
         log_change(&doc_name(app, doc), next.as_ref());
         app.render_path.push(doc, next, false);
@@ -188,7 +189,7 @@ pub fn note_app(app: &mut PhotocraftApp, reason: Option<CpuReason>) {
     let rp = &mut app.render_path;
     let changed = rp.app_wide.as_ref().map(CpuReason::kind) != reason.as_ref().map(CpuReason::kind);
     rp.app_wide = reason.clone();
-    app.perf.gpu_fallback = reason.as_ref().map(ToString::to_string);
+    sync_perf(app);
     if changed {
         log_change("all documents", reason.as_ref());
         app.render_path.push(0, reason, false);
@@ -222,7 +223,7 @@ pub fn adjust_preview_cpu(app: &mut PhotocraftApp, doc: u64, why: &'static str) 
     let reason = CpuReason::AdjustPreview(why);
     let changed = app.render_path.preview.as_ref().is_none_or(|(d, _)| *d != doc);
     app.render_path.preview = Some((doc, reason.clone()));
-    app.perf.gpu_fallback = app.render_path.current(doc).map(ToString::to_string);
+    sync_perf(app);
     if changed {
         log::info!("render path: {}: adjustment preview uses the CPU proxy: {why}", doc_name(app, doc));
         app.render_path.push(doc, Some(reason), true);
@@ -233,13 +234,26 @@ pub fn adjust_preview_cpu(app: &mut PhotocraftApp, doc: u64, why: &'static str) 
 /// CPU proxy preview, if one was recorded. The canvas's and the window's reasons are untouched.
 pub fn adjust_preview_ok(app: &mut PhotocraftApp) {
     let Some((doc, _)) = app.render_path.preview.take() else { return };
-    app.perf.gpu_fallback = app.render_path.current(doc).map(ToString::to_string);
+    sync_perf(app);
     log::info!("render path: {}: adjustment preview no longer uses the CPU proxy", doc_name(app, doc));
     app.render_path.push(doc, None, true);
 }
 
-/// Once, when the window has no GPU canvas: a software adapter or CPU mode chosen at startup.
+/// `perf.gpu_fallback`: the active document's reason as text, the same as `perf.renderPath`'s
+/// `current`, whichever document a refresh (an arranged cell, another window) just recorded.
+fn sync_perf(app: &mut PhotocraftApp) {
+    let active = app.session.active().map(|st| st.doc.id.0);
+    app.perf.gpu_fallback = active.and_then(|d| app.render_path.current(d)).map(ToString::to_string);
+}
+
+/// Each frame: the startup reason (once), and `perf.gpu_fallback` after a switch of document.
 pub fn frame(app: &mut PhotocraftApp) {
+    startup(app);
+    sync_perf(app);
+}
+
+/// Once, when the window has no GPU canvas: a software adapter or CPU mode chosen at startup.
+fn startup(app: &mut PhotocraftApp) {
     if app.render_path.startup_checked || app.gpu.is_some() || app.gpu_fault.is_some() {
         return;
     }
@@ -288,37 +302,69 @@ mod tests {
         PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
     }
 
+    /// An app with one document, active: `perf.gpu_fallback` follows the active document.
+    fn app_with_doc() -> (PhotocraftApp, u64) {
+        let mut app = app();
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let doc = app.session.active().unwrap().doc.id.0;
+        (app, doc)
+    }
+
     fn over(needed: u64) -> Path {
         Path::Cpu(CpuReason::OverBudget { needed, budget: 2 << 30 })
     }
 
     #[test]
     fn reasons_compare_by_kind_not_numbers() {
-        let mut app = app();
-        note(&mut app, 1, over(3 << 30));
-        note(&mut app, 1, over(4 << 30));
+        let (mut app, d) = app_with_doc();
+        note(&mut app, d, over(3 << 30));
+        note(&mut app, d, over(4 << 30));
         assert_eq!(app.render_path.history().count(), 1);
-        assert_eq!(app.render_path.current(1), Some(&CpuReason::OverBudget { needed: 4 << 30, budget: 2 << 30 }), "the numbers update");
+        assert_eq!(app.render_path.current(d), Some(&CpuReason::OverBudget { needed: 4 << 30, budget: 2 << 30 }), "the numbers update");
         assert!(app.perf.gpu_fallback.as_deref().is_some_and(|f| f.contains("4.0G")), "{:?}", app.perf.gpu_fallback);
-        note(&mut app, 1, Path::Cpu(CpuReason::Unsupported("Advanced Blending on `A`".into())));
+        note(&mut app, d, Path::Cpu(CpuReason::Unsupported("Advanced Blending on `A`".into())));
         assert_eq!(app.render_path.history().count(), 2, "another kind is a change");
     }
 
     #[test]
     fn a_partial_gpu_refresh_keeps_an_over_budget_reason() {
-        let mut app = app();
-        note(&mut app, 1, over(3 << 30));
-        note(&mut app, 1, Path::Gpu { full: false });
-        assert!(app.render_path.current(1).is_some(), "a brush dab doesn't end it");
+        let (mut app, d) = app_with_doc();
+        note(&mut app, d, over(3 << 30));
+        note(&mut app, d, Path::Gpu { full: false });
+        assert!(app.render_path.current(d).is_some(), "a brush dab doesn't end it");
         assert!(app.perf.gpu_fallback.is_some());
-        note(&mut app, 1, Path::Gpu { full: true });
-        assert!(app.render_path.current(1).is_none());
+        note(&mut app, d, Path::Gpu { full: true });
+        assert!(app.render_path.current(d).is_none());
         assert!(app.perf.gpu_fallback.is_none());
         assert_eq!(app.render_path.history().count(), 2);
         // Other reasons end at any GPU refresh.
-        note(&mut app, 1, Path::Cpu(CpuReason::ViewTransform));
-        note(&mut app, 1, Path::Gpu { full: false });
-        assert!(app.render_path.current(1).is_none());
+        note(&mut app, d, Path::Cpu(CpuReason::ViewTransform));
+        note(&mut app, d, Path::Gpu { full: false });
+        assert!(app.render_path.current(d).is_none());
+    }
+
+    /// A refresh of a document that isn't active (an arranged cell, another window) doesn't
+    /// change `perf.gpu_fallback`, and a switch of document updates it at the next frame: it is
+    /// always `perf.renderPath`'s `current`.
+    #[test]
+    fn gpu_fallback_follows_the_active_document() {
+        let (mut app, first) = app_with_doc();
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let second = app.session.active().unwrap().doc.id.0;
+        assert_ne!(first, second);
+        let current_detail = |app: &PhotocraftApp| inspect(app)["current"]["detail"].as_str().map(str::to_owned);
+        note(&mut app, first, Path::Cpu(CpuReason::ViewTransform));
+        assert_eq!(app.perf.gpu_fallback, None, "the inactive document's reason");
+        assert_eq!(app.perf.gpu_fallback, current_detail(&app));
+        note(&mut app, second, over(3 << 30));
+        assert!(app.perf.gpu_fallback.as_deref().is_some_and(|f| f.contains("GPU memory")), "{:?}", app.perf.gpu_fallback);
+        note(&mut app, first, Path::Gpu { full: true });
+        assert!(app.perf.gpu_fallback.is_some(), "the inactive document back on the GPU");
+        note(&mut app, first, Path::Cpu(CpuReason::ViewTransform));
+        assert!(app.session.set_active(0));
+        frame(&mut app);
+        assert_eq!(app.perf.gpu_fallback, Some(CpuReason::ViewTransform.to_string()), "after the switch");
+        assert_eq!(app.perf.gpu_fallback, current_detail(&app));
     }
 
     #[test]

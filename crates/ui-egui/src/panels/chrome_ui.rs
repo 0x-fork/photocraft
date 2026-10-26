@@ -198,9 +198,11 @@ pub(crate) fn render_path_label(app: &PhotocraftApp) -> Option<(&'static str, St
     // of the last full refresh: edits that redraw the whole document do it on the CPU, so say
     // so until they fit again; GPU Memory in Preferences › Performance raises the budget.
     let fit = app.perf.gpu_layer_fit.filter(|f| f.doc == doc && !f.fits()).map(|f| (f.needed, f.budget));
+    // Another reason (a flipped view, Advanced Blending…) is the cause: show it, not the fit.
     let over = match reason {
         Some(&CpuReason::OverBudget { needed, budget }) => fit.or(Some((needed, budget))),
-        _ => fit,
+        Some(_) => None,
+        None => fit,
     };
     if let Some((needed, budget)) = over {
         let tip = crate::i18n::fmt(
@@ -369,6 +371,29 @@ mod tests {
             let open = h.state().ui.dialogs.iter().any(|d| d.fields.get("section") == Some(&json!("performance")));
             assert!(open, "{theme:?}: Preferences › Performance opens");
         }
+    }
+
+    /// A reason other than the memory budget is what the status bar shows, even while the
+    /// measured layer fit is over the budget.
+    #[test]
+    fn status_bar_shows_another_cpu_reason_before_gpu_memory_full() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut h = Harness::builder().with_size(vec2(1200.0, 700.0)).with_max_steps(64).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, crate::theme::ThemeKind::Pro);
+            PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
+        });
+        h.state_mut().run("file.new", json!({"width": 800, "height": 600})).unwrap();
+        h.state_mut().sync_views();
+        h.run_steps(4);
+        let doc = h.state().session.active().unwrap().doc.id.0;
+        h.state_mut().perf.gpu_layer_fit = Some(crate::gpu_canvas::LayerFit { doc, needed: 3 << 30, budget: 2 << 30 });
+        let reason = CpuReason::Unsupported("Advanced Blending on `Layer 1`".into());
+        crate::render_path::note(h.state_mut(), doc, crate::render_path::Path::Cpu(reason));
+        h.run_steps(2);
+        assert!(h.query_by_label("GPU Memory Full").is_none());
+        assert!(h.query_by_label("CPU Rendering").is_some());
+        let tip = render_path_label(h.state()).map(|l| l.1).unwrap_or_default();
+        assert!(tip.contains("Advanced Blending"), "{tip}");
     }
 
     #[test]
