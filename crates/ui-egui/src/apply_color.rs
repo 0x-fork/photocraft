@@ -152,5 +152,4 @@ fn recolour(app: &mut PhotocraftApp, gesture: Option<String>, any_tool: bool) {
 }
 
 #[cfg(test)]
-#[path = "apply_color_tests.rs"]
 mod tests;
