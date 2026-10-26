@@ -330,5 +330,4 @@ pub fn draw(app: &PhotocraftApp, painter: &egui::Painter, to_scr: &dyn Fn([f64; 
 }
 
 #[cfg(test)]
-#[path = "corner_radius_tests.rs"]
 mod tests;
