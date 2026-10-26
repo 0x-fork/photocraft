@@ -1944,7 +1944,7 @@ pub fn request_dock_width(ctx: &egui::Context, w: f32) {
     ctx.data_mut(|d| d.insert_temp(dock_width_id(), w));
 }
 
-/// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
+/// One dock group's tab content; `panel_docking` bounds it and scrolls it when it's taller.
 pub(crate) fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, group: crate::dock::Group, tab: usize) {
     use crate::dock::Group;
     let pro = Tokens::get(ui.ctx()).pro;
@@ -4022,11 +4022,11 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
             }
             drag = grip.drag_delta();
-            let strip = crate::tab_strip::pill_tabs(ui, card_id.with("tabs"), bar, &tabs, &mut sel, false);
+            let context = crate::tab_strip::pill_tabs(ui, card_id.with("tabs"), bar, &tabs, &mut sel);
             if let Some(&picked) = indices.get(sel) {
                 app.ui.dock_tabs.properties = picked;
             }
-            match strip.context {
+            match context {
                 Some(crate::tab_strip::TabContextAction::Close(i)) => {
                     if let Some(&tab) = indices.get(i) {
                         crate::dock::close_tab(app, group, tab, false);

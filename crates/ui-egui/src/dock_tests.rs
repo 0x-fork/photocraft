@@ -8,44 +8,6 @@ use super::*;
 use crate::panel_docking::probe;
 use crate::theme::ThemeKind;
 
-const ESSENTIALS: [Group; 3] = [Group::Color, Group::Properties, Group::Layers];
-
-#[test]
-fn last_expanded_group_fills_the_column() {
-    let l = DockLayout::default();
-    let hs = l.heights_for(&ESSENTIALS, 1200.0, 28.0);
-    assert_eq!(hs[0], (Group::Color, Group::Color.default_height()));
-    assert_eq!(hs[1], (Group::Properties, Group::Properties.default_height()));
-    let total: f32 = hs.iter().map(|(_, h)| h).sum::<f32>() + 2.0 * GAP;
-    assert!((total - 1200.0).abs() < 1e-3, "{hs:?}");
-    // Collapsed groups shrink to the tab strip; the one above Layers keeps its height.
-    let mut l = DockLayout::default();
-    l.set_collapsed(Group::Color, true);
-    let hs = l.heights_for(&ESSENTIALS, 1000.0, 28.0);
-    assert_eq!(hs[0].1, 28.0);
-    assert_eq!(hs[1].1, Group::Properties.default_height());
-    // Layers collapsed: Properties becomes the filler.
-    l.set_collapsed(Group::Layers, true);
-    let hs = l.heights_for(&ESSENTIALS, 800.0, 28.0);
-    assert_eq!(hs[2].1, 28.0);
-    assert!((hs[1].1 - (800.0 - 56.0 - 2.0 * GAP)).abs() < 1e-3);
-}
-
-#[test]
-fn short_columns_squeeze_groups_down_to_their_minimum_and_never_go_negative() {
-    let l = DockLayout::default();
-    let hs = l.heights_for(&ESSENTIALS, 400.0, 28.0);
-    assert_eq!(hs[2].1, Group::Layers.min_height(), "Layers keeps its minimum: {hs:?}");
-    assert_eq!(hs[0].1, Group::Color.compact_height(), "the group farthest from Layers gives way last");
-    assert!(hs[1].1 < Group::Properties.compact_height());
-    for avail in [0.0, -50.0, 1.0, f32::NAN, f32::INFINITY, 1e9] {
-        for (g, h) in l.heights_for(&ESSENTIALS, avail, 28.0) {
-            assert!(h.is_finite() && h >= 0.0, "{g:?} at {avail}: {h}");
-        }
-    }
-    assert!(l.heights_for(&[], 500.0, 28.0).is_empty());
-}
-
 #[test]
 fn bad_stored_values_are_sanitised() {
     let mut l = DockLayout { order: vec![Group::Layers, Group::Layers, Group::Color], ..Default::default() };
@@ -62,17 +24,6 @@ fn bad_stored_values_are_sanitised() {
     ui.as_object_mut().unwrap().remove("dock");
     let ui: crate::state::UiState = serde_json::from_value(ui).unwrap();
     assert_eq!(ui.dock, DockLayout::default());
-}
-
-#[test]
-fn move_group_reorders() {
-    let mut l = DockLayout::default();
-    l.move_group(Group::Layers, Some(Group::Color));
-    assert_eq!(l.order()[0], Group::Layers);
-    l.move_group(Group::Layers, None);
-    assert_eq!(l.order().last(), Some(&Group::Layers));
-    l.move_group(Group::Color, Some(Group::Color));
-    assert_eq!(l.order()[0], Group::Color);
 }
 
 fn app_with_layers() -> (PhotocraftApp, photocraft_doc::LayerId, photocraft_doc::LayerId) {
@@ -196,92 +147,6 @@ fn dragging_the_splitter_resizes_and_survives_a_ui_state_round_trip() {
     assert_eq!(app4.ui.dock, DockLayout::default());
 }
 
-/// `resize` on `shown` laid out in a column `avail` tall, then the new layout.
-fn resized(l: &mut DockLayout, shown: &[Group], avail: f32, i: usize, dy: f32) -> Vec<(Group, f32)> {
-    let hs = l.heights_for(shown, avail, 28.0);
-    resize(l, &hs, i, dy);
-    l.heights_for(shown, avail, 28.0)
-}
-
-fn total(hs: &[(Group, f32)]) -> f32 {
-    hs.iter().map(|(_, h)| h).sum::<f32>() + GAP * hs.len().saturating_sub(1) as f32
-}
-
-#[test]
-fn dragging_a_splitter_down_pushes_every_group_below_in_turn() {
-    let shown = [Group::Color, Group::Properties, Group::Navigator, Group::Layers];
-    let mut l = DockLayout::default();
-    let before = l.heights_for(&shown, 1200.0, 28.0);
-    // Properties gives way first, then Navigator, then the filler; the column stays 1200.
-    let hs = resized(&mut l, &shown, 1200.0, 0, 300.0);
-    assert_eq!(hs[0].1, before[0].1 + 300.0, "{hs:?}");
-    assert_eq!(hs[1].1, Group::Properties.min_height());
-    assert_eq!(hs[2].1, before[2].1 - (300.0 - (before[1].1 - Group::Properties.min_height())));
-    assert_eq!(hs[3].1, before[3].1, "the filler is untouched until the groups above it are at minimum");
-    assert!((total(&hs) - 1200.0).abs() < 1e-3);
-    // Far past the end: everything below is at its minimum and the drag stops there.
-    let hs = resized(&mut l, &shown, 1200.0, 0, 5000.0);
-    assert_eq!(hs[1].1, Group::Properties.min_height());
-    assert_eq!(hs[2].1, Group::Navigator.min_height());
-    assert_eq!(hs[3].1, Group::Layers.min_height());
-    assert!((total(&hs) - 1200.0).abs() < 1e-3, "{hs:?}");
-    let full = hs[0].1;
-    assert_eq!(resized(&mut l, &shown, 1200.0, 0, 50.0)[0].1, full);
-}
-
-#[test]
-fn dragging_a_splitter_up_pushes_every_group_above_in_turn() {
-    let shown = [Group::Color, Group::Properties, Group::Navigator, Group::Layers];
-    let mut l = DockLayout::default();
-    let before = l.heights_for(&shown, 1200.0, 28.0);
-    // The splitter under Navigator: Navigator shrinks first, then Properties, then Color.
-    let hs = resized(&mut l, &shown, 1200.0, 2, -200.0);
-    assert_eq!(hs[2].1, Group::Navigator.min_height());
-    assert_eq!(hs[1].1, before[1].1 - (200.0 - (before[2].1 - Group::Navigator.min_height())));
-    assert_eq!(hs[0].1, before[0].1);
-    assert_eq!(hs[3].1, before[3].1 + 200.0, "the filler takes the room");
-    let hs = resized(&mut l, &shown, 1200.0, 2, -5000.0);
-    assert!(hs[..3].iter().all(|(g, h)| *h == g.min_height()), "{hs:?}");
-    assert!((total(&hs) - 1200.0).abs() < 1e-3);
-    // The group grown when the filler isn't next: the splitter under Color grows Properties.
-    let mut l = DockLayout::default();
-    let hs = resized(&mut l, &shown, 1200.0, 0, -500.0);
-    assert_eq!(hs[0].1, Group::Color.min_height());
-    assert_eq!(hs[1].1, before[1].1 + (before[0].1 - Group::Color.min_height()));
-    assert_eq!(hs[2].1, before[2].1);
-}
-
-#[test]
-fn pushing_skips_collapsed_groups_and_respects_the_filler() {
-    let shown = [Group::Color, Group::Properties, Group::Navigator, Group::History, Group::Layers];
-    let mut l = DockLayout::default();
-    l.set_collapsed(Group::Properties, true);
-    l.set_collapsed(Group::Layers, true);
-    let before = l.heights_for(&shown, 1200.0, 28.0);
-    // History is the filler now; Properties keeps its strip and Layers stays collapsed.
-    let hs = resized(&mut l, &shown, 1200.0, 0, 5000.0);
-    assert_eq!(hs[1].1, 28.0);
-    assert_eq!(hs[4].1, 28.0);
-    assert_eq!(hs[2].1, Group::Navigator.min_height());
-    assert_eq!(hs[3].1, Group::History.min_height());
-    assert_eq!(hs[0].1, before[0].1 + (before[2].1 - Group::Navigator.min_height()) + (before[3].1 - Group::History.min_height()));
-    assert!((total(&hs) - 1200.0).abs() < 1e-3);
-    assert!(!l.heights.contains_key(&Group::History), "the filler's height is never stored");
-    // Dragging up from Navigator over the collapsed Properties shrinks Color.
-    let hs = resized(&mut l, &shown, 1200.0, 2, -5000.0);
-    assert_eq!(hs[0].1, Group::Color.min_height());
-    assert_eq!(hs[1].1, 28.0);
-    assert_eq!(hs[2].1, Group::Navigator.min_height());
-    assert!((total(&hs) - 1200.0).abs() < 1e-3);
-    // Nothing to resize against, bad deltas and out-of-range splitters are ignored.
-    let snapshot = l.clone();
-    for (i, dy) in [(3, 50.0), (4, 50.0), (9, 50.0), (0, f32::NAN), (0, f32::INFINITY), (0, 0.0)] {
-        let hs = l.heights_for(&shown, 1200.0, 28.0);
-        resize(&mut l, &hs, i, dy);
-        assert_eq!(l, snapshot, "splitter {i} by {dy}");
-    }
-}
-
 #[test]
 fn reset_workspace_restores_the_default_layout_and_new_workspaces_keep_theirs() {
     let (app, _, _) = app_with_layers();
@@ -329,7 +194,7 @@ fn a_single_tab_click_expands_a_collapsed_panel() {
 fn dragging_a_reordered_tab_onto_another_group_moves_that_panel() {
     let (mut app, _, _) = app_with_layers();
     // Gradients (original tab 2) drawn first: Gradients | Color | Swatches | Patterns.
-    app.ui.dock.move_tab(Group::Color, 2, Some(0), true);
+    app.ui.dock.tab_order.insert(Group::Color, vec!["Gradients".into()]);
     let mut h = harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
     let tab = |h: &Harness<'static, PhotocraftApp>, panel: &str| probe::tab_rect(&h.ctx, panel).unwrap_or_else(|| panic!("{panel} tab drawn"));
     assert!(tab(&h, "gradients").left() < tab(&h, "color").left());
@@ -337,7 +202,7 @@ fn dragging_a_reordered_tab_onto_another_group_moves_that_panel() {
 
     drag(&mut h, source, destination);
 
-    assert!(h.state().ui.docking.is_some(), "moving one native tab promotes to the shared layout");
+    assert!(h.state().ui.docking.is_some(), "moving one tab of the default layout customizes the workspace");
     let moved = probe::group_of(h.state(), "gradients");
     assert!(moved.contains(&"layers".to_owned()), "the dragged Gradients tab joined Layers: {moved:?}");
     assert!(!moved.contains(&"color".to_owned()), "Color stayed in its group: {moved:?}");
@@ -660,24 +525,24 @@ fn default_layout_shows_ten_layer_rows_at_900pt() {
     }
 }
 
+/// #147: in a tall column the groups above Layers keep their default heights, and heights the
+/// user set stay as they are in a shorter one.
 #[test]
 fn defaults_give_way_to_layers_but_user_sizes_stay() {
-    let l = DockLayout::default();
-    // A tall column: everyone at their defaults, Layers takes the rest.
-    let hs = l.heights_for(&ESSENTIALS, 1200.0, 28.0);
-    assert_eq!(hs[0].1, Group::Color.default_height());
-    assert_eq!(hs[1].1, Group::Properties.default_height());
-    // A short one: default-sized groups shrink toward their compact heights so Layers keeps
-    // its preferred height, the one nearest Layers first.
-    let hs = l.heights_for(&ESSENTIALS, 820.0, 28.0);
-    assert!(hs[2].1 >= Group::Layers.preferred_fill() - 0.5, "{hs:?}");
-    assert!(hs[1].1 < Group::Properties.default_height() && hs[1].1 >= Group::Properties.compact_height(), "{hs:?}");
-    // Heights the user dragged to (saved in prefs) are kept as they are.
-    let mut mine = DockLayout::default();
-    mine.heights.insert(Group::Properties, 340.0);
-    mine.heights.insert(Group::Color, 200.0);
-    let hs = mine.heights_for(&ESSENTIALS, 800.0, 28.0);
-    assert_eq!((hs[0].1, hs[1].1), (200.0, 340.0), "{hs:?}");
+    let (app, _, _) = app_with_layers();
+    let h = harness(app, vec2(1440.0, 1400.0), ThemeKind::ProMedium);
+    for g in [Group::Color, Group::Properties] {
+        let height = rect_of(&h, g).height();
+        assert!((height - g.default_height()).abs() < 2.0, "{g:?}: {height}");
+    }
+    let (mut app, _, _) = app_with_layers();
+    app.ui.dock.heights.insert(Group::Properties, 340.0);
+    app.ui.dock.heights.insert(Group::Color, 200.0);
+    let h = harness(app, vec2(1440.0, 800.0), ThemeKind::ProMedium);
+    for (g, want) in [(Group::Color, 200.0), (Group::Properties, 340.0)] {
+        let height = rect_of(&h, g).height();
+        assert!((height - want).abs() < 2.0, "{g:?}: {height}");
+    }
 }
 
 /// #150: Window › Character opens a Character | Paragraph group next to Properties (which
@@ -719,83 +584,6 @@ fn window_character_opens_its_own_group_and_keeps_properties() {
     assert_eq!(old.order(), Group::ALL.to_vec());
     let moved = DockLayout { order: vec![Group::Layers, Group::Color], ..Default::default() };
     assert_eq!(moved.order(), vec![Group::Layers, Group::Brushes, Group::Color, Group::Properties, Group::Character, Group::Navigator, Group::History]);
-}
-
-type StripProbe = Option<(Vec<(usize, Rect)>, Rect, Option<Rect>, Rect)>;
-
-/// #151: at narrow widths and 2× scale, in every theme, tabs elide or overflow into a chevron
-/// and never run under the panel menu button.
-#[test]
-fn tab_strips_never_overlap_the_menu_button() {
-    let overlap = |a: Rect, b: Rect| {
-        let i = a.intersect(b);
-        i.width() > 0.5 && i.height() > 0.5
-    };
-    for theme in ThemeKind::ALL {
-        for scale in [1.0, 2.0] {
-            for width in [180.0, 250.0, 290.0, 420.0] {
-                for g in Group::ALL {
-                    let tabs = g.tabs(is_pro(theme));
-                    for sel in 0..tabs.len() {
-                        let mut h = Harness::builder().with_size(vec2(width, 200.0)).with_pixels_per_point(scale).build_ui_state(
-                            move |ui, out: &mut StripProbe| {
-                                if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
-                                    return;
-                                }
-                                let mut s = sel;
-                                let r = crate::widgets::card_ex(ui, "t", tabs, &mut s, false, false, |ui, _| {
-                                    ui.label("body");
-                                });
-                                *out = Some((r.tabs, r.menu.rect, r.chevron, ui.max_rect()));
-                            },
-                            None,
-                        );
-                        PhotocraftApp::setup_context(&h.ctx, theme);
-                        h.run_steps(3);
-                        let (shown, menu, chevron, card) = h.state().clone().unwrap();
-                        let what = format!("{theme:?} {scale}x {width}pt {g:?} selected {sel}");
-                        assert!(shown.iter().any(|(i, _)| *i == sel), "{what}: the selected tab is on the strip: {shown:?}");
-                        for (i, r) in &shown {
-                            assert!(!overlap(*r, menu), "{what}: tab {i} {r:?} runs under the menu {menu:?}");
-                            assert!(r.left() >= card.left() - 0.5 && r.right() <= card.right() + 0.5, "{what}: tab {i} outside the card");
-                        }
-                        for w in shown.windows(2) {
-                            assert!(!overlap(w[0].1, w[1].1), "{what}: tabs overlap");
-                        }
-                        if let Some(c) = chevron {
-                            assert!(!overlap(c, menu) && shown.iter().all(|(_, r)| !overlap(*r, c)), "{what}: chevron overlaps");
-                        } else {
-                            assert_eq!(shown.len(), tabs.len(), "{what}: a tab went missing without a chevron");
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// #151: a card strip too narrow for its tabs still offers the hidden ones in its chevron menu.
-#[test]
-fn the_chevron_menu_switches_tabs() {
-    let mut h = Harness::builder().with_size(vec2(150.0, 200.0)).build_ui_state(
-        |ui, sel: &mut usize| {
-            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
-                return;
-            }
-            let _ = crate::widgets::card_ex(ui, "color", &["Color", "Swatches", "Gradients", "Patterns"], sel, false, false, |ui, _| {
-                ui.label("body");
-            });
-        },
-        0usize,
-    );
-    PhotocraftApp::setup_context(&h.ctx, ThemeKind::ProMedium);
-    h.run_steps(3);
-    use egui_kittest::kittest::Queryable;
-    h.get_by_label("More panels").click();
-    h.run_steps(3);
-    h.get_by_label("Patterns").click();
-    h.run_steps(3);
-    assert_eq!(*h.state(), 3, "Patterns chosen from the chevron menu");
 }
 
 #[test]
@@ -924,22 +712,13 @@ fn click(h: &mut Harness<'static, PhotocraftApp>, p: Pos2) {
 }
 
 #[test]
-fn move_tab_reorders_by_name_and_bad_saved_orders_fall_back() {
+fn tab_order_is_by_name_and_bad_saved_orders_fall_back() {
     let mut l = DockLayout::default();
     let names = |l: &DockLayout, g, pro| l.visible_tabs(g, pro).into_iter().map(|(_, n)| n).collect::<Vec<_>>();
-    l.move_tab(Group::Layers, 2, Some(0), true);
+    l.tab_order.insert(Group::Layers, vec!["Paths".into()]);
     assert_eq!(l.visible_tabs(Group::Layers, true), vec![(2, "Paths"), (0, "Layers"), (1, "Channels")]);
-    l.move_tab(Group::Layers, 2, None, true);
-    assert_eq!(names(&l, Group::Layers, true), ["Layers", "Channels", "Paths"]);
-    assert!(l.tab_order.is_empty(), "the default order is stored as nothing");
-    // Out-of-range tabs and moves onto themselves change nothing; an unknown `before` is last.
-    for (tab, before) in [(9, Some(0)), (usize::MAX, None), (1, Some(1)), (2, Some(9))] {
-        let mut m = l.clone();
-        m.move_tab(Group::Layers, tab, before, true);
-        assert_eq!(names(&m, Group::Layers, true), ["Layers", "Channels", "Paths"], "{tab} {before:?}");
-    }
     // Names, not positions: the order survives the Pro/Studio swap of Color and Swatches.
-    l.move_tab(Group::Color, 3, Some(0), true);
+    l.tab_order.insert(Group::Color, vec!["Patterns".into(), "Color".into()]);
     assert_eq!(names(&l, Group::Color, true), ["Patterns", "Color", "Swatches", "Gradients"]);
     assert_eq!(names(&l, Group::Color, false), ["Patterns", "Color", "Swatches", "Gradients"]);
     // Hidden tabs keep their place for when they come back.

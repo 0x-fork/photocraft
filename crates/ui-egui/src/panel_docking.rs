@@ -120,31 +120,6 @@ fn docked(layout: &Layout<String>) -> Layout<String> {
     Layout { root: layout.root.clone(), floating: Vec::new() }
 }
 
-#[derive(Clone, Default)]
-struct LegacyDrag {
-    generation: u64,
-    workspace: Option<Workspace>,
-    tabs: crate::state::DockTabs,
-    returns: Returns,
-}
-
-fn cancel_legacy_drag(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
-    let key = area_id().with("legacy-origin");
-    let previous = ctx.data_mut(|data| data.remove_temp::<LegacyDrag>(key));
-    if let Some(previous) = previous {
-        craft_ui::docking::cancel_drag::<String>(ctx, area_id());
-        if previous.generation != app.ui.docking_generation {
-            return false;
-        }
-        app.ui.dock_tabs = previous.tabs;
-        app.ui.docking = previous.workspace;
-        app.ui.docking_returns = previous.returns;
-        true
-    } else {
-        false
-    }
-}
-
 pub(crate) fn normalize(raw: &str) -> Option<&'static str> {
     PANELS.iter().find(|(id, label, _)| id.eq_ignore_ascii_case(raw.trim()) || label.eq_ignore_ascii_case(raw.trim())).map(|p| p.0)
 }
@@ -553,23 +528,13 @@ fn app_owned(app: &mut PhotocraftApp, command: DockCommand<String>) -> Result<Va
 /// else the native dock's arrangement.
 pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let area = area_id();
-    let stale_origin =
-        ui.ctx().data_mut(|data| data.get_temp::<LegacyDrag>(area.with("legacy-origin")).is_some_and(|origin| origin.generation != app.ui.docking_generation));
     let changed_workspace = ui.ctx().data_mut(|data| {
         let previous = data.get_temp::<u64>(area.with("generation"));
         data.insert_temp(area.with("generation"), app.ui.docking_generation);
         previous.is_some_and(|generation| generation != app.ui.docking_generation)
     });
-    if changed_workspace || stale_origin {
-        ui.ctx().data_mut(|data| data.insert_temp(area.with("legacy-suppressed"), true));
+    if changed_workspace {
         craft_ui::docking::cancel_drag::<String>(ui.ctx(), area);
-        ui.ctx().data_mut(|data| data.remove::<LegacyDrag>(area.with("legacy-origin")));
-    }
-
-    let cancelled =
-        ui.input(|input| !input.focused || input.key_pressed(egui::Key::Escape) || (!input.pointer.primary_down() && !input.pointer.any_released()));
-    if cancelled && cancel_legacy_drag(app, ui.ctx()) {
-        ui.ctx().data_mut(|data| data.insert_temp(area.with("legacy-suppressed"), true));
     }
     if app.ui.docking.as_ref().is_some_and(|workspace| !valid_workspace(workspace)) {
         app.ui.docking = None;
@@ -653,15 +618,6 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Keys pressed in a floating panel's own OS window run the main window's shortcuts.
     let forwarded = std::mem::take(&mut output.forwarded_events);
     crate::shortcuts::handle_forwarded(app, ui.ctx(), forwarded, output.forwarded_modifiers.unwrap_or_default());
-    if ui.input(|input| input.pointer.any_released()) {
-        let moved = output.actions.iter().any(|action| {
-            matches!(action, Action::Move { .. } | Action::Float { .. } | Action::MovePanel { .. } | Action::MoveGroup { .. } | Action::MoveWindow { .. })
-        });
-        if !moved && cancel_legacy_drag(app, ui.ctx()) {
-            return;
-        }
-        ui.ctx().data_mut(|data| data.remove::<LegacyDrag>(area.with("legacy-origin")));
-    }
     let mut actions = output.actions;
     pin_group_heights(ui.ctx(), &layout, &mut actions);
     for action in actions {
@@ -814,9 +770,9 @@ fn set_dock_width(app: &mut PhotocraftApp, width: f32) {
     }
 }
 
-/// The width the user dragged the native dock to is in egui's remembered memory under the native
-/// dock's panel id. The default layout's column takes it once, after the canvas has been laid
-/// out so the Studio Properties card keeps its place.
+/// A dock width saved by earlier versions is in egui's remembered memory under the `dock` side
+/// panel's id. The default layout's column takes it once, after the canvas has been laid out so
+/// the Studio Properties card keeps its place.
 fn native_dock_width(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let id = crate::panels::panel_state_id(ctx, "dock");
     let Some(state) = ctx.data_mut(|data| data.get_persisted::<egui::PanelState>(id)) else { return };
@@ -849,8 +805,7 @@ fn presented(mut layout: Layout<String>, collapsed: &std::collections::HashSet<S
     layout
 }
 
-/// The panels of each dock column's last open group, which fills the column as the native
-/// dock's last expanded group does.
+/// The panels of each dock column's last open group, which fills the column.
 fn fillers(layout: &Layout<String>) -> std::collections::HashSet<String> {
     let mut out = std::collections::HashSet::new();
     let mut pending: Vec<&Node<String>> = layout.root.iter().collect();
@@ -866,45 +821,6 @@ fn fillers(layout: &Layout<String>) -> std::collections::HashSet<String> {
         }
     }
     out
-}
-
-pub(crate) fn legacy_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str, response: &egui::Response) {
-    let suppressed = area_id().with("legacy-suppressed");
-    if ui.input(|input| input.pointer.button_pressed(egui::PointerButton::Primary)) {
-        ui.ctx().data_mut(|data| data.remove::<bool>(suppressed));
-    }
-    if ui.ctx().data(|data| data.get_temp::<bool>(suppressed)).unwrap_or(false) || app.session.prefs().workspace_locked {
-        return;
-    }
-    let Some(panel) = normalize(panel) else { return };
-    // Native tab reordering and vertical whole-group moves stay in the dock.
-    // Crossing the dock column horizontally detaches through the shared layout.
-    let strip = egui::Rect::from_min_max(egui::pos2(ui.max_rect().left(), response.rect.top()), egui::pos2(ui.max_rect().right(), response.rect.bottom()));
-    if response.dragged()
-        && ui.input(|input| input.focused && input.pointer.primary_down() && !input.key_pressed(egui::Key::Escape))
-        && ui.ctx().pointer_interact_pos().is_some_and(|position| position.x < strip.left() - 24.0 || position.x > strip.right() + 24.0)
-        && let Ok(mut workspace) = workspace_of(app)
-    {
-        let bounds = ui.max_rect();
-        let source = egui::Rect::from_min_size(
-            egui::pos2(bounds.left(), response.rect.top()),
-            egui::vec2(bounds.width().clamp(240.0, 600.0), bounds.height().clamp(200.0, 600.0)),
-        );
-        if ensure(app, &mut workspace, panel).is_ok() && craft_ui::docking::begin_drag(ui.ctx(), area_id(), panel.to_string(), source) {
-            ui.ctx().data_mut(|data| {
-                data.insert_temp(
-                    area_id().with("legacy-origin"),
-                    LegacyDrag {
-                        generation: app.ui.docking_generation,
-                        workspace: app.ui.docking.clone(),
-                        tabs: app.ui.dock_tabs,
-                        returns: app.ui.docking_returns.clone(),
-                    },
-                )
-            });
-            app.ui.docking = Some(workspace);
-        }
-    }
 }
 
 fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: &str) {
@@ -1404,31 +1320,4 @@ fn panel_active(layout: &Layout<String>, panel: &str) -> bool {
         .flat_map(tree_groups)
         .find(|group| group.panels.iter().any(|id| id == panel))
         .is_some_and(|group| group.panels.get(group.active).is_some_and(|id| id == panel))
-}
-
-/// Extra legacy menu choices use the same commands as the customized renderer.
-pub(crate) fn legacy_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, label: &str) {
-    let Some(panel) = normalize(label) else { return };
-    let locked = app.session.prefs().workspace_locked;
-    ui.add_enabled_ui(!locked, |ui| {
-        if ui.button(tl!("Float Panel")).clicked() {
-            if let Err(error) = app.run("window.panel.float", json!({"panel":panel})) {
-                app.ui.status = error;
-            }
-            ui.close();
-        }
-        ui.menu_button(tl!("Group with"), |ui| {
-            for &(anchor, label, _) in PANELS {
-                if anchor != panel && ui.button(tl!(label)).clicked() {
-                    let result = app
-                        .run("window.panel.activate", json!({"panel":anchor}))
-                        .and_then(|_| app.run("window.panel.move", json!({"panel":panel,"anchor":anchor})));
-                    if let Err(error) = result {
-                        app.ui.status = error;
-                    }
-                    ui.close();
-                }
-            }
-        });
-    });
 }
