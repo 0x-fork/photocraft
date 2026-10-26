@@ -101,8 +101,7 @@ fn color_balance_dialog() -> (Harness<'static, PhotocraftApp>, u64) {
     PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
     let id = open(h.state_mut(), "image.adjustments.colorBalance").unwrap();
     let d = h.state_mut().ui.dialog_mut(id).unwrap();
-    for (k, v) in
-        [("shadows", json!([10, 0, 0])), ("midtones", json!([40, -30, 20])), ("highlights", json!([0, 0, -15])), ("preserveLuminosity", json!(false))]
+    for (k, v) in [("shadows", json!([10, 0, 0])), ("midtones", json!([40, -30, 20])), ("highlights", json!([0, 0, -15])), ("preserveLuminosity", json!(false))]
     {
         d.fields.insert(k.into(), v);
     }
@@ -166,8 +165,7 @@ fn color_balance_dialog_gestures_match_photoshop() {
     h.run_steps(2);
     let reset = h.get_by_label("Reset").rect();
     assert!(h.query_by_label("Cancel").is_none());
-    let click =
-        |pressed| egui::Event::PointerButton { pos: reset.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::ALT };
+    let click = |pressed| egui::Event::PointerButton { pos: reset.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::ALT };
     input(&mut h, egui::Modifiers::ALT, &[egui::Event::PointerMoved(reset.center()), click(true), click(false)]);
     assert!(h.state().ui.dialogs.iter().any(|d| d.id == id), "Reset keeps the dialog open");
     for k in ["shadows", "midtones", "highlights"] {
@@ -177,8 +175,7 @@ fn color_balance_dialog_gestures_match_photoshop() {
     assert_eq!(h.ctx.data(|d| d.get_temp::<usize>(tone)), Some(1), "Reset shows Midtones");
     // Without Alt it is Cancel again, and it closes.
     let cancel = h.get_by_label("Cancel").rect();
-    let click =
-        |pressed| egui::Event::PointerButton { pos: cancel.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+    let click = |pressed| egui::Event::PointerButton { pos: cancel.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
     input(&mut h, egui::Modifiers::NONE, &[egui::Event::PointerMoved(cancel.center()), click(true), click(false)]);
     assert!(h.state().ui.dialogs.is_empty(), "Cancel closes");
 }
@@ -198,8 +195,7 @@ fn levels_alt_reset_restores_defaults() {
     h.run_steps(2);
     let reset = h.get_by_label("Reset").rect();
     assert!(h.query_by_label("Cancel").is_none());
-    let click =
-        |pressed| egui::Event::PointerButton { pos: reset.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::ALT };
+    let click = |pressed| egui::Event::PointerButton { pos: reset.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::ALT };
     input(&mut h, egui::Modifiers::ALT, &[egui::Event::PointerMoved(reset.center()), click(true), click(false)]);
     assert!(h.state().ui.dialogs.iter().any(|d| d.id == id), "Reset keeps the dialog open");
     let defaults =
@@ -335,8 +331,7 @@ fn curves_graph_never_pushes_the_dialog_off_a_short_window() {
 
 #[test]
 fn cancel_leaves_the_document_untouched() {
-    let mut harness =
-        Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());
+    let mut harness = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());
     PhotocraftApp::setup_context(&harness.ctx, crate::theme::ThemeKind::ALL[0]);
     let id = open(harness.state_mut(), "image.adjustments.curves").unwrap();
     harness.run_steps(2);
@@ -589,18 +584,13 @@ fn curves_picker_modes_and_depths_are_explicit() {
         assert!((neutral_anchor[1] - serialized_target_level).abs() < 1e-5, "depth={depth} anchor={neutral_anchor:?} sampled={sampled:?}");
         assert!((neutral_anchor[0] - sample_level).abs() <= 0.0051, "depth={depth} anchor={neutral_anchor:?} sampled={}", sampled[0]);
         if depth == 16 || depth == 32 {
-            assert!(
-                (sampled[0] * 255.0 - (sampled[0] * 255.0).round()).abs() > 0.01,
-                "depth={depth} sample was quantized to an 8-bit level: {}",
-                sampled[0]
-            );
+            assert!((sampled[0] * 255.0 - (sampled[0] * 255.0).round()).abs() > 0.01, "depth={depth} sample was quantized to an 8-bit level: {}", sampled[0]);
         }
     }
 }
 
 fn pointer_down(app: &mut PhotocraftApp, ctx: &egui::Context, x: f64, y: f64, modifiers: Value) {
-    let (request, _receiver) =
-        crate::control::ControlRequest::new("ui.pointer", json!({"events": [{"kind": "down", "x": x, "y": y}], "modifiers": modifiers}));
+    let (request, _receiver) = crate::control::ControlRequest::new("ui.pointer", json!({"events": [{"kind": "down", "x": x, "y": y}], "modifiers": modifiers}));
     let _ = crate::control::handle(app, ctx, &request);
 }
 
@@ -697,8 +687,7 @@ fn command_click_adds_nothing_without_the_modifier_on_a_full_curve_or_with_an_ey
     }
 
     // Sixteen points (the most a curve holds), none within reach of level 86.
-    let full: Vec<[f64; 2]> =
-        [0, 10, 20, 30, 40, 50, 60, 70, 80, 100, 120, 140, 160, 180, 200, 255].iter().map(|&i| [f64::from(i), f64::from(i)]).collect();
+    let full: Vec<[f64; 2]> = [0, 10, 20, 30, 40, 50, 60, 70, 80, 100, 120, 140, 160, 180, 200, 255].iter().map(|&i| [f64::from(i), f64::from(i)]).collect();
     app.ui.dialog_mut(id).unwrap().fields.insert("points".into(), json!(full));
     pointer_down(&mut app, &ctx, 8.0, 8.0, json!({"command": true}));
     assert_eq!(channel_points(&app, "points"), full, "a full curve takes no more points and moves none");

@@ -431,8 +431,7 @@ fn blending_page_renders_for_every_mode_and_odd_fields() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
     let mut layer = photocraft_doc::Layer::new("L", photocraft_doc::LayerContent::Adjustment(photocraft_doc::Adjustment::Invert));
     layer.advanced.knockout = photocraft_doc::Knockout::Deep;
-    for mode in
-        [photocraft_color::ColorMode::Rgb, photocraft_color::ColorMode::Cmyk, photocraft_color::ColorMode::Lab, photocraft_color::ColorMode::Grayscale]
+    for mode in [photocraft_color::ColorMode::Rgb, photocraft_color::ColorMode::Cmyk, photocraft_color::ColorMode::Lab, photocraft_color::ColorMode::Grayscale]
     {
         let mut f = initial_fields(&layer, Some(BLENDING), 120.0);
         set_blending_fields(&mut f, &layer, mode);

@@ -210,8 +210,7 @@ fn dialog_strokes_match_the_engine_and_commit_once() {
         pointer(&mut app, ev, egui::Modifiers::NONE);
     }
     control(&mut app, &json!({"tool": "bloat"})).unwrap();
-    for ev in [ToolEvent::Down { x: 80.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 80.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 80.0, y: 40.0 }]
-    {
+    for ev in [ToolEvent::Down { x: 80.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 80.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 80.0, y: 40.0 }] {
         pointer(&mut app, ev, egui::Modifiers::NONE);
     }
     let d = app.distort.liquify.as_ref().unwrap();
@@ -269,8 +268,7 @@ fn undo_dirties_the_zoomed_preview() {
     let mut app = app_with_layer();
     open(&mut app, &ctx).unwrap();
     control(&mut app, &json!({"tool": "forwardWarp", "size": 40})).unwrap();
-    for ev in [ToolEvent::Down { x: 35.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 55.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 55.0, y: 40.0 }]
-    {
+    for ev in [ToolEvent::Down { x: 35.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 55.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 55.0, y: 40.0 }] {
         pointer(&mut app, ev, egui::Modifiers::NONE);
     }
     {
@@ -431,8 +429,7 @@ fn shortcut_handler_undoes_liquify_even_when_egui_owns_keyboard_focus() {
     let ctx = egui::Context::default();
     let mut app = app_with_layer();
     open(&mut app, &ctx).unwrap();
-    for ev in [ToolEvent::Down { x: 40.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 52.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 52.0, y: 40.0 }]
-    {
+    for ev in [ToolEvent::Down { x: 40.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 52.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 52.0, y: 40.0 }] {
         pointer(&mut app, ev, egui::Modifiers::NONE);
     }
     assert_eq!(app.distort.liquify.as_ref().unwrap().strokes.len(), 1);
@@ -472,8 +469,7 @@ fn liquify_undo_and_redo_work_while_a_numeric_field_is_focused() {
     let ctx = egui::Context::default();
     let mut app = app_with_layer();
     open(&mut app, &ctx).unwrap();
-    for ev in [ToolEvent::Down { x: 40.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 52.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 52.0, y: 40.0 }]
-    {
+    for ev in [ToolEvent::Down { x: 40.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 52.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 52.0, y: 40.0 }] {
         pointer(&mut app, ev, egui::Modifiers::NONE);
     }
     let strokes = |app: &PhotocraftApp| app.distort.liquify.as_ref().unwrap().strokes.len();

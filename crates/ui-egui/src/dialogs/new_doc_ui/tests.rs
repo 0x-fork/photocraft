@@ -10,10 +10,7 @@ fn color_profile_menu_lists_the_profiles_of_the_modes_space() {
         InstalledProfile { path: "panel.icc".into(), description: "Panel".into(), class: ProfileClass::Display, color_space: ColorSpace::Rgb },
     ];
     let values = |mode: &str| {
-        profile_options(color_mode_of(mode).map(photocraft_engine::color_cmds::mode_space), "sRGB", &installed)
-            .into_iter()
-            .map(|(v, _)| v)
-            .collect::<Vec<_>>()
+        profile_options(color_mode_of(mode).map(photocraft_engine::color_cmds::mode_space), "sRGB", &installed).into_iter().map(|(v, _)| v).collect::<Vec<_>>()
     };
     let rgb = values("rgb");
     assert_eq!(rgb[0], "working");
@@ -469,10 +466,8 @@ mod dialog {
 
     fn harness() -> Harness<'static, PhotocraftApp> {
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-        let mut h = Harness::builder()
-            .with_size(egui::vec2(1400.0, 900.0))
-            .with_step_dt(1.0 / 60.0)
-            .build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
         h.state_mut().ui.open_dialog(DialogKind::NewDocument, UiState::new_document_fields());
         h.run_steps(3);

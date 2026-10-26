@@ -357,9 +357,8 @@ fn export_as_downscales_stroke_only_shapes_and_preview() {
     for depth in [8, 16, 32] {
         let mut session = photocraft_engine::Session::new();
         session.execute("file.new", json!({"width": 1024, "height": 1024, "depth": depth, "background": "transparent"})).unwrap();
-        let id = session.execute("shape.create", json!({"rect": [256, 256, 512, 512], "fill": null, "stroke": {"width": 32}})).unwrap()["layer"]
-            .as_u64()
-            .unwrap();
+        let id =
+            session.execute("shape.create", json!({"rect": [256, 256, 512, 512], "fill": null, "stroke": {"width": 32}})).unwrap()["layer"].as_u64().unwrap();
         let doc = session.active().unwrap().doc.clone();
         let fields = Map::from_iter([("format".into(), json!("png")), ("scale".into(), json!(25))]);
         for limit in [None, Some(128)] {

@@ -1232,11 +1232,8 @@ fn sweep_params(app: &mut PhotocraftApp, command: &str) -> Vec<(String, Value)> 
 /// Every previewed command with its parameter sets.
 fn previewed_cases() -> Vec<(&'static str, String, Value)> {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-    let ids: Vec<&'static str> = photocraft_engine::command_specs()
-        .iter()
-        .map(|c| c.id)
-        .filter(|id| has_dialog(id) && (id.starts_with("filter.") || PREVIEWED.contains(id)))
-        .collect();
+    let ids: Vec<&'static str> =
+        photocraft_engine::command_specs().iter().map(|c| c.id).filter(|id| has_dialog(id) && (id.starts_with("filter.") || PREVIEWED.contains(id))).collect();
     ids.into_iter().flat_map(|id| sweep_params(&mut app, id).into_iter().map(move |(label, p)| (id, label, p))).collect()
 }
 

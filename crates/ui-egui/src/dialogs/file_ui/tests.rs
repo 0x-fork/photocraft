@@ -459,10 +459,8 @@ fn the_printable_area_goes_only_with_a_print_to_the_printer() {
 fn print_dialog_opens_with_the_settings_remembered_from_an_earlier_session() {
     let (mut app, _) = app();
     app.session.prefs.edit(|p| {
-        p.dialogs.insert(
-            photocraft_engine::print_cmds::REMEMBERED.into(),
-            json!({"paper": "a5", "scale": 50, "orientation": "landscape", "intent": "perceptual"}),
-        );
+        p.dialogs
+            .insert(photocraft_engine::print_cmds::REMEMBERED.into(), json!({"paper": "a5", "scale": 50, "orientation": "landscape", "intent": "perceptual"}));
     });
     let id = open_print(&mut app);
     let f = &app.ui.dialog_mut(id).unwrap().fields;

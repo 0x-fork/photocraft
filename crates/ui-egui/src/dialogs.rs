@@ -979,8 +979,70 @@ pub fn open_command_dialog(app: &mut PhotocraftApp, command: &str, label: &str) 
     app.ui.open_dialog(DialogKind::Command, fields)
 }
 
+pub mod adjust_dialog;
+pub mod adjust_editors;
+pub mod adjust_preview;
+pub(crate) mod bitmap_dialog;
+pub mod blur_pins;
+pub mod brush_preset_dialog;
+pub mod caf_ui;
+pub(super) mod camera_raw_detail_ui;
+pub(super) mod camera_raw_gpu;
+pub(super) mod camera_raw_preview_ui;
+pub(super) mod camera_raw_scope_ui;
+pub mod camera_raw_ui;
+pub mod channel_options_ui;
+pub mod color_picker_ui;
+pub mod color_range_ui;
+pub mod color_table_ui;
+pub mod credits;
+pub mod dds_options_ui;
+pub mod delete_layer_prompt;
+pub mod dialog_alt_reset;
+pub mod dialog_blend_ui;
+pub mod discard_ui;
+pub mod disk_change_prompt;
+pub mod distort_ui;
+pub mod duplicate_layer_ui;
+pub mod edit_history;
+pub mod export_dialog;
+pub mod file_ui;
+pub mod fill_ui;
+pub mod filter_dialog;
+pub(super) mod filter_preview_ui;
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) mod filter_preview_worker;
+pub mod gallery_ui;
+pub mod guide_layout_ui;
+pub mod jpeg_options_ui;
+pub mod layer_picker;
+pub mod layer_style;
+pub mod liquify_ui;
+pub mod mask_trash_prompt;
+pub mod new_doc_ui;
+pub mod new_guide_ui;
+pub mod new_layer_ui;
+pub mod open_prompt;
+pub mod palette;
+pub(crate) mod pattern_fill_ui;
+pub mod rasterize_prompt;
+pub mod replace_prompt;
+pub(super) mod rgb_histogram;
+pub mod screen_picker;
+pub mod shape_dialog;
+pub(crate) mod shape_fill_ui;
+pub(super) mod sizing;
+pub mod smart_filter_dialog;
+pub mod snapshot_dialog;
+pub(crate) mod solid_fill_ui;
+pub mod stack_dialog;
+pub mod stroke_ui;
+pub mod targa_options_ui;
 #[cfg(test)]
 mod tests;
+pub mod tiff_options_ui;
+pub mod vp_ui;
+pub mod wide_angle_ui;
 
 #[cfg(test)]
 mod preference_resize_tests {

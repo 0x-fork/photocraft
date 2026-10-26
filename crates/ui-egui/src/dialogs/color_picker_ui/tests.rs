@@ -93,12 +93,7 @@ fn field_and_slider_pick_on_press_and_follow_small_moves() {
     h.event(egui::Event::PointerMoved(at + vec2(3.0, 0.0)));
     h.run_steps(1);
     assert_ne!(color(&h), picked, "a small drag adjusts the pick");
-    h.event(egui::Event::PointerButton {
-        pos: at + vec2(3.0, 0.0),
-        button: egui::PointerButton::Primary,
-        pressed: false,
-        modifiers: egui::Modifiers::NONE,
-    });
+    h.event(egui::Event::PointerButton { pos: at + vec2(3.0, 0.0), button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
     h.run_steps(2);
     // Hue slider: a press near the bottom picks a hue near 0 at once.
     let before = color(&h);

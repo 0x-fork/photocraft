@@ -75,7 +75,7 @@ pub struct CameraRawDialog {
     pub(crate) full_w: usize,
     full_h: usize,
     preview_ppp: f32,
-    pub(crate) detail: super::camera_raw_detail_ui::DetailPreview,
+    pub(crate) detail: crate::camera_raw_detail_ui::DetailPreview,
     display: std::sync::Arc<photocraft_engine::display_color::CanvasDisplay>,
     pub(crate) viewport: Option<ERect>,
     pub(crate) float: bool,
@@ -86,7 +86,7 @@ pub struct CameraRawDialog {
     pub(crate) processed: Vec<[f32; 4]>,
     pub(crate) lab_transform: std::sync::Arc<photocraft_cms::Transform>,
     pub(crate) scope_transform: std::sync::Arc<photocraft_cms::Transform>,
-    pub(crate) scope: super::camera_raw_scope_ui::ScopeView,
+    pub(crate) scope: crate::camera_raw_scope_ui::ScopeView,
     pub(crate) after_histogram: RgbHistogram,
     pub(crate) preview_revision: u64,
     histogram_ms: f64,
@@ -173,7 +173,7 @@ impl CameraRawDialog {
     fn image(px: &[[f32; 4]], w: usize, h: usize, display: &photocraft_engine::display_color::CanvasDisplay) -> egui::ColorImage {
         // Bands copied straight from `px`, converted in parallel (#4682), not a whole copy of the
         // proxy converted on one thread.
-        super::camera_raw_detail_ui::display_image(Rect::new(0, 0, w as i32, h as i32), display, |r, out| {
+        crate::camera_raw_detail_ui::display_image(Rect::new(0, 0, w as i32, h as i32), display, |r, out| {
             let start = (r.y0.max(0) as usize).saturating_mul(w);
             if let Some(src) = px.get(start..start.saturating_add(out.len())) {
                 out.copy_from_slice(src);

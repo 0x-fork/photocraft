@@ -17,15 +17,15 @@ use crate::theme::Tokens;
 mod print;
 mod web;
 
-use print::{print_body, print_confirm};
-#[cfg(test)]
-use print::{drag_print_position, driver_paper_is_wide, print_params, print_preview_image, printer_options, take_turned_page, turn_driver};
 pub use print::open_print;
 pub(crate) use print::print_status;
-use web::{web_body, web_confirm};
 #[cfg(test)]
-use web::{advance_preview, download_for_web, WEB_COMMAND, web_frame_document, WebCache, WebProxy};
+use print::{drag_print_position, driver_paper_is_wide, print_params, print_preview_image, printer_options, take_turned_page, turn_driver};
+use print::{print_body, print_confirm};
 pub use web::open_web;
+#[cfg(test)]
+use web::{WEB_COMMAND, WebCache, WebProxy, advance_preview, download_for_web, web_frame_document};
+use web::{web_body, web_confirm};
 
 fn no_params(p: &Value) -> bool {
     p.as_object().is_none_or(|o| o.is_empty())
