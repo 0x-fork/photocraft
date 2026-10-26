@@ -4113,7 +4113,6 @@ mod font_picker_tests;
 mod tests;
 
 #[cfg(test)]
-#[path = "type_commit_tests.rs"]
 mod commit_tests;
 
 #[cfg(test)]
