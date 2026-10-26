@@ -2019,7 +2019,6 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 mod tests;
 
 #[cfg(test)]
-#[path = "path_selection_tests.rs"]
 mod path_selection_tests;
 
 #[cfg(test)]
