@@ -5435,7 +5435,6 @@ mod snapshot_row_tests {
 mod layer_pct_slider_tests;
 
 #[cfg(test)]
-#[path = "fx_drag_tests.rs"]
 mod fx_drag_tests;
 
 #[cfg(test)]
