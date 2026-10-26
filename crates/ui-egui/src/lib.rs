@@ -13,17 +13,12 @@ macro_rules! tl {
         $crate::i18n::t($s)
     };
 }
-pub mod bidi_text;
 pub mod canvas;
-pub mod cjk_fonts;
 pub mod control;
 pub mod dialogs;
-pub mod direction;
 pub mod dock;
-pub mod egui_fonts;
 pub mod file_dialog;
 pub mod file_open;
-mod font_preview;
 pub mod gpu_status;
 pub mod i18n;
 mod icon_data;
@@ -39,7 +34,6 @@ pub mod panels;
 pub mod preset_files_ui;
 pub mod proxy;
 pub mod screenshot;
-pub mod served_fonts;
 pub mod state;
 pub mod texel_guard;
 pub mod theme;
@@ -65,6 +59,7 @@ mod app;
 mod input;
 mod prefs;
 mod services;
+mod text;
 mod tools;
 
 #[cfg(test)]
@@ -237,6 +232,12 @@ pub use services::{
     FileStampFn, FormatChoices, ImportFn, Inbox, LoadTextFn, OpenUrlFn, OsEventsFn, PhotoshopShortcutsFn, QuitFn, RecoverFn, Recoverable, RightButtonDownFn,
     SameFileFn, SaveFileFn, SaveTextFn, Services, SystemThemeFn, WindowFrameFn, WriteFn,
 };
+pub use text::bidi_text;
+pub use text::cjk_fonts;
+pub use text::direction;
+pub use text::egui_fonts;
+use text::font_preview;
+pub use text::served_fonts;
 use tools::align_bar;
 pub use tools::analysis_ui;
 pub use tools::anchor_tools;

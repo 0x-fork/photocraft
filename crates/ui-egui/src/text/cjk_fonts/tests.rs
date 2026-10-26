@@ -211,7 +211,7 @@ fn fake_dir() -> PathBuf {
     g.get_or_insert_with(|| {
         let dir = std::env::temp_dir().join(format!("photocraft-cjk-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("font.ttf"), include_bytes!("../../../../assets/fonts/Inter-Regular.ttf")).unwrap();
+        std::fs::write(dir.join("font.ttf"), include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf")).unwrap();
         std::fs::write(dir.join("empty.ttf"), b"").unwrap();
         std::fs::write(dir.join("thai.ttf"), synthetic_font(&[(0x0E01, 0x0E5B)])).unwrap();
         std::fs::write(dir.join("arabic.ttf"), synthetic_font(&[(0x0600, 0x06FF)])).unwrap();
@@ -222,7 +222,10 @@ fn fake_dir() -> PathBuf {
         std::fs::write(dir.join("hant.ttf"), synthetic_font(&[(0x9F8D, 0x9F8D)])).unwrap();
         std::fs::write(
             dir.join("families.ttc"),
-            two_face_ttc(include_bytes!("../../../../assets/fonts/Inter-Regular.ttf"), include_bytes!("../../../../assets/fonts/JetBrainsMono-Regular.ttf")),
+            two_face_ttc(
+                include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf"),
+                include_bytes!("../../../../../assets/fonts/JetBrainsMono-Regular.ttf"),
+            ),
         )
         .unwrap();
         dir
@@ -278,7 +281,7 @@ fn provider_skips_missing_and_corrupt_script_candidates_before_registering() {
     let malformed = fake_dir().join("provider-corrupt-thai.ttf");
     let collection = fake_dir().join("provider-corrupt-selected-thai.ttc");
     std::fs::write(&malformed, font_with_out_of_bounds_table()).expect("write the malformed test font");
-    std::fs::write(&collection, two_face_ttc(include_bytes!("../../../../assets/fonts/Inter-Regular.ttf"), &font_with_out_of_bounds_table()))
+    std::fs::write(&collection, two_face_ttc(include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf"), &font_with_out_of_bounds_table()))
         .expect("write the malformed selected-face collection");
 
     let sources = Sources {
@@ -626,7 +629,7 @@ fn system_fonts_cover_other_script_samples() {
 
 #[test]
 fn vertical_metrics_parse_and_reject_garbage() {
-    let (asc, desc, gap) = vertical_metrics(include_bytes!("../../../../assets/fonts/Inter-Regular.ttf"), 0).unwrap();
+    let (asc, desc, gap) = vertical_metrics(include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf"), 0).unwrap();
     assert!((asc - 1984.0 / 2048.0).abs() < 1e-4 && (desc + 494.0 / 2048.0).abs() < 1e-4 && gap == 0.0);
     for bad in [&b""[..], b"ttcf", b"ttcf\0\0\0\0\0\0\0\0\xff\xff\xff\xff", b"\0\x01\0\0\0\xff\0\0\0\0\0\0"] {
         assert!(vertical_metrics(bad, 0).is_none());
@@ -1302,7 +1305,7 @@ fn provider_negative_caches_invalid_fonts_separately_from_noncovering_faces() {
     let invalid = fake("not-a-font-cache.ttf").path;
     std::fs::write(&invalid, b"this is not a font").expect("write invalid bytes");
     let truncated = fake("truncated-font-cache.ttf").path;
-    std::fs::write(&truncated, &include_bytes!("../../../../assets/fonts/Inter-Regular.ttf")[..20]).expect("write truncated font");
+    std::fs::write(&truncated, &include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf")[..20]).expect("write truncated font");
     for path in [&invalid, &truncated] {
         for c in ['日', '本'] {
             let file = vec![FontFile { path: path.clone(), family: String::new() }];
@@ -1476,8 +1479,8 @@ fn font_with_out_of_bounds_table() -> Vec<u8> {
 /// stays readable, and face 1's `cmap`/`name` still work, so a file-level check plus coverage
 /// accepts it even though the face cannot be installed safely.
 fn collection_with_out_of_bounds_selected_face() -> Vec<u8> {
-    let inter = include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
-    let mut jetbrains = include_bytes!("../../../../assets/fonts/JetBrainsMono-Regular.ttf").to_vec();
+    let inter = include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf");
+    let mut jetbrains = include_bytes!("../../../../../assets/fonts/JetBrainsMono-Regular.ttf").to_vec();
     let tables = u16::from_be_bytes([jetbrains[4], jetbrains[5]]) as usize;
     let glyf = (0..tables).map(|i| 12 + 16 * i).find(|&rec| jetbrains.get(rec..rec + 4) == Some(&b"glyf"[..])).expect("JetBrains Mono has a glyf table");
     jetbrains[glyf + 12..glyf + 16].copy_from_slice(&u32::MAX.to_be_bytes());
@@ -1515,7 +1518,7 @@ fn lazy_loader_rejects_a_font_with_an_out_of_bounds_table_and_uses_the_next_cand
     // A readable collection with an unreadable covering face must also skip that face: the
     // coverage route selects face 1 by its valid cmap, not the readable face 0.
     let collection = fake_dir().join("out-of-bounds-thai.ttc");
-    let inter = include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
+    let inter = include_bytes!("../../../../../assets/fonts/Inter-Regular.ttf");
     let collection_bytes = two_face_ttc(inter, &font_with_out_of_bounds_table());
     std::fs::write(&collection, &collection_bytes).unwrap();
     assert!(cjk::font_file_is_readable(&collection_bytes), "face 0 keeps the collection readable");
