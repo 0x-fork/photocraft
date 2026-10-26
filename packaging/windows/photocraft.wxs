@@ -1,151 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  PhotoCraft MSI (WiX Toolset v5: `dotnet tool install -g wix`, plus the UI and Util extensions:
-  `wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2`). Built by package.ps1:
-
-    wix build photocraft.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
-      -culture en-US -loc photocraft.en-us.wxl -d Version=1.2.3 -d DisplayVersion=1.2.3-rc.1
-      -d BinDir=... -d IconPath=... -d BannerBmp=... -d DialogBmp=... -o out.msi
-
-  Dual-scope package (Microsoft "Single Package Authoring": ALLUSERS=2 with MSIINSTALLPERUSER=1
-  in the Property table, which Package/Scope="perUserOrMachine" writes). It installs per-user by
-  default, with no UAC prompt, into %LOCALAPPDATA%\Programs\ArtCraft\PhotoCraft; the setup
-  wizard's "Install for all users" box, or `msiexec ... ALLUSERS=1`, installs per-machine into
-  Program Files\ArtCraft\PhotoCraft. In a per-user install Windows Installer itself redirects
-  the ProgramFiles folder to the user's own Programs folder and the HKMU/HKCR registry roots to
-  HKCU, so one package serves both contexts.
-
-  An install updates the copy it finds in its own context: the remembered folder is read from
-  HKLM in a per-machine install and from HKCU in a per-user one (RegistrySearch Root="HKMU"),
-  so an ordinary upgrade stays where the previous version was put. Installing in the other
-  context while a copy already exists is a visible stop (Launch), not a silent second copy:
-  the wizard pre-ticks "Install for all users" when a per-machine copy is registered, and a
-  silent install that would duplicate one fails with a message naming the fix. A scope change
-  is a deliberate uninstall-and-reinstall, never an ordinary upgrade (MSI major upgrades cannot
-  cross installation contexts).
-
-  The setup wizard names the version: Welcome, install folder with the all-users box
-  (remembered for upgrades), Ready, a progress page, and a Finish page with a ticked "Launch
-  PhotoCraft" box. Installs a Start Menu shortcut, makes PhotoCraft the owner of `.pcraft`, and
-  offers it under "Open with" for PSD/PSB and the image formats it reads (without taking over
-  the user's default app for them), plus photocraft-cli. `msiexec /qn` still installs silently.
--->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <?ifndef HasCraftFontLicences ?>
   <?define HasCraftFontLicences=0 ?>
-  <?endif ?>
-  <Package
-      Name="PhotoCraft"
-      Manufacturer="Learning Machines LLC"
-      Version="$(var.Version)"
-      UpgradeCode="D9660F32-2D0A-4ABE-B73D-17BE25F1542C"
-      Scope="perUserOrMachine"
-      Compressed="yes"
-      Language="1033">
+  <?endif?>
+  <Package Name="PhotoCraft" Manufacturer="Learning Machines LLC" Version="$(var.Version)" UpgradeCode="D9660F32-2D0A-4ABE-B73D-17BE25F1542C" Scope="perUserOrMachine" Compressed="yes" Language="1033">
     <SummaryInformation Description="PhotoCraft image editor" Manufacturer="Learning Machines LLC" />
+    <?include $(sys.SOURCEFILEDIR)install-policy.wxi?>
     <!-- Same-version upgrades let successive pre-releases of one X.Y.Z replace each other
          (MSI versions are numeric, so 1.2.3-rc.1 and 1.2.3-rc.2 are both 1.2.3). -->
-    <MajorUpgrade AllowSameVersionUpgrades="yes"
-        DowngradeErrorMessage="A newer version of PhotoCraft is already installed." />
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of PhotoCraft is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
-    <!-- MSI caches this icon using its Id as the filename. Shortcuts to an .exe need an .exe
-         icon identifier (ICE50), even when the source is an ICO. -->
+    <!-- MSI caches this icon using its Id as the filename. Advertised shortcuts to an
+         .exe need an .exe icon identifier (ICE50), even when the source is an ICO. -->
     <Icon Id="PhotocraftIcon.exe" SourceFile="$(var.IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="PhotocraftIcon.exe" />
     <Property Id="ARPURLINFOABOUT" Value="https://getartcraft.com/apps/photocraft" />
     <Property Id="ARPURLUPDATEINFO" Value="https://getartcraft.com/apps/photocraft" />
     <Property Id="ARPHELPLINK" Value="https://discord.gg/artcraft" />
 
-    <!-- The suite's own folder under the machine's (per-user: the user's) Programs folder:
-         Program Files\ArtCraft\PhotoCraft, or %LOCALAPPDATA%\Programs\ArtCraft\PhotoCraft. -->
     <StandardDirectory Id="ProgramFiles6432Folder">
-      <Directory Id="ArtCraftSuiteFolder" Name="ArtCraft">
+      <Directory Id="CraftSuiteFolder" Name="ArtCraft">
         <Directory Id="INSTALLFOLDER" Name="PhotoCraft" />
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
 
-    <!-- An upgrade installs where the user put the previous version, remembered per context
-         (HKLM for a per-machine install, HKCU for a per-user one; written by PhotocraftApp).
-         RegistrySearch has no dual root, so both records are read and the remembered folder is
-         the first that exists, preferring the user's own copy. The launcher passes INSTALLFOLDER
-         explicitly for updates, so this mainly serves direct installs. -->
-    <Property Id="PERMACHINEINSTALLDIR">
-      <RegistrySearch Id="PerMachineInstallDir" Root="HKLM" Key="Software\PhotoCraft" Name="InstallDir" Type="raw" />
-    </Property>
-    <Property Id="PERUSERINSTALLDIR">
-      <RegistrySearch Id="PerUserInstallDir" Root="HKCU" Key="Software\PhotoCraft" Name="InstallDir" Type="raw" />
-    </Property>
-    <SetProperty Id="INSTALLFOLDER" Action="RememberPerUserFolder" Value="[PERUSERINSTALLDIR]" After="AppSearch" Sequence="both"
-        Condition="NOT INSTALLFOLDER AND PERUSERINSTALLDIR" />
-    <SetProperty Id="INSTALLFOLDER" Action="RememberPerMachineFolder" Value="[PERMACHINEINSTALLDIR]" After="RememberPerUserFolder" Sequence="both"
-        Condition="NOT INSTALLFOLDER AND PERMACHINEINSTALLDIR" />
-    <!-- A registered per-machine copy makes the wizard default to updating it in place. -->
-    <SetProperty Id="ALLUSERSINSTALL" Value="1" After="AppSearch" Sequence="first"
-        Condition="NOT ALLUSERSINSTALL AND PERMACHINEINSTALLDIR" />
-    <!-- A duplicate in the other context is a visible stop, never a silent second copy. -->
-    <Launch Condition="ALLUSERS = 1 OR NOT PERUSERINSTALLDIR"
-        Message="PhotoCraft is already installed for your user account only. Leave &quot;Install for all users&quot; unticked to update it in place, or uninstall the other copy first." />
-    <Launch Condition="ALLUSERS &lt;&gt; 1 OR NOT PERMACHINEINSTALLDIR"
-        Message="PhotoCraft is already installed for all users of this computer. Tick &quot;Install for all users&quot; to update it in place (or pass ALLUSERS=1 on the msiexec command line), or uninstall the other copy first." />
+    <!-- An upgrade installs where the user put the previous version (written by PhotocraftApp). -->
 
     <Feature Id="Main" Title="PhotoCraft" Level="1">
       <?if $(var.HasCraftFontLicences) = 1 ?>
       <ComponentGroupRef Id="CraftFontLicences" />
-      <?endif ?>
+      <?endif?>
       <ComponentGroupRef Id="PhotocraftFiles" />
     </Feature>
 
     <!-- The setup wizard: WixUI_InstallDir without its licence page (the code is MIT OR
-         Apache-2.0; there is nothing to accept), with our folder page (PhotocraftInstallDirDlg:
-         the stock one plus the install-scope box) in place of the stock one. A later NewDialog
-         on the same button wins. -->
+         Apache-2.0; there is nothing to accept). A later NewDialog on the same button wins. -->
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
     <UI>
-      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="PhotocraftInstallDirDlg" Order="2" Condition="NOT Installed" />
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="PhotocraftInstallDirDlg" Order="2" Condition="NOT Installed" />
-      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchPhotocraft"
-          Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
-
-      <Dialog Id="PhotocraftInstallDirDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
-        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
-          <!-- As WixUI_InstallDir does for its own folder page: take the folder, check it, go on. -->
-          <Publish Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
-          <Publish Event="DoAction" Value="WixUIValidatePath_$(sys.BUILDARCHSHORT)" Order="2" Condition="NOT WIXUI_DONTVALIDATEPATH" />
-          <Publish Event="SpawnDialog" Value="InvalidDirDlg" Order="3" Condition="NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID&lt;&gt;&quot;1&quot;" />
-          <!-- The scope box: ALLUSERS=1 asks for the per-machine context (WixUI_Advanced's
-               idiom); otherwise the package's own per-user default applies. An ALLUSERS given
-               on the msiexec command line is left alone. -->
-          <Publish Property="ALLUSERS" Value="1" Order="4" Condition="ALLUSERSINSTALL = &quot;1&quot;" />
-          <Publish Property="ALLUSERS" Value="2" Order="5" Condition="NOT ALLUSERSINSTALL = &quot;1&quot; AND NOT ALLUSERS = &quot;1&quot;" />
-          <Publish Property="MSIINSTALLPERUSER" Value="1" Order="6" Condition="NOT ALLUSERSINSTALL = &quot;1&quot; AND NOT ALLUSERS = &quot;1&quot;" />
-          <Publish Event="NewDialog" Value="VerifyReadyDlg" Order="7" Condition="WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID=&quot;1&quot;" />
-        </Control>
-        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
-          <Publish Event="NewDialog" Value="WelcomeDlg" />
-        </Control>
-        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
-          <Publish Event="SpawnDialog" Value="CancelDlg" />
-        </Control>
-
-        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="!(loc.InstallDirDlgDescription)" />
-        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="!(loc.InstallDirDlgTitle)" />
-        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
-        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
-        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
-
-        <Control Id="FolderLabel" Type="Text" X="20" Y="60" Width="290" Height="30" NoPrefix="yes" Text="!(loc.InstallDirDlgFolderLabel)" />
-        <Control Id="Folder" Type="PathEdit" X="20" Y="100" Width="320" Height="18" Property="WIXUI_INSTALLDIR" Indirect="yes" />
-        <Control Id="ChangeFolder" Type="PushButton" X="20" Y="120" Width="56" Height="17" Text="!(loc.InstallDirDlgChange)">
-          <Publish Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
-          <Publish Event="SpawnDialog" Value="BrowseDlg" Order="2" />
-        </Control>
-        <Control Id="PerUserNote" Type="Text" X="20" Y="146" Width="330" Height="24" NoPrefix="yes" Text="!(loc.PhotocraftInstallDirNote)" />
-
-        <Control Id="AllUsers" Type="CheckBox" X="20" Y="176" Width="330" Height="17" Property="ALLUSERSINSTALL" CheckBoxValue="1" Text="!(loc.PhotocraftAllUsers)" />
-      </Dialog>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2" Condition="NOT Installed" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchPhotocraft" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
     </UI>
     <!-- Our own art, generated by package.ps1 from the app icon (not WiX's stock bitmaps). -->
     <WixVariable Id="WixUIBannerBmp" Value="$(var.BannerBmp)" />
@@ -169,19 +65,14 @@
     <ComponentGroup Id="CraftFontLicences" Directory="INSTALLFOLDER">
       <Files Include="$(var.DocsDir)\**" />
     </ComponentGroup>
-    <?endif ?>
+    <?endif?>
     <ComponentGroup Id="PhotocraftFiles" Directory="INSTALLFOLDER">
-      <!-- Keyed on an HKMU registry value, not the file: in a per-user install a component
-           under the user's profile cannot use a file as its KeyPath (ICE38), and HKMU writes
-           HKCU there while remaining HKLM for a per-machine install. -->
       <Component Id="PhotocraftApp" Guid="A6DE41B7-A80F-4C59-A17E-BB68065BF67E">
-        <File Id="PhotocraftExe" Source="$(var.BinDir)\photocraft.exe" KeyPath="no" />
-        <!-- Read back by the next version's installer in the same context, and by the ArtCraft
-             Launcher (detect.rs) in both. -->
-        <RegistryValue Root="HKMU" Key="Software\PhotoCraft" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" KeyPath="yes" />
+        <File Id="PhotocraftExe" Source="$(var.BinDir)\photocraft.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="PhotoCraft" Description="PhotoCraft image editor" WorkingDirectory="INSTALLFOLDER" Advertise="yes" Icon="PhotocraftIcon.exe" IconIndex="0" />
+        </File>
 
-        <!-- .pcraft: PhotoCraft's own format; PhotoCraft is its default app. ProgIds register
-             under HKCR, which a per-user install redirects to HKCU\Software\Classes. -->
+        <!-- .pcraft: PhotoCraft's own format; PhotoCraft is its default app. -->
         <ProgId Id="Photocraft.Document" Description="PhotoCraft Document" Icon="PhotocraftExe" IconIndex="0">
           <Extension Id="pcraft" ContentType="application/x-photocraft">
             <Verb Id="open" Command="Open" TargetFile="PhotocraftExe" Argument="&quot;%1&quot;" />
@@ -189,76 +80,60 @@
         </ProgId>
         <!-- PSD/PSB and images: offered under "Open with", never forced as the default. -->
         <ProgId Id="Photocraft.PhotoshopDocument" Description="PSD Document" Icon="PhotocraftExe" IconIndex="0" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Photocraft.PhotoshopDocument\shell\open\command" Value="&quot;[#PhotocraftExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Photocraft.PhotoshopDocument\shell\open\command" Value="&quot;[#PhotocraftExe]&quot; &quot;%1&quot;" Type="string" />
         <ProgId Id="Photocraft.Image" Description="Image" Icon="PhotocraftExe" IconIndex="0" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Photocraft.Image\shell\open\command" Value="&quot;[#PhotocraftExe]&quot; &quot;%1&quot;" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.psd\OpenWithProgids" Name="Photocraft.PhotoshopDocument" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.psb\OpenWithProgids" Name="Photocraft.PhotoshopDocument" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.pdn\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.ora\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.kra\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.krz\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.png\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.jpg\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.tif\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.tiff\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.webp\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.gif\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.bmp\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.tga\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.exr\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.hdr\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.avif\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.qoi\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\.ico\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Photocraft.Image\shell\open\command" Value="&quot;[#PhotocraftExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.psd\OpenWithProgids" Name="Photocraft.PhotoshopDocument" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.psb\OpenWithProgids" Name="Photocraft.PhotoshopDocument" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.pdn\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.ora\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.kra\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.krz\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.png\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.jpg\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.jpeg\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.tif\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.tiff\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.webp\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.gif\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.bmp\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.tga\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.exr\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.hdr\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.avif\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.qoi\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\.ico\OpenWithProgids" Name="Photocraft.Image" Value="" Type="string" />
 
-        <!-- "Open with" app list (HKCR: per-user installs register their own classes) and the
-             Run dialog (Win+R "photocraft", HKMU: HKCU in a per-user install). -->
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe" Name="FriendlyAppName" Value="PhotoCraft" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\shell\open\command" Value="&quot;[#PhotocraftExe]&quot; &quot;%1&quot;" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".pcraft" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".psd" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".psb" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".pdn" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".ora" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".kra" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".krz" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".png" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".jpg" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".jpeg" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".tif" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".tiff" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".webp" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".gif" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".bmp" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".tga" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".exr" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".hdr" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".avif" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".qoi" Value="" Type="string" />
-        <RegistryValue Root="HKCR" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".ico" Value="" Type="string" />
+        <!-- "Open with" app list and the Run dialog (Win+R "photocraft"). -->
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe" Name="FriendlyAppName" Value="PhotoCraft" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\shell\open\command" Value="&quot;[#PhotocraftExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".pcraft" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".psd" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".psb" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".pdn" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".ora" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".kra" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".krz" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".png" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".jpg" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".jpeg" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".tif" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".tiff" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".webp" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".gif" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".bmp" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".tga" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".exr" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".hdr" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".avif" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".qoi" Value="" Type="string" />
+        <RegistryValue Root="HKMU" Key="Software\Classes\Applications\photocraft.exe\SupportedTypes" Name=".ico" Value="" Type="string" />
         <RegistryValue Root="HKMU" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\photocraft.exe" Value="[#PhotocraftExe]" Type="string" />
-        <!-- The folders we create go when we go (ICE64): both in a per-user and a per-machine
-             install the suite folder belongs to us alone. -->
-        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
-        <RemoveFolder Id="RemoveSuiteFolder" Directory="ArtCraftSuiteFolder" On="uninstall" />
+        <RegistryValue Root="HKMU" Key="Software\PhotoCraft" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" />
       </Component>
 
-      <!-- The Start Menu shortcut is its own component keyed on a registry value (as the
-           ArtCraft Launcher's MSI does): an advertised shortcut must target its component's
-           keypath, which is a registry value in a per-user-capable component, and ICE38 wants
-           per-user components keyed in the registry anyway. -->
-      <Component Id="PhotocraftShortcut" Directory="ProgramMenuFolder" Guid="2F3E6B67-62B0-4F2E-BA63-F1EBB337A067">
-        <Shortcut Id="StartMenuShortcut" Name="PhotoCraft"
-            Description="PhotoCraft image editor" Target="[#PhotocraftExe]"
-            WorkingDirectory="INSTALLFOLDER" Icon="PhotocraftIcon.exe" IconIndex="0" />
-        <RegistryValue Root="HKMU" Key="Software\PhotoCraft" Name="StartMenuShortcut" Value="1" Type="integer" KeyPath="yes" />
-      </Component>
-
-      <Component Id="PhotocraftCli" Guid="EE4D91D4-8C52-43E4-BA06-939EEBB2CCC2">
-        <File Id="PhotocraftCliExe" Source="$(var.BinDir)\photocraft-cli.exe" KeyPath="no" />
-        <RegistryValue Root="HKMU" Key="Software\PhotoCraft" Name="CliInstalled" Value="1" Type="integer" KeyPath="yes" />
+      <Component Id="PhotocraftCli">
+        <File Id="PhotocraftCliExe" Source="$(var.BinDir)\photocraft-cli.exe" KeyPath="yes" />
       </Component>
     </ComponentGroup>
   </Fragment>
