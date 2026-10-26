@@ -252,5 +252,4 @@ pub fn new_spot_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
 }
 
 #[cfg(test)]
-#[path = "channel_options_ui_tests.rs"]
 mod tests;
