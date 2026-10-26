@@ -2329,7 +2329,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         }
         // Preferences › Tools › Show Transformation Values off hides it, as in Photoshop (#204).
         if let Some(r) = live_readout(app).filter(|_| app.session.prefs().tools.show_transformation_values) {
-            draw_live_readout(painter.ctx(), at, r);
+            draw_live_readout(app, painter.ctx(), at, r);
         }
     }
 }
@@ -2430,8 +2430,8 @@ pub(crate) fn styled_frame(app: &PhotocraftApp, zoom: f32, dragging: bool) -> Op
 pub(crate) enum Readout {
     /// Clockwise degrees in document space (`rotation_degrees`), whatever the view's turn or flip.
     Angle(f64),
-    /// Width and height in percent of the original box.
-    Scale([f64; 2]),
+    /// Width and height in percent of the original box, and the box's size in document pixels.
+    Scale { percent: [f64; 2], px: [f64; 2] },
     /// Document pixels moved since the press.
     Offset([f64; 2]),
 }
@@ -2446,7 +2446,8 @@ pub(crate) fn live_readout(app: &PhotocraftApp) -> Option<Readout> {
         Hit::Inside => Some(Readout::Offset([t.quad[0][0] - g.quad0[0][0], t.quad[0][1] - g.quad0[0][1]])),
         Hit::Corner(_) | Hit::Edge(_) if parallelogram(&t.quad) => {
             let (w, h, _, _) = readout(t);
-            (w.is_finite() && h.is_finite()).then_some(Readout::Scale([w, h]))
+            let px = [w / 100.0 * (t.rect[2] - t.rect[0]), h / 100.0 * (t.rect[3] - t.rect[1])];
+            (w.is_finite() && h.is_finite()).then_some(Readout::Scale { percent: [w, h], px })
         }
         Hit::Corner(_) | Hit::Edge(_) | Hit::Pivot => None,
     }
@@ -2460,19 +2461,30 @@ fn parallelogram(q: &[[f64; 2]; 4]) -> bool {
 }
 
 /// [`live_readout`] as the rounded label beside the pointer (the marquee's and Crop's readout).
-fn draw_live_readout(ctx: &egui::Context, at: Pos2, r: Readout) {
-    // Round first so a hair below zero never reads "-0".
-    let fixed = |v: f64, places: i32| {
-        let k = 10f64.powi(places);
-        let v = (v * k).round() / k;
-        if v == 0.0 { 0.0 } else { v }
-    };
+fn draw_live_readout(app: &PhotocraftApp, ctx: &egui::Context, at: Pos2, r: Readout) {
     let id = "transform-readout";
     match r {
         Readout::Angle(a) => crate::canvas::draw_readout(ctx, id, at, ["Angle:"], [format!("{:.1}°", fixed(a, 1))]),
-        Readout::Scale([w, h]) => crate::canvas::draw_readout(ctx, id, at, ["W:", "H:"], [w, h].map(|v| format!("{:.1}%", fixed(v, 1)))),
+        Readout::Scale { percent, px } => crate::canvas::draw_readout(ctx, id, at, ["W:", "H:"], scale_values(app, percent, px)),
         Readout::Offset([dx, dy]) => crate::canvas::draw_readout(ctx, id, at, ["ΔX:", "ΔY:"], [dx, dy].map(|v| format!("{:.0} px", fixed(v, 0)))),
     }
+}
+
+/// `v` rounded to `places` decimals, so a hair below zero never reads "-0".
+fn fixed(v: f64, places: i32) -> f64 {
+    let k = 10f64.powi(places);
+    let v = (v * k).round() / k;
+    if v == 0.0 { 0.0 } else { v }
+}
+
+/// The W and H rows of the scale readout: the box's size in the Units & Rulers unit at the
+/// document's resolution, as Photoshop shows it (cm when the rulers are in centimeters, #9400);
+/// the scale of the original box when the rulers are in percent.
+pub(crate) fn scale_values(app: &PhotocraftApp, percent: [f64; 2], px: [f64; 2]) -> [String; 2] {
+    if app.session.prefs().units_and_rulers.rulers == photocraft_engine::prefs::Unit::Percent {
+        return percent.map(|v| format!("{:.1}%", fixed(v, 1)));
+    }
+    crate::canvas::size_readout(app, [0.0, 0.0, px[0], px[1]])
 }
 
 /// Width and height of the document being transformed, in document pixels.
@@ -5009,8 +5021,39 @@ mod tests {
         // The right edge doubles the width (proportional by default: the height too).
         ev(&mut app, ToolEvent::Down { x: 165.0, y: 93.0, pressure: 1.0 });
         ev(&mut app, ToolEvent::Move { x: 293.0, y: 93.0, pressure: 1.0 });
-        let Some(Readout::Scale([w, h])) = live_readout(&app) else { panic!("{:?}", live_readout(&app)) };
+        let Some(Readout::Scale { percent: [w, h], px }) = live_readout(&app) else { panic!("{:?}", live_readout(&app)) };
         assert!((w - 200.0).abs() < 1e-6 && (h - 200.0).abs() < 1e-6, "{w} {h}");
+        assert!((px[0] - 256.0).abs() < 1e-6 && (px[1] - 256.0).abs() < 1e-6, "{px:?}");
+    }
+
+    /// #9400: the W/H readout shows the box's size in the ruler unit, as Photoshop does, and
+    /// the scale of the original box when the rulers are in percent.
+    #[test]
+    fn the_scale_readout_follows_the_ruler_unit() {
+        use photocraft_engine::prefs::Unit;
+        let mut app = app_with_square(256, photocraft_geom::Rect::new(32, 32, 160, 160));
+        app.ui.extras.snap = false;
+        crate::menus::invoke(&mut app, &egui::Context::default(), "edit.freeTransform", json!({})).unwrap();
+        let ev = |app: &mut PhotocraftApp, e| crate::canvas::tool_event(app, e, egui::Modifiers::NONE);
+        // The right edge from 160 to 288: the 128 px box doubles (proportionally).
+        ev(&mut app, ToolEvent::Down { x: 160.0, y: 96.0, pressure: 1.0 });
+        ev(&mut app, ToolEvent::Move { x: 288.0, y: 96.0, pressure: 1.0 });
+        let Some(Readout::Scale { percent, px }) = live_readout(&app) else { panic!("{:?}", live_readout(&app)) };
+        let shown = |app: &mut PhotocraftApp, unit: Unit| {
+            app.session.prefs.edit(|p| p.units_and_rulers.rulers = unit);
+            scale_values(app, percent, px)
+        };
+        let dpi = app.session.active().unwrap().doc.resolution_dpi;
+        assert_eq!(dpi, 72.0, "the expected values below are at 72 ppi");
+        assert_eq!(shown(&mut app, Unit::Pixels), ["256 px".to_string(), "256 px".to_string()]);
+        assert_eq!(shown(&mut app, Unit::Inches), ["3.556 in".to_string(), "3.556 in".to_string()]);
+        assert_eq!(shown(&mut app, Unit::Centimeters), ["9.03 cm".to_string(), "9.03 cm".to_string()]);
+        assert_eq!(shown(&mut app, Unit::Millimeters), ["90.31 mm".to_string(), "90.31 mm".to_string()]);
+        assert_eq!(shown(&mut app, Unit::Percent), ["200.0%".to_string(), "200.0%".to_string()]);
+        // A flipped box reads as a negative width, as in the options bar.
+        assert_eq!(scale_values(&app, [-50.0, 50.0], [-64.0, 64.0]), ["-50.0%".to_string(), "50.0%".to_string()]);
+        app.session.prefs.edit(|p| p.units_and_rulers.rulers = Unit::Pixels);
+        assert_eq!(scale_values(&app, [-50.0, 50.0], [-64.0, 64.0]), ["-64 px".to_string(), "64 px".to_string()]);
     }
 
     #[test]
