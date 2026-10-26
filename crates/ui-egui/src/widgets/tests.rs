@@ -452,9 +452,8 @@ fn value_field_digits_ink_is_centred_and_level_with_the_unit() {
         let lum = |p: [u8; 4]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
         // Top and bottom of the ink (pt) between x0 and x1.
         let ink = |x0: f32, x1: f32| {
-            let rows: Vec<u32> = (px(field.top() + 2.0)..px(field.bottom() - 2.0))
-                .filter(|&y| (px(x0)..px(x1)).any(|x| lum(image.get_pixel(x, y).0) > lum(bg) + 150))
-                .collect();
+            let rows: Vec<u32> =
+                (px(field.top() + 2.0)..px(field.bottom() - 2.0)).filter(|&y| (px(x0)..px(x1)).any(|x| lum(image.get_pixel(x, y).0) > lum(bg) + 150)).collect();
             let (top, bottom) = (rows.first().copied().unwrap_or(0), rows.last().copied().unwrap_or(0) + 1);
             (top as f32 / scale, bottom as f32 / scale)
         };
