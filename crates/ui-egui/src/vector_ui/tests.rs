@@ -147,8 +147,7 @@ fn shape_path_row_delete_path_deletes_the_shape_layer() {
     let layers = doc.layers.len();
     let row = path_rows(&doc, shape).into_iter().find(|r| r.kind == PathRow::Layer).unwrap();
     assert!(row.name.ends_with(" Shape Path"), "{}", row.name);
-    let (_, id, params) =
-        path_context_actions(&row, &doc, shape).into_iter().find(|(label, _, _)| *label == "Delete Path").expect("Delete Path is offered");
+    let (_, id, params) = path_context_actions(&row, &doc, shape).into_iter().find(|(label, _, _)| *label == "Delete Path").expect("Delete Path is offered");
     app.run(id, params).unwrap();
     let doc = &app.session.active().unwrap().doc;
     assert_eq!(doc.layers.len(), layers - 1);
@@ -406,8 +405,7 @@ fn shape_preview_is_the_committed_path() {
     let mut app = app();
     app.ui.tool_options.corner_radius = 8.0;
     let preview = |app: &PhotocraftApp, tool, end| {
-        shape_geometry(&app.ui.tool_options, tool, [10.0, 10.0], end, egui::Modifiers::ALT)
-            .and_then(|p| photocraft_engine::vector_cmds::shape_path(&p).ok())
+        shape_geometry(&app.ui.tool_options, tool, [10.0, 10.0], end, egui::Modifiers::ALT).and_then(|p| photocraft_engine::vector_cmds::shape_path(&p).ok())
     };
     for tool in [Tool::Rectangle, Tool::EllipseShape, Tool::Triangle, Tool::Polygon, Tool::Line] {
         let shown = preview(&app, tool, [60.0, 30.0]).unwrap();
@@ -778,8 +776,7 @@ fn stale_pen_commits_to_its_owner_across_document_changes() {
             assert!(app.session.set_active(0));
             match action {
                 "open" => {
-                    app.services.import =
-                        Some(Box::new(|name, _, _| Ok((Document::new(name, Size::new(4, 4), ColorMode::Rgb, SampleType::U8), Vec::new()))));
+                    app.services.import = Some(Box::new(|name, _, _| Ok((Document::new(name, Size::new(4, 4), ColorMode::Rgb, SampleType::U8), Vec::new()))));
                     app.open_file("synthetic.png", &[]).unwrap();
                 }
                 "closeOther" => {
