@@ -646,7 +646,7 @@ fn spool_transport_streams_pdf_and_propagates_refusal() {
     ).unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
     let result = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "print_cmds::tests::spool_transport_streams_pdf_and_propagates_refusal", "--nocapture"])
+        .args(["--exact", "cmd::print_cmds::tests::spool_transport_streams_pdf_and_propagates_refusal", "--nocapture"])
         .env(CHILD, dir.path())
         .env("PATH", dir.path())
         // The child spools into the fake `lp` above, so a shell that blocks real printing
@@ -737,7 +737,7 @@ fn recording_spooler(preferred: bool, seen: &std::sync::Arc<std::sync::Mutex<Vec
 
 #[test]
 fn a_preferred_app_spooler_takes_the_job() {
-    if !in_child("print_cmds::tests::a_preferred_app_spooler_takes_the_job", &[]) {
+    if !in_child("cmd::print_cmds::tests::a_preferred_app_spooler_takes_the_job", &[]) {
         return;
     }
     let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -878,7 +878,7 @@ mod cups {
 
     #[test]
     fn a_named_server_is_printed_to_over_ipp() {
-        if !in_child("print_cmds::tests::cups::a_named_server_is_printed_to_over_ipp", &[]) {
+        if !in_child("cmd::print_cmds::tests::cups::a_named_server_is_printed_to_over_ipp", &[]) {
             return;
         }
         let (server, rx) = fake_cups(&["Office"], &["Lab"], Some("Lab"));
@@ -913,7 +913,7 @@ mod cups {
 
     #[test]
     fn without_a_printer_the_app_spooler_takes_over() {
-        if !in_child("print_cmds::tests::cups::without_a_printer_the_app_spooler_takes_over", &[]) {
+        if !in_child("cmd::print_cmds::tests::cups::without_a_printer_the_app_spooler_takes_over", &[]) {
             return;
         }
         let (server, _rx) = fake_cups(&[], &[], None);
@@ -960,7 +960,7 @@ mod cups {
         let (server, rx) = fake_cups(&["Office"], &[], Some("Office"));
         let no_lp = tempfile::tempdir().unwrap();
         let out = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "print_cmds::tests::cups::without_lp_the_job_goes_over_ipp_then_to_the_app_spooler", "--nocapture"])
+            .args(["--exact", "cmd::print_cmds::tests::cups::without_lp_the_job_goes_over_ipp_then_to_the_app_spooler", "--nocapture"])
             .env(CHILD, "1")
             .env("PATH", no_lp.path())
             .env("CUPS_SERVER", &server)
