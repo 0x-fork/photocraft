@@ -7547,7 +7547,6 @@ mod zoom_animation_tests {
     }
 }
 #[cfg(test)]
-#[path = "canvas_display_memo_tests.rs"]
 mod display_memo_tests;
 
 #[cfg(test)]
