@@ -60,5 +60,4 @@ pub fn scroll_to_row(ui: &egui::Ui, top: f32) {
 }
 
 #[cfg(test)]
-#[path = "layer_reveal_tests.rs"]
 mod tests;
