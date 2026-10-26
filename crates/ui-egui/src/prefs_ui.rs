@@ -2739,7 +2739,6 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
 mod recovery_tests;
 
 #[cfg(test)]
-#[path = "shortcut_capture_tests.rs"]
 mod shortcut_capture_tests;
 #[cfg(test)]
 #[path = "shortcut_set_tests.rs"]
