@@ -113,5 +113,4 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
 }
 
 #[cfg(test)]
-#[path = "stroke_ui_tests.rs"]
 mod tests;
