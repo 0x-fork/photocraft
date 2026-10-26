@@ -1183,8 +1183,7 @@ fn clone_overlay_is_circular_and_respects_visibility() {
     app.run("cloneSource.set", json!({"source": [16,16]})).unwrap();
     app.ui.tool = Tool::CloneStamp;
     app.session.tools.brush.size = 20.0;
-    let xf =
-        ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(100.0, 100.0)), zoom: 1.0, center: [32.0, 32.0], flip: false, rotation: 0.0, aspect: 1.0 };
+    let xf = ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(100.0, 100.0)), zoom: 1.0, center: [32.0, 32.0], flip: false, rotation: 0.0, aspect: 1.0 };
     let revision = app.session.active().unwrap().revision;
     let mut output = ctx.run_ui(Default::default(), |ui| {
         let ctx = ui.ctx();
@@ -1233,8 +1232,7 @@ fn clone_overlay_keeps_magnified_pixels_crisp_on_upload_and_refresh() {
     app.run("cloneSource.set", json!({"source": [16, 16]})).unwrap();
     app.ui.tool = Tool::CloneStamp;
     app.session.tools.brush.size = 20.0;
-    let xf =
-        ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 4.0, center: [32.0, 32.0], flip: false, rotation: 0.0, aspect: 1.0 };
+    let xf = ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 4.0, center: [32.0, 32.0], flip: false, rotation: 0.0, aspect: 1.0 };
     for invert in [false, true] {
         app.session.presets.clone.overlay.invert = invert;
         let mut output = ctx.run_ui(Default::default(), |ui| {
@@ -1256,8 +1254,7 @@ fn clone_overlay_blend_mode_mixes_with_the_image_under_the_brush() {
     app.run("cloneSource.set", json!({"source": [16,16]})).unwrap();
     app.ui.tool = Tool::CloneStamp;
     app.session.tools.brush.size = 20.0;
-    let xf =
-        ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(100.0, 100.0)), zoom: 1.0, center: [32.0, 32.0], flip: false, rotation: 0.0, aspect: 1.0 };
+    let xf = ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(100.0, 100.0)), zoom: 1.0, center: [32.0, 32.0], flip: false, rotation: 0.0, aspect: 1.0 };
     // The centre texel of the overlay texture uploaded for `mode`.
     let mut centre = |mode: &str| {
         app.run("cloneSource.overlay", json!({"blend": mode})).unwrap();
@@ -1290,8 +1287,7 @@ fn clone_overlay_is_clipped_to_a_shaped_tip() {
     app.ui.tool = Tool::CloneStamp;
     app.session.tools.brush.size = 20.0;
     app.session.tools.brush.roundness = 0.25;
-    let xf =
-        ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(100.0, 100.0)), zoom: 1.0, center: [32.0, 32.0], flip: false, rotation: 0.0, aspect: 1.0 };
+    let xf = ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(100.0, 100.0)), zoom: 1.0, center: [32.0, 32.0], flip: false, rotation: 0.0, aspect: 1.0 };
     let mut output = ctx.run_ui(Default::default(), |ui| {
         let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("clone-test")));
         draw_clone_preview(&mut app, &painter, &xf, [32.0, 32.0], None);
@@ -1490,14 +1486,8 @@ fn brush_tip_centre_follows_the_crosshair_preference_at_any_size() {
 #[test]
 fn view_transform_roundtrip() {
     for flip in [false, true] {
-        let xf = ViewXform {
-            rect: Rect::from_min_size(pos2(100.0, 50.0), vec2(800.0, 600.0)),
-            zoom: 2.5,
-            center: [320.0, 240.0],
-            flip,
-            rotation: 0.0,
-            aspect: 1.0,
-        };
+        let xf =
+            ViewXform { rect: Rect::from_min_size(pos2(100.0, 50.0), vec2(800.0, 600.0)), zoom: 2.5, center: [320.0, 240.0], flip, rotation: 0.0, aspect: 1.0 };
         let s = xf.to_screen(10.0, 20.0);
         let d = xf.to_doc(s);
         assert!((d[0] - 10.0).abs() < 1e-3 && (d[1] - 20.0).abs() < 1e-3);
@@ -1913,13 +1903,7 @@ fn mixer_escape_and_tool_switch_cancel_without_an_edit() {
         let ctx = egui::Context::default();
         let mut raw = egui::RawInput { focused: true, ..Default::default() };
         if mode == 0 {
-            raw.events.push(egui::Event::Key {
-                key: egui::Key::Escape,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: egui::Modifiers::NONE,
-            });
+            raw.events.push(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
         }
         if mode == 1 {
             app.ui.tool = Tool::Brush;
@@ -1944,10 +1928,8 @@ fn mixer_background_window_keeps_and_commits_control_strokes() {
     let steps = app.session.active().unwrap().history.past_len();
     let ctx = egui::Context::default();
     ctx.begin_pass(egui::RawInput { focused: false, ..Default::default() });
-    let (request, _reply) = crate::control::ControlRequest::new(
-        "ui.pointer",
-        json!({"tool":"mixerBrush","events":[{"kind":"down","x":20,"y":30},{"kind":"move","x":60,"y":30}]}),
-    );
+    let (request, _reply) =
+        crate::control::ControlRequest::new("ui.pointer", json!({"tool":"mixerBrush","events":[{"kind":"down","x":20,"y":30},{"kind":"move","x":60,"y":30}]}));
     let _ = crate::control::handle(&mut app, &ctx, &request);
     assert!(!cancel_mixer_on_context_change(&mut app, &ctx));
     assert!(app.drag.is_some());
@@ -2361,8 +2343,7 @@ fn a_secondary_canvas_hand_pans_while_a_transform_is_open() {
         seen
     };
     let start = Pos2::new(200.0, 150.0);
-    let press =
-        |pos: Pos2, pressed: bool| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+    let press = |pos: Pos2, pressed: bool| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
     frame(&mut app, vec![egui::Event::PointerMoved(start)]);
     frame(&mut app, vec![press(start, true)]);
     for dx in [10.0, 20.0, 40.0] {
@@ -2577,11 +2558,7 @@ fn guides_draw_over_the_puppet_perspective_and_vanishing_point_previews() {
         let preview = shapes.iter().position(|s| match s {
             egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default() => {
                 let r = m.calc_bounds();
-                if command == photocraft_engine::vp_cmds::VP {
-                    r.width() > 10.0 && r.width() < 300.0 && r.min.x < 150.0 && r.max.x > 150.0
-                } else {
-                    near(r)
-                }
+                if command == photocraft_engine::vp_cmds::VP { r.width() > 10.0 && r.width() < 300.0 && r.min.x < 150.0 && r.max.x > 150.0 } else { near(r) }
             }
             _ => false,
         });
