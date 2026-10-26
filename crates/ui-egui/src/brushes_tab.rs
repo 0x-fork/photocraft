@@ -1076,5 +1076,4 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 }
 
 #[cfg(test)]
-#[path = "brushes_tab_tests.rs"]
 mod tests;
