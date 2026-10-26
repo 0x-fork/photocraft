@@ -763,6 +763,7 @@ pub fn tone_range(px: &[[f32; 4]], lo: f32, hi: f32, falloff: f32) -> Vec<f32> {
 mod distance;
 mod lasso;
 mod marquee;
+mod morphology;
 
 pub use distance::edt;
 pub(crate) use lasso::clip_segment;
@@ -770,18 +771,15 @@ pub use lasso::{MAX_PAINTED_TILES, polygon_edge_tiles, polygon_surface};
 pub use marquee::{combine_sparse, combine_surfaces, ellipse_surface};
 
 /// Grows the selection by `r` pixels.
+/// Invalid dimensions or nonfinite/negative radii return an empty buffer.
 pub fn expand(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {
-    let inside: Vec<bool> = m.iter().map(|v| *v >= 0.5).collect();
-    let d = edt(&inside, w, h);
-    // A pixel whose centre is `d` away from the nearest selected centre is
-    // covered when d ≤ r (fractional radii give partial coverage).
-    m.iter().zip(d).map(|(v, d)| v.max((r + 1.0 - d).clamp(0.0, 1.0))).collect()
+    morphology::modify(m, w, h, r, morphology::Kind::Expand)
 }
 
 /// Shrinks the selection by `r` pixels.
+/// Invalid dimensions or nonfinite/negative radii return an empty buffer.
 pub fn contract(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {
-    let inv: Vec<f32> = m.iter().map(|v| 1.0 - v).collect();
-    expand(&inv, w, h, r).into_iter().map(|v| 1.0 - v).collect()
+    morphology::modify(m, w, h, r, morphology::Kind::Contract)
 }
 
 /// Select › Modify › Border: a soft band `2r` wide centred on the selection edge, as in
@@ -790,14 +788,9 @@ pub fn contract(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {
 /// either side (measured on Photoshop 27.11, Border 4: 63, 127, 191, 255 | 255, 191, 127, 63
 /// across a straight edge, the same along the inside of a corner). It used to be a hard band
 /// `r` wide.
+/// Invalid dimensions or nonfinite/negative radii return an empty buffer.
 pub fn border(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {
-    let inside: Vec<bool> = m.iter().map(|v| *v >= 0.5).collect();
-    let outside: Vec<bool> = inside.iter().map(|v| !v).collect();
-    let (to_inside, to_outside) = (edt(&inside, w, h), edt(&outside, w, h));
-    if r <= 0.0 || to_inside.len() != m.len() || to_outside.len() != m.len() {
-        return vec![0.0; m.len()];
-    }
-    inside.iter().zip(to_inside.iter().zip(&to_outside)).map(|(&sel, (&di, &dout))| (1.0 - ((if sel { dout } else { di }) - 1.0) / r).clamp(0.0, 1.0)).collect()
+    morphology::modify(m, w, h, r, morphology::Kind::Border)
 }
 
 /// Smooth: removes specks and rounds corners (box average of radius `round(r)`, edges

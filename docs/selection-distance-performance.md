@@ -73,3 +73,63 @@ EDT_WORKERS=1 cargo test --release -p photocraft-algo distance_transform_release
 
 The previous scalar implementation is retained only in the test module as the reference
 and benchmark baseline.
+
+## Cropped selection morphology (2026-10-26)
+
+Expand, Contract and Border now keep distance work inside the nonzero mask bounds,
+expanded by `ceil(radius) + 1` and clipped to the supplied canvas. Nonzero bounds include
+fractional coverage below the binary 0.5 threshold. Real pixels in the halo provide
+outside seeds; cropping does not introduce an artificial selection edge. The engine's
+existing canvas-bound padding remains responsible for Apply effect at canvas bounds.
+
+For radii up to 5 px, two vertical sweeps store capped distances in one byte per pixel.
+A short horizontal stencil computes exact Euclidean distances only within `radius + 1`;
+farther samples cannot contribute to the existing coverage formulas. Larger radii use
+the general EDT above. Contract classifies complement seeds directly and writes the
+complement coverage formula without allocating inverted float masks. Border runs its
+two cropped transforms sequentially, reusing one seed mask and retaining one distance
+plane at a time.
+
+A 50×50 selection at radius 5 needs a 62×62 distance window (3,844 samples), even on a
+36 MP canvas. Seed, vertical and output-distance buffers total about 23 KB on the bounded
+path, excluding allocator overhead. The flat API still scans its input for bounds and
+returns a full-sized output (144 MB at 36 MP). Engine mask conversion, tiled writeback,
+undo and compositing remain outside this optimization; this does not establish a GUI
+latency budget or solve sparse document storage.
+
+Regression tests compare against the previous full-canvas formulas for empty/full masks,
+one-row/column canvases, holes, edge-touching shapes, fractional radii, and fractional
+coverage including complement rounding at 0.5. Every 3×3 binary mask is also checked
+inside a larger canvas with a faint sample outside its binary bounds. The small-radius
+distances are compared with the general EDT. Invalid dimensions and nonfinite/negative
+radii return empty buffers.
+
+Reproduce on the fork through the CI workflow's optional `selection_morphology` input.
+It runs `cargo run --release -p photocraft-algo --example bench_selection_morphology`
+and `cargo xtask perf --quick` remotely. The comparison uses a 6000×6000 mask with either
+a centred 50×50 square or a centred 4000×4000 square, radii 3 and 50, and four Rayon
+workers. It checks every output sample against the previous formulas before timing;
+reported medians include output allocation and exclude output destruction, with three
+runs per implementation. These measurements are separate from the historical EDT-only
+measurements above and do not change the scorecard baseline.
+
+Measurements from [scratch CI job 121583341033](https://github.com/wanikhawar/photocraft/actions/runs/40326176434/job/121583341033),
+2026-10-26, commit `5afd231138368f9be856e8c21c2946f2e386797c`, GitHub-hosted Ubuntu 26.04,
+stable Rust, normal release profile. The benchmark step completed successfully; the
+superseded run was cancelled during the later quick performance build. The full validation
+run is recorded in the PR. Times below are milliseconds; all twelve outputs match exactly.
+
+| Selection | Operation | Radius | Before p50 | After p50 | Speedup |
+|---|---|---:|---:|---:|---:|
+| 50×50 | Expand | 3 | 359.55 | 94.51 | 3.80× |
+| 50×50 | Contract | 3 | 614.64 | 81.47 | 7.54× |
+| 50×50 | Border | 3 | 738.30 | 19.52 | 37.82× |
+| 50×50 | Expand | 50 | 357.84 | 99.76 | 3.59× |
+| 50×50 | Contract | 50 | 601.19 | 81.19 | 7.41× |
+| 50×50 | Border | 50 | 738.50 | 20.08 | 36.79× |
+| 4000×4000 | Expand | 3 | 416.83 | 171.26 | 2.43× |
+| 4000×4000 | Contract | 3 | 615.49 | 283.26 | 2.17× |
+| 4000×4000 | Border | 3 | 802.48 | 377.78 | 2.12× |
+| 4000×4000 | Expand | 50 | 414.50 | 268.96 | 1.54× |
+| 4000×4000 | Contract | 50 | 610.98 | 260.77 | 2.34× |
+| 4000×4000 | Border | 50 | 784.89 | 467.06 | 1.68× |
