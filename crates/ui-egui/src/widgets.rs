@@ -15,11 +15,20 @@ pub use type_ahead::list_open as dropdown_list_open;
 mod buttons;
 mod color;
 mod dropdown;
+pub mod field_tab;
+pub mod field_wheel;
 mod fields;
+pub(super) mod numeric_expression;
 mod panel;
+pub mod point_curve;
+pub mod press_menu;
 mod scrub;
 mod slider;
+pub mod swap_arrow;
+pub(super) mod tab_strip;
 mod text_field;
+pub mod text_field_menu;
+pub mod tone;
 mod units;
 
 pub use buttons::{

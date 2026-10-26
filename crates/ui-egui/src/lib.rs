@@ -44,8 +44,6 @@ pub mod dock;
 pub mod egui_fonts;
 pub mod eraser_ui;
 pub mod eyedropper_ui;
-pub mod field_tab;
-pub mod field_wheel;
 pub mod file_dialog;
 pub mod file_open;
 pub mod flick_pan;
@@ -74,17 +72,14 @@ pub mod move_lock;
 pub mod move_mods;
 pub mod notices;
 pub mod nudge_bundle;
-mod numeric_expression;
 pub mod object_finder;
 mod opacity_keys;
 mod page_keys;
 pub mod panels;
 pub mod perspective_crop_ui;
 pub mod perspective_ui;
-pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
-pub mod press_menu;
 mod pressure_curve_ui;
 pub mod proxy;
 pub mod puppet_ui;
@@ -106,14 +101,10 @@ pub mod stroke_constraint;
 pub mod stroke_trace;
 pub mod stroke_trail;
 pub mod stylus;
-pub mod swap_arrow;
 pub mod symmetry_ui;
-mod tab_strip;
 pub mod texel_guard;
-pub mod text_field_menu;
 pub mod theme;
 pub use titlebar::{Caption, CaptionFamily, CaptionIcon, CaptionIcons, CaptionStyle, RenderIconFn};
-pub mod tone;
 pub(crate) mod tool_memory;
 mod tool_reset;
 mod tool_shortcuts;
@@ -296,6 +287,15 @@ pub use services::{
     FileStampFn, FormatChoices, ImportFn, Inbox, LoadTextFn, OpenUrlFn, OsEventsFn, PhotoshopShortcutsFn, QuitFn, RecoverFn, Recoverable, RightButtonDownFn,
     SameFileFn, SaveFileFn, SaveTextFn, Services, SystemThemeFn, WindowFrameFn, WriteFn,
 };
+pub use widgets::field_tab;
+pub use widgets::field_wheel;
+use widgets::numeric_expression;
+pub use widgets::point_curve;
+pub use widgets::press_menu;
+pub use widgets::swap_arrow;
+use widgets::tab_strip;
+pub use widgets::text_field_menu;
+pub use widgets::tone;
 
 /// The Info panel's cached sample: pixel x, y, document revision and Eyedropper Sample Size.
 type InfoSampleKey = (i32, i32, u64, u32);
