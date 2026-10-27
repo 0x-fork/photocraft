@@ -18,10 +18,10 @@ mod recovery_tests;
 /// Photoshop brushes (.abr), gradients (.grd), layer styles (.asl), swatches (.aco, .act, .ase) and keyboard shortcut sets
 /// (.kys), which go to the preset libraries and Edit › Keyboard Shortcuts.
 const OPEN_EXTS: &[&str] = &[
-    "pcraft", "pdn", "ora", "xcf", "xcfgz", "gz", "kra", "krz", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico",
-    "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "cin", "dcm", "dicom", "dc3", "iff", "lbm",
-    "ilbm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "asl", "svg", "svgz", "aco", "act",
-    "ase", "kys", "af", "afdesign", "afphoto", "afpub",
+    "pcraft", "pdn", "ora", "xcf", "xcfgz", "gz", "kra", "krz", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "dib", "tga",
+    "ico", "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pnm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "cin", "dcm", "dicom", "dc3",
+    "iff", "lbm", "ilbm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "asl", "svg", "svgz",
+    "aco", "act", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
 ];
 const SVG_EXTS: &[&str] = &["svg", "svgz"];
 
@@ -54,14 +54,14 @@ const OPEN_FILTERS: &[(&str, &[&str])] = &[
     ("TIFF", &["tif", "tiff"]),
     ("WebP", &["webp"]),
     ("GIF", &["gif"]),
-    ("BMP", &["bmp"]),
+    ("BMP", &["bmp", "dib"]),
     ("Targa", &["tga"]),
     ("ICO", &["ico"]),
     ("QOI", &["qoi"]),
     ("PCX", &["pcx"]),
     ("DDS", &["dds"]),
     ("XPM", &["xpm"]),
-    ("Portable Bitmap", &["pbm", "pgm", "ppm", "pam", "pfm"]),
+    ("Portable Bitmap", &["pbm", "pgm", "ppm", "pnm", "pam", "pfm"]),
     ("OpenEXR", &["exr"]),
     ("Radiance HDR", &["hdr"]),
     ("FITS", &["fits", "fit", "fts"]),
@@ -91,15 +91,17 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("PhotoCraft", &["pcraft"]),
     ("OpenRaster", &["ora"]),
     ("PNG", &["png"]),
-    ("JPEG", &["jpg"]),
+    ("JPEG", &["jpg", "jpeg"]),
     ("WebP", &["webp"]),
-    ("TIFF", &["tif"]),
+    ("TIFF", &["tif", "tiff"]),
     ("Targa", &["tga"]),
     // Also in Photoshop's Save As list; ICO is PhotoCraft's own (#4357): up to 256×256, with alpha.
-    ("BMP", &["bmp"]),
+    ("BMP", &["bmp", "dib"]),
     ("GIF", &["gif"]),
     ("ICO", &["ico"]),
     ("OpenEXR", &["exr"]),
+    ("Netpbm", &["pnm", "pbm", "pgm", "ppm", "pam", "pfm"]),
+    ("Radiance HDR", &["hdr"]),
     ("FITS", &["fits", "fit"]),
     ("DPX", &["dpx"]),
     // Game and 3D textures; DDS Options asks for the compression and mipmaps (#1327).
