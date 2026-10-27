@@ -1,4 +1,5 @@
-//! Halftone Pattern descriptors measured in Photoshop 27.11.0 (#8940).
+//! Halftone Pattern descriptors with the keys from the reference application's Filter Gallery plug-in terminology (#8940):
+//! `HlSz` size, `Cntr` contrast and a `ScrT` enum (`ScrD` dot, `ScrC` circle, `ScrL` line).
 use super::*;
 
 /// Builds an editable Halftone Pattern filter with explicit foreground/background colours.
@@ -15,13 +16,13 @@ fn filter(pattern: &str, size: i32, contrast: i32) -> SmartFilter {
     }
 }
 
-/// Builds the inline Halftone descriptor measured in Photoshop.
+/// Builds the inline Halftone descriptor as the reference application writes it.
 fn native_effect(pattern: &str, size: i32, contrast: i32) -> Descriptor {
     let mut d = Descriptor::new("GEfc")
         .with("GEfk", enumv("GEft", "HlfS"))
-        .with("Sz  ", Value::Integer(size))
+        .with("HlSz", Value::Integer(size))
         .with("Cntr", Value::Integer(contrast))
-        .with("Ptrn", enumv("HlfT", pattern));
+        .with("ScrT", enumv("ScrT", pattern));
     d.name = UnicodeString::new_nul("Filter Gallery");
     d
 }
@@ -40,10 +41,10 @@ fn native_item(effect: Descriptor) -> Descriptor {
         .with("filterID", Value::Integer(code(b"GEfc")))
 }
 
-/// Checks the measured pattern enums and editable settings in both mapping directions.
+/// Checks the pattern enums and editable settings in both mapping directions.
 #[test]
 fn halftone_pattern_reads_and_writes_photoshop_inline_descriptors() {
-    for (pattern, native) in [("dot", "Dt  "), ("circle", "Crc "), ("line", "Ln  ")] {
+    for (pattern, native) in [("dot", "ScrD"), ("circle", "ScrC"), ("line", "ScrL")] {
         for (size, contrast) in [(1, 0), (2, 5), (7, 31), (12, 50)] {
             let expected = filter(pattern, size, contrast);
             let native = native_item(native_effect(native, size, contrast));
@@ -71,22 +72,49 @@ fn halftone_pattern_defaults_and_mixed_hidden_stack_round_trip() {
     assert_eq!(filter_from_item(&Descriptor::from_bytes(&item.to_bytes()).unwrap()), f);
 }
 
+/// A default Halftone Pattern as the reference application saves it (size 1, contrast 5, Dot) opens editable.
+#[test]
+fn halftone_pattern_photoshop_default_imports_editable() {
+    let f = filter_from_item(&native_item(native_effect("ScrD", 1, 5)));
+    assert_eq!(f.command, GALLERY_COMMAND);
+    assert_eq!(f.params["effects"][0]["filter"], json!("halftonePattern"));
+    assert_eq!(f.params["effects"][0]["params"], json!({"size": 1, "contrast": 5, "patternType": "dot"}));
+}
+
+/// Keys the reference application's Filter Gallery doesn't use (`Sz  `, `Ptrn` of type `HlfT`) are not taken for
+/// Halftone settings: the item stays opaque and is written back as it was read.
+#[test]
+fn halftone_pattern_foreign_keys_stay_verbatim() {
+    for (pattern, shape) in [("Dt  ", "dot"), ("Crc ", "circle"), ("Ln  ", "line")] {
+        let mut d = Descriptor::new("GEfc")
+            .with("GEfk", enumv("GEft", "HlfS"))
+            .with("Sz  ", Value::Integer(2))
+            .with("Cntr", Value::Integer(5))
+            .with("Ptrn", enumv("HlfT", pattern));
+        d.name = UnicodeString::new_nul("Filter Gallery");
+        let item = native_item(d);
+        let f = filter_from_item(&item);
+        assert_eq!(f.command, UNSUPPORTED_FILTER, "{shape}");
+        assert_eq!(item_for_filter(&f).unwrap(), item, "{shape}");
+    }
+}
+
 /// Preserves unfamiliar and malformed settings instead of substituting editable defaults.
 #[test]
 fn halftone_pattern_unknown_or_malformed_descriptors_stay_verbatim() {
-    let valid = native_effect("Dt  ", 2, 5);
+    let valid = native_effect("ScrD", 2, 5);
     let mut invalid = vec![
         valid.clone().with("futureSetting", Value::Integer(1)),
-        valid.clone().with("Sz  ", Value::Integer(3)), // repeated key
+        valid.clone().with("HlSz", Value::Integer(3)), // repeated key
     ];
     for (key, value) in [
         ("GEfk", enumv("wrong", "HlfS")),
-        ("Ptrn", enumv("HlfT", "????")),
-        ("Ptrn", enumv("wrong", "Dt  ")),
-        ("Ptrn", Value::Integer(0)),
-        ("Sz  ", Value::Integer(0)),
-        ("Sz  ", Value::Integer(13)),
-        ("Sz  ", Value::Double(2.0)),
+        ("ScrT", enumv("ScrT", "????")),
+        ("ScrT", enumv("wrong", "ScrD")),
+        ("ScrT", Value::Integer(0)),
+        ("HlSz", Value::Integer(0)),
+        ("HlSz", Value::Integer(13)),
+        ("HlSz", Value::Double(2.0)),
         ("Cntr", Value::Integer(-1)),
         ("Cntr", Value::Integer(51)),
         ("GELv", Value::Integer(1)),
@@ -96,7 +124,7 @@ fn halftone_pattern_unknown_or_malformed_descriptors_stay_verbatim() {
         effect.items.push((Id::new(key), value));
         invalid.push(effect);
     }
-    for missing in ["Sz  ", "Cntr", "Ptrn"] {
+    for missing in ["HlSz", "Cntr", "ScrT"] {
         let mut effect = valid.clone();
         effect.items.retain(|(id, _)| !id.is(missing));
         invalid.push(effect);
@@ -112,7 +140,7 @@ fn halftone_pattern_unknown_or_malformed_descriptors_stay_verbatim() {
 /// Keeps a whole Gallery stack opaque when a Halftone entry has an unfamiliar class ID.
 #[test]
 fn halftone_pattern_unknown_nested_class_stays_verbatim() {
-    let valid = native_effect("Dt  ", 2, 5);
+    let valid = native_effect("ScrD", 2, 5);
     let mut unknown = valid.clone();
     unknown.class_id = Id::new("Xxxx");
     for effects in [vec![unknown.clone()], vec![valid.clone(), unknown.clone()], vec![unknown, valid]] {

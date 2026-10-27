@@ -727,11 +727,11 @@ struct GalleryCode {
 
 const GALLERY_EFFECTS: [GalleryCode; 2] = [
     GalleryCode { key: "chrome", code: "Chrm", settings: &[("Dtl ", "detail"), ("Smth", "smoothness")] },
-    GalleryCode { key: "halftonePattern", code: "HlfS", settings: &[("Sz  ", "size"), ("Cntr", "contrast")] },
+    GalleryCode { key: "halftonePattern", code: "HlfS", settings: &[("HlSz", "size"), ("Cntr", "contrast")] },
 ];
 
-// Photoshop 27.11 writes Halftone Pattern's shape as an enum, not a numeric choice index.
-const HALFTONE_PATTERNS: [(&[u8; 4], &str); 3] = [(b"Dt  ", "dot"), (b"Crc ", "circle"), (b"Ln  ", "line")];
+// Halftone Pattern's shape is a `ScrT` enum (Filter Gallery terminology: Dot, Circle, Line).
+const HALFTONE_PATTERNS: [(&[u8; 4], &str); 3] = [(b"ScrD", "dot"), (b"ScrC", "circle"), (b"ScrL", "line")];
 
 /// An `RGBC` descriptor (0–255 channels) as straight `[r, g, b, a]`, 0–1.
 fn rgbc_colour(d: &Descriptor) -> Option<J> {
@@ -795,18 +795,18 @@ fn gallery_params(item: &Descriptor, f: &Descriptor) -> Option<J> {
             // Do not turn an unfamiliar shape or malformed setting into the engine's defaults:
             // keeping the whole item opaque preserves it through a subsequent save.
             if !e.class_id.is(GALLERY_CLASS)
-                || !only_keys(e, &["GEfk", "Sz  ", "Cntr", "Ptrn", "GELv"])
+                || !only_keys(e, &["GEfk", "HlSz", "Cntr", "ScrT", "GELv"])
                 || !matches!(e.get("GEfk"), Some(Value::Enumerated { type_id, .. }) if type_id.is("GEft"))
                 || e.get("GELv").is_some_and(|v| !matches!(v, Value::Boolean(_)))
             {
                 return None;
             }
-            int_in(e, "Sz  ", 1, 12)?;
+            int_in(e, "HlSz", 1, 12)?;
             int_in(e, "Cntr", 0, 50)?;
-            params.insert("patternType".into(), json!(enum_name(e, "Ptrn", "HlfT", &HALFTONE_PATTERNS)?));
+            params.insert("patternType".into(), json!(enum_name(e, "ScrT", "ScrT", &HALFTONE_PATTERNS)?));
         }
         for (k, v) in &e.items {
-            if k.is("GEfk") || k.is("GELv") || g.key == "halftonePattern" && k.is("Ptrn") {
+            if k.is("GEfk") || k.is("GELv") || g.key == "halftonePattern" && k.is("ScrT") {
                 continue;
             }
             let (_, ours) = g.settings.iter().find(|(psd, _)| k.is(psd))?;
@@ -871,9 +871,9 @@ fn gallery_item(f: &SmartFilter) -> Result<Descriptor, String> {
         let defaults = photocraft_algo::GalleryFilter::from_key(key).map(photocraft_algo::GalleryEffect::new);
         let settings: Vec<(&str, Value)> = if key == "halftonePattern" {
             vec![
-                ("Sz  ", whole(pf_range(params, "size", 1.0, 1.0, 12.0)?, (1, 12), "size")?),
+                ("HlSz", whole(pf_range(params, "size", 1.0, 1.0, 12.0)?, (1, 12), "size")?),
                 ("Cntr", whole(pf_range(params, "contrast", 5.0, 0.0, 50.0)?, (0, 50), "contrast")?),
-                ("Ptrn", enum_param(params, "patternType", "dot", "HlfT", &HALFTONE_PATTERNS)?),
+                ("ScrT", enum_param(params, "patternType", "dot", "ScrT", &HALFTONE_PATTERNS)?),
             ]
         } else {
             g.settings.iter().map(|(psd, ours)| (*psd, pi(params, ours, defaults.as_ref().map_or(0.0, |x| f64::from(x.get(ours)))))).collect()

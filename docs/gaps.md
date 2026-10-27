@@ -40,7 +40,7 @@ what an agent can't finish alone.
 ## Feature gaps
 
 ### G1. PSD fidelity and Photoshop acceptance
-- **Done 2026-10-23 (#8940):** Filter Gallery Halftone Pattern preserves size, contrast and dot/circle/line through PSD/PSB import/export. Six Photoshop 27.11 reopen checks retain editable settings. Other unsupported gallery effects remain opaque on import or produce an export warning.
+- **Done 2026-10-23 (#8940):** Filter Gallery Halftone Pattern preserves size, contrast and dot/circle/line through PSD/PSB import/export, with the reference application's descriptor keys (`HlSz`, `Cntr`, `ScrT`). Malformed descriptors stay verbatim. Other unsupported gallery effects remain opaque on import or produce an export warning.
 - **Missing:** PSDs we write are not always accepted by Photoshop, and Photoshop-authored files
   don't always render as Photoshop renders them.
 - **Partial (2026-10-15, #5972 A1):** `GdFl` noise fills render when all three RGB ranges are
@@ -359,7 +359,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-23 | minor | #8940: Filter Gallery Halftone Pattern maps size, contrast and dot/circle/line both ways; PSD/PSB round trips at 8/16/32 bits, six Photoshop 27.11 reopen checks, malformed descriptors preserved verbatim. Other gallery effects remain partial; no floor or estimate changed. |
+| 2026-10-23 | minor | #8940: Filter Gallery Halftone Pattern maps size, contrast and dot/circle/line both ways with the reference application's descriptor keys (`HlSz`, `Cntr`, `ScrT`); PSD/PSB round trips at 8/16/32 bits, malformed descriptors preserved verbatim. Other gallery effects remain partial; no floor or estimate changed. |
 | 2026-10-22 | minor | G17: Help › Check for Updates and an opt-out check once per launch (#5485), DIST-220-1 partial; estimate unchanged |
 | 2026-10-22 | minor | G1: 32-bit Hue/Saturation unclipped with Photoshop's saturation factor, bright colours keep their hue, Colorize's saturation scaled by 1 − \|Lightness\|; photoshop rgb32 hue-saturation and hue-saturation-colorize pass; Photoshop-oracle floor 188 → 190 of 258 (#5781) |
 | 2026-10-21 | minor | G9: adjustment clipping remains visible in compact Properties (#5231); no readiness percentage or estimate changed |
