@@ -157,7 +157,7 @@ pub(crate) const PREVIEW_HEIGHT: f32 = 64.0;
 /// there is some, else a sample.
 pub(crate) fn preview_banner(ui: &mut egui::Ui, family: &str, label: &str, text: Option<&str>, width: f32) {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, PREVIEW_HEIGHT), egui::Sense::hover());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{} {label}", tl!("Font preview:"))));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, format!("{} {label}", tl!("Font preview:"))));
     if !ui.is_rect_visible(rect) {
         return;
     }

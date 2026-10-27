@@ -123,7 +123,7 @@ fn key(ctx: &egui::Context, family: &str, size: f32) -> Key {
 pub(crate) fn slot_width(ctx: &egui::Context, family: &str, size: f32) -> f32 {
     let key = key(ctx, family, size);
     let arabic = ctx.data_mut(|d| {
-        let cache = d.get_temp_mut_or_default::<Cache>(egui::Id::new(CACHE_ID));
+        let cache = d.get_temp_mut_or_default::<Cache>(egui::Id::unique(CACHE_ID));
         cache.0.iter().any(|(k, samples)| k == &key && samples.as_ref().is_some_and(|s| s.arabic.is_some()))
     });
     if arabic { scaled(WIDTH, size) + GAP + scaled(ARABIC_WIDTH, size) } else { scaled(WIDTH, size) }
@@ -133,7 +133,7 @@ pub(crate) fn paint(ui: &egui::Ui, family: &str, row: Rect, size: f32) {
     let ctx = ui.ctx();
     let scale = ctx.pixels_per_point().ceil().clamp(1.0, 4.0) as u32;
     let key = key(ctx, family, size);
-    let id = egui::Id::new(CACHE_ID);
+    let id = egui::Id::unique(CACHE_ID);
     let cached = ctx.data_mut(|d| {
         let cache = d.get_temp_mut_or_default::<Cache>(id);
         let index = cache.0.iter().position(|(k, _)| k == &key)?;
@@ -188,7 +188,7 @@ pub(crate) fn paint_text(ui: &egui::Ui, family: &str, text: &str, rect: Rect, si
     let scale = ctx.pixels_per_point().ceil().clamp(1.0, 4.0) as u32;
     let slot = rect.width().clamp(1.0, 4096.0);
     let key: TextKey = (family.to_owned(), text.to_owned(), scale, photocraft_text::fonts::shared_generation(), size as u32, slot as u32);
-    let id = egui::Id::new("font-menu-text-previews");
+    let id = egui::Id::unique("font-menu-text-previews");
     let cached = ctx.data_mut(|d| d.get_temp_mut_or_default::<TextCache>(id).0.iter().find(|(k, _)| *k == key).map(|(_, t)| t.clone()));
     let texture = cached.unwrap_or_else(|| {
         let mut engine = photocraft_text::shared().lock().unwrap_or_else(PoisonError::into_inner);
