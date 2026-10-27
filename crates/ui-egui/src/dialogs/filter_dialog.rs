@@ -325,6 +325,7 @@ pub fn has_dialog(command: &str) -> bool {
                 | "image.mode.colorTable"
                 | "edit.definePattern"
                 | "select.convertToShape"
+                | "layer.new.artboardFromLayers"
         ))
         && photocraft_engine::commands::find(command).is_some_and(|c| !parse_spec(c.params).is_empty())
 }
@@ -421,6 +422,17 @@ fn apply_command_defaults(app: &PhotocraftApp, command: &str, fields: &mut Map<S
     // Photoshop's Pattern Name dialog starts from the name the pattern would get anyway.
     if command == "edit.definePattern" {
         fields.insert("name".into(), json!(photocraft_engine::pattern_cmds::default_name(&app.session)));
+    }
+    // The reference application's Artboard from Layers opens at the next Artboard N and the
+    // selected layers' size every time, never a remembered size; past the field's 30000 px
+    // range, 0 keeps the bounds.
+    if command == "layer.new.artboardFromLayers"
+        && let Some((name, [w, h])) = photocraft_engine::artboard_cmds::from_layers_defaults(&app.session)
+    {
+        let fits = w <= 30_000 && h <= 30_000;
+        fields.insert("name".into(), json!(name));
+        fields.insert("width".into(), json!(if fits { w } else { 0 }));
+        fields.insert("height".into(), json!(if fits { h } else { 0 }));
     }
     if command == "layer.layerStyle.globalLight" {
         global_light_defaults(app, fields);
