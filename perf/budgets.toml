@@ -734,5 +734,5 @@ id = "P79"
 title = "Zoomed-out reduced composite of a 30000x30000 document with one painted layer (#9330 target: 60000x60000)"
 issue = 1015
 bench = "perf_scenarios"
-row = "zoomed-out reduced composite of a 30000x30000 document with one painted layer"
+row = "zoomed-out reduced composite of the huge document with one painted layer"
 enforce = false  # tracked only

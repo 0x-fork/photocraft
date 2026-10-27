@@ -256,7 +256,8 @@ struct Sizes {
     a4: (u32, u32),
     /// A new 10 × 5 m document at 200 ppi (3.1 GP, #4017).
     huge_new: (u32, u32),
-    /// A huge document with one painted layer, refreshed zoomed out (#1015, #9330).
+    /// A huge document with one painted layer, refreshed zoomed out (#1015, #9330). The row name
+    /// leaves out the size because `--quick` uses a smaller one.
     huge_doc: (u32, u32),
 }
 
@@ -679,7 +680,7 @@ fn full_canvas_layer_scenarios(b: &mut Bench, sz: &Sizes) {
 /// #1015, #9330: a huge document with one painted layer, zoomed out: times only the reduced CPU
 /// composite `canvas::ensure_texture` draws when the document is too large for GPU textures.
 fn huge_document_scenarios(b: &mut Bench, sz: &Sizes) {
-    let name = "zoomed-out reduced composite of a 30000x30000 document with one painted layer";
+    let name = "zoomed-out reduced composite of the huge document with one painted layer";
     if !b.wanted(name) {
         return;
     }
