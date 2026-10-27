@@ -265,6 +265,11 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     };
                     action = Some(("path.toSelection", json!({"name": key, "mode": mode})));
                 } else if resp.clicked() {
+                    // Selecting the Work Path ends the hide from Make Selection (#6079): deselected
+                    // again, it is an ordinary unselected Work Path (#6551).
+                    if *kind == PathRow::Work {
+                        app.ui.hidden_work_path = None;
+                    }
                     app.ui.selected_path = Some(key.clone());
                 }
                 // As in Photoshop, double-clicking a saved path's name renames it, and double-clicking
