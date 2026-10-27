@@ -399,6 +399,12 @@ fn pnm_header_alone_reserves_nothing_without_limits() {
 }
 
 #[test]
+fn hdr_header_sizes_that_overflow_u64_are_errors_without_limits() {
+    let b = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 2147483648 +X 2147483648\n";
+    assert!(decode_with(b, &opts(Limits::none())).is_err());
+}
+
+#[test]
 fn pnm_header_sizes_that_overflow_usize_are_errors_without_limits() {
     let m = u32::MAX;
     let none = opts(Limits::none());
@@ -501,6 +507,61 @@ fn image_crate_headers_declaring_gigabytes_need_a_plausible_file_size() {
     gif[6..8].copy_from_slice(&(side as u16).to_le_bytes());
     gif[8..10].copy_from_slice(&(side as u16).to_le_bytes());
     refused_as_implausible(Format::Gif, &gif);
+    // The frame too. Descriptor: separator, left, top, width, height.
+    let frame = find(&gif, &[0x2C, 0, 0, 0, 0, 64, 0, 48, 0]);
+    gif[frame + 5..frame + 7].copy_from_slice(&(side as u16).to_le_bytes());
+    gif[frame + 7..frame + 9].copy_from_slice(&(side as u16).to_le_bytes());
+    refused_as_implausible(Format::Gif, &gif);
+}
+
+/// GIF89a with a two-colour global table and one frame at the top left holding no pixels or
+/// one pixel (LZW minimum code size 2: clear, index 0, end of information).
+fn tiny_gif(screen: (u16, u16), frame: (u16, u16)) -> Vec<u8> {
+    let mut b = b"GIF89a".to_vec();
+    for v in [screen.0, screen.1] {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b.extend_from_slice(&[0x80, 0, 0, 0, 0, 0, 255, 255, 255, 0x2C, 0, 0, 0, 0]);
+    for v in [frame.0, frame.1] {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    b.extend_from_slice(&[0, 2, 2, 0x44, 0x01, 0, 0x3B]);
+    b
+}
+
+#[test]
+fn a_gif_frame_much_smaller_than_its_screen_still_decodes() {
+    let img = decode(&tiny_gif((4000, 4000), (1, 1))).unwrap();
+    assert_eq!((img.width(), img.height()), (4000, 4000));
+}
+
+#[test]
+fn a_tiny_gif_frame_does_not_admit_a_gigabyte_screen() {
+    refused_as_implausible(Format::Gif, &tiny_gif((30000, 30000), (1, 1)));
+    // 324 MB of screen: past the 256 MiB that needs no data.
+    refused_as_implausible(Format::Gif, &tiny_gif((9000, 9000), (1, 1)));
+    refused_as_implausible(Format::Gif, &tiny_gif((30000, 30000), (0, 0)));
+    // A frame bigger than its screen is decoded at its own size.
+    refused_as_implausible(Format::Gif, &tiny_gif((100, 100), (40000, 40000)));
+}
+
+#[test]
+fn an_rle_bmp_ending_early_still_decodes() {
+    // 4000x4000 RLE8 whose only data is the end-of-bitmap escape: every pixel is left at index 0.
+    let data = 14 + 40 + 1024;
+    let mut b = b"BM".to_vec();
+    for v in [data + 2, 0, data, 40, 4000, 4000] {
+        b.extend_from_slice(&(v as u32).to_le_bytes());
+    }
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&8u16.to_le_bytes());
+    for v in [1, 2, 0, 0, 0, 0] {
+        b.extend_from_slice(&(v as u32).to_le_bytes());
+    }
+    b.resize(data, 0);
+    b.extend_from_slice(&[0, 1]);
+    let img = decode(&b).unwrap();
+    assert_eq!((img.width(), img.height()), (4000, 4000));
 }
 
 #[test]
@@ -541,6 +602,32 @@ fn exr_header_declaring_gigabytes_needs_a_plausible_file_size() {
     b[at + 8..at + 12].copy_from_slice(&15999i32.to_le_bytes());
     b[at + 12..at + 16].copy_from_slice(&15999i32.to_le_bytes());
     refused_as_implausible(Format::OpenExr, &b);
+}
+
+#[test]
+fn a_dwab_exr_gets_a_looser_file_size_bound() {
+    // DWA passes 2^16:1 (a flat 8K frame with 12 alpha-scheme mattes is about 30 KB), so a DWAB
+    // part may declare 4 times more than a ZIP part from the same file, and no more.
+    let img = synth(1, 1, ChannelLayout::Rgba, SampleType::U8, 1, 0.1);
+    let mut b = encode(&img, Format::OpenExr, &EncodeOptions::default()).unwrap();
+    let at = find(&b, b"dataWindow\0box2i\0") + b"dataWindow\0box2i\0".len() + 4;
+    let c = find(&b, b"compression\0compression\0") + b"compression\0compression\0".len() + 4;
+    // RGBA as f32: 16 bytes a pixel against a file of a few hundred bytes.
+    let size = |b: &mut Vec<u8>, side: i32| {
+        b[at + 8..at + 12].copy_from_slice(&(side - 1).to_le_bytes());
+        b[at + 12..at + 16].copy_from_slice(&(side - 1).to_le_bytes());
+    };
+    let refused = |b: &[u8]| matches!(exr_info(b, &Limits::default()), Err(CodecError::LimitExceeded(m)) if m.contains("cannot hold"));
+    size(&mut b, 2048);
+    b[c] = 3; // ZIP
+    assert!(refused(&b), "{} bytes", b.len());
+    for dwa in [8, 9] {
+        b[c] = dwa; // DWAA, DWAB
+        let parts = exr_info(&b, &Limits::default()).unwrap();
+        assert_eq!((parts[0].width, parts[0].height), (2048, 2048));
+    }
+    size(&mut b, 4096);
+    assert!(refused(&b), "{} bytes", b.len());
 }
 
 #[test]
