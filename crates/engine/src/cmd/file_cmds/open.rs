@@ -202,7 +202,7 @@ pub fn place_bytes(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<S
         } else {
             Layer::new(layer_name, LayerContent::Raster(px))
         };
-        let id = doc.insert_above(*active, layer);
+        let id = crate::layer_place::insert_new(doc, *active, layer, crate::layer_place::Place::AutoEditable);
         *active = Some(id);
         Ok(id)
     })?;

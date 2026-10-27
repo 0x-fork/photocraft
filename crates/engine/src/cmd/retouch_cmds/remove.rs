@@ -216,7 +216,8 @@ fn fill_to_new_layer(doc: &mut Document, id: Option<LayerId>, out: &Region, hole
     }
     let mut l = Layer::raster(doc.next_layer_name("Layer"), fmt);
     crate::pixels_mut(&mut l)?.write_region(out.rect, &data);
-    let nid = doc.insert_above(id, l);
+    // Above the sampled layer and in its clipping mask, like Layer via Copy.
+    let nid = crate::layer_place::insert_new(doc, id, l, crate::layer_place::Place::Above);
     Ok((out.rect, nid))
 }
 

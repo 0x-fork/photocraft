@@ -69,6 +69,12 @@ impl Session {
         if id == "layer.new.layer" {
             crate::new_layer::parse(params)?;
         }
+        if id == "layer.new.group" {
+            crate::group_options::below(id, params)?;
+        }
+        if id == "layer.new.group" || id == "layer.new.groupFromLayers" {
+            crate::group_options::GroupOptions::parse(id, params)?;
+        }
         // A command that takes `"layer"` (an id or a name, as it resolves it) fails on one the
         // document doesn't have.
         if spec.params.contains("\"layer\":id")

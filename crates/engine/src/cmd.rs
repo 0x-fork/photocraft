@@ -438,26 +438,41 @@ fn build() -> Vec<CommandSpec> {
             "Layer…",
             ["Layer", "New"],
             Some("Cmd+Shift+N"),
-            r##"{"name":str?,"clipToPrevious":bool=false (Use Previous Layer to Create Clipping Mask; inside a clip group the layer joins it anyway),"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":"Normal|Multiply|…"="Normal","opacity":0..1=1,"fillNeutral":bool=false (fill with the mode's neutral color: modes without one are an error),"position":"above|below"="above" (below: the Layers panel's Cmd/Ctrl-click; never under the Background)}"##,
+            r##"{"name":str?,"clipToPrevious":bool=false (Use Previous Layer to Create Clipping Mask; inside a clip group the layer joins it anyway),"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":"Normal|Multiply|…"="Normal","opacity":0..1=1,"fillNeutral":bool=false (fill with the mode's neutral color: modes without one are an error),"position":"above|below"="above" (below: the Layers panel's Cmd/Ctrl-click; never under the Background)} (above the active layer, or the top layer inside it when it is an open group)"##,
             has_doc,
             crate::new_layer::run
         ),
-        cmd!("layer.new.group", "Group…", ["Layer", "New"], None, r##"{"name":str?}"##, has_doc, |s, p| {
-            let id = s.edit("New Group", |doc, active| {
-                let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| doc.next_layer_name("Group"));
-                let id = doc.insert_above(*active, Layer::group(name, vec![]));
-                *active = Some(id);
-                Ok(id)
-            })?;
-            crate::layer_multi_cmds::note_inert_insert(s, id);
-            Ok(json!({ "layer": id.0 }))
-        }),
+        cmd!(
+            "layer.new.group",
+            "Group…",
+            ["Layer", "New"],
+            None,
+            r##"{"name":text?,"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":str="passThrough" (blend mode),"opacity":0..100=100 (percent),"position":"above|below"="above" (below: the Layers panel's Cmd/Ctrl-click; never under the Background)} (above the active layer, or inside it when it is an open group; clipped when it lands inside a clipping mask)"##,
+            has_doc,
+            |s, p| {
+                let opts = crate::group_options::GroupOptions::parse("layer.new.group", p)?;
+                let below = crate::group_options::below("layer.new.group", p)?;
+                let place = if below { crate::layer_place::Place::Below } else { crate::layer_place::Place::Auto };
+                let id = s.edit("New Group", |doc, active| {
+                    let name = opts.name.clone().unwrap_or_else(|| doc.next_layer_name("Group"));
+                    let mut group = Layer::group(name, vec![]);
+                    opts.apply(&mut group);
+                    let bg = crate::background_cmds::background_id(doc);
+                    let id = crate::layer_place::insert_new(doc, *active, group, place);
+                    crate::background_cmds::keep_background_at_bottom(bg, doc)?;
+                    *active = Some(id);
+                    Ok(id)
+                })?;
+                crate::layer_multi_cmds::note_inert_insert(s, id);
+                Ok(json!({ "layer": id.0 }))
+            }
+        ),
         cmd!(
             "layer.groupLayers",
             "Group Layers",
             ["Layer"],
             Some("Cmd+G"),
-            r##"{"layer":id?,"name":str?} (no layer: every selected layer)"##,
+            r##"{"layer":id?,"name":text?,"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":str="passThrough" (blend mode),"opacity":0..100=100 (percent)} (no layer: every selected layer; the new group starts collapsed)"##,
             has_layer,
             crate::layer_multi_cmds::group_layers
         ),
@@ -774,7 +789,7 @@ fn build() -> Vec<CommandSpec> {
                     let fill = Fill::Solid(Color::rgba(c[0], c[1], c[2], c[3])).in_mode(doc.mode);
                     let mut l = Layer::new(doc.next_layer_name("Color Fill"), LayerContent::Fill(fill));
                     mask_new_layer(doc, &mut l, p, "layer.newFillLayer.solidColor", default_mask)?;
-                    let id = doc.insert_above(*active, l);
+                    let id = crate::layer_place::insert_new(doc, *active, l, crate::layer_place::Place::Auto);
                     *active = Some(id);
                     Ok(id)
                 })?;
@@ -806,7 +821,7 @@ fn build() -> Vec<CommandSpec> {
                     .in_mode(doc.mode);
                     let mut l = Layer::new(doc.next_layer_name("Gradient Fill"), LayerContent::Fill(fill));
                     mask_new_layer(doc, &mut l, p, "layer.newFillLayer.gradient", default_mask)?;
-                    let id = doc.insert_above(*active, l);
+                    let id = crate::layer_place::insert_new(doc, *active, l, crate::layer_place::Place::Auto);
                     *active = Some(id);
                     Ok(id)
                 })?;
