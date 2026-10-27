@@ -174,15 +174,14 @@ fn type_controls_fill_the_panel_at_every_width_and_scale() {
                 .filter(|r| r.top() >= transform.bottom() && r.bottom() <= header.top())
                 .map(|r| r.right())
                 .fold(f32::MIN, f32::max);
-            // Preset-bearing fields reserve the right edge for their combo button.
-            // Verify the complete field (editable value plus preset) aligns with Transform.
-            let lead = ["Font size", "Leading (set to the font size × auto-leading when Auto)"]
-                .into_iter()
-                .map(|label| h.get_by_role_and_label(egui::accesskit::Role::SpinButton, label).rect().right())
-                .fold(f32::MIN, f32::max);
-            let lead_combo = combos[3].right(); // Family, style, size presets, leading presets.
-            assert!(lead + 20.0 <= lead_combo, "{what}: the leading preset must not overlap its editable field");
-            assert!((t_right - lead_combo).abs() <= 2.0, "{what}: Transform fields end at {t_right}, Character controls at {lead_combo}");
+            // The size/leading row ends in the leading presets chevron at the panel's right edge,
+            // where Transform's field boxes end. The leading box ends where the chevron starts:
+            // its number stops one unit suffix ("pt", like Transform's "px") short of it.
+            let chevron = h.get_by_role_and_label(egui::accesskit::Role::ComboBox, "Leading presets").rect();
+            let lead = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Leading (set to the font size × auto-leading when Auto)").rect();
+            assert!((chevron.right() - header.right()).abs() < 0.5, "{what}: Character controls end at {}, panel {}", chevron.right(), header.right());
+            let (t_suffix, lead_suffix) = (header.right() - t_right, chevron.left() - lead.right());
+            assert!((t_suffix - lead_suffix).abs() < 0.5, "{what}: Transform's suffix slot {t_suffix}, the leading field's {lead_suffix} (overlap or gap)");
             // Quick Actions buttons span the panel too.
             let qa = h.get_by_label("Rasterize Type").rect();
             assert!(qa.right() >= header.right() - 2.0 && qa.right() <= header.right() + 1.0, "{what}: {qa:?}");
