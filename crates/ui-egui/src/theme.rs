@@ -113,6 +113,23 @@ impl ThemeKind {
     pub fn is_pro(self) -> bool {
         matches!(self, ThemeKind::Pro | ThemeKind::ProMedium | ThemeKind::ProLightGray | ThemeKind::ProLight)
     }
+    /// Whether this theme belongs to the dark appearance family.
+    pub fn is_dark(self) -> bool {
+        matches!(
+            self,
+            ThemeKind::Studio
+                | ThemeKind::Pro
+                | ThemeKind::ProMedium
+                | ThemeKind::SolarizedDark
+                | ThemeKind::AdwaitaDark
+                | ThemeKind::BreezeDark
+                | ThemeKind::SoftDark
+        )
+    }
+    /// Whether this theme belongs to the light appearance family.
+    pub fn is_light(self) -> bool {
+        !self.is_dark()
+    }
     pub fn next(self) -> Self {
         let i = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
         Self::ALL[(i + 1) % Self::ALL.len()]
@@ -747,7 +764,7 @@ impl Tokens {
 
     /// Tokens for the active theme (stored in egui's context data by [`apply`]).
     pub fn get(ctx: &egui::Context) -> Tokens {
-        ctx.data(|d| d.get_temp::<Tokens>(egui::Id::new("photocraft-theme"))).unwrap_or_else(|| Tokens::for_kind(ThemeKind::Studio))
+        ctx.data(|d| d.get_temp::<Tokens>(egui::Id::unique("photocraft-theme"))).unwrap_or_else(|| Tokens::for_kind(ThemeKind::Studio))
     }
 
     /// Thin RGB outlines; the filled bands use the same hues with subdued coverage.
@@ -808,17 +825,21 @@ impl Tokens {
         if self.pro { Color32::from_gray(if self.dark() { 96 } else { 201 }) } else { self.accent_soft }
     }
 
+    /// The 1 px ring round a slider knob, if the theme draws one: the Pro layouts' dark ring, and
+    /// in the light themes the dim text colour, so their white knob stands out from a pale panel
+    /// (#7927). The dark Studio-layout themes need none; Classic draws a bevelled knob instead.
+    pub fn knob_outline(&self) -> Option<Color32> {
+        if self.pro {
+            Some(Color32::from_gray(40))
+        } else if self.dark() {
+            None
+        } else {
+            Some(self.text_dim)
+        }
+    }
+
     pub fn dark(&self) -> bool {
-        matches!(
-            self.kind,
-            ThemeKind::Studio
-                | ThemeKind::Pro
-                | ThemeKind::ProMedium
-                | ThemeKind::SolarizedDark
-                | ThemeKind::AdwaitaDark
-                | ThemeKind::BreezeDark
-                | ThemeKind::SoftDark
-        )
+        self.kind.is_dark()
     }
 }
 
@@ -851,6 +872,12 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
     if let Some(mono) = mono {
         fonts.families.entry(FontFamily::Monospace).or_default().insert(0, mono);
     }
+    // The optional craft-fonts input carries Japanese, Simplified Chinese, Korean, Arabic, Thai and
+    // other faces. They are not registered into this static stack: `cjk_fonts` installs a
+    // per-character font provider for them, so a broad Simplified Chinese face is not put in the
+    // family stack ahead of the Japanese or Korean face, and a locale without a Traditional Chinese
+    // craft face leaves Han to the system font. (A single linear per-family chain still decides a
+    // glyph once a broad face is discovered; see `cjk_fonts`.)
     // Named weights fall back to the default stack for missing glyphs.
     let fallback: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     for (fam, primary) in [("medium", medium), ("semibold", semibold)] {
@@ -887,11 +914,16 @@ fn ui_fonts_active(ctx: &egui::Context) -> bool {
 }
 
 fn ui_fonts_id() -> egui::Id {
-    egui::Id::new("photocraft-ui-fonts")
+    egui::Id::unique("photocraft-ui-fonts")
 }
 
 fn ui_font_size(ctx: &egui::Context) -> UiFontSize {
     ctx.data(|d| d.get_temp::<UiFontSize>(ui_fonts_id())).unwrap_or_default()
+}
+
+/// The Interface > UI Font Size multiplier for the current context (including the default Small).
+pub(crate) fn ui_font_scale(ctx: &egui::Context) -> f32 {
+    font_scale(ui_font_size(ctx))
 }
 
 fn font_scale(size: UiFontSize) -> f32 {
@@ -955,6 +987,10 @@ impl egui::Plugin for UiFontSizePlugin {
             Arc::make_mut(data).tweak.scale = original * font_scale(size);
         }
         ctx.set_fonts(fonts);
+        // The provider must use the scale of the definitions that were active while this pass
+        // laid out text. A face it discovers during the pass is inserted at that old scale; after
+        // `set_fonts` the rescaled definitions take effect and the provider follows them.
+        crate::cjk_fonts::set_craft_font_scale(ctx, font_scale(size));
         self.applied = size;
         ctx.request_repaint();
     }
@@ -976,7 +1012,7 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
     // including when an integration or restored egui state pinned its own theme preference.
     ctx.set_theme(egui::ThemePreference::System);
     let t = Tokens::for_kind(kind);
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("photocraft-theme"), t));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("photocraft-theme"), t));
     let mut v = if t.dark() { Visuals::dark() } else { Visuals::light() };
     v.panel_fill = t.chrome;
     v.window_fill = t.card;
@@ -1108,6 +1144,29 @@ mod tests {
         }
         assert_eq!(ctx.fonts(|f| f.definitions().clone()), definitions, "Small restores original font tweaks exactly");
         assert_eq!(ctx.zoom_factor(), 1.0);
+    }
+
+    // Regression test for #4630: the stock thin scroll bar fades its handle to the same opacity
+    // as its track while the pointer is on it, so the thumb disappeared when it was grabbed.
+    #[test]
+    fn scrollbar_thumb_stays_more_visible_than_its_track_in_every_theme() {
+        for kind in ThemeKind::ALL {
+            let ctx = egui::Context::default();
+            apply(&ctx, kind);
+            for theme in [egui::Theme::Dark, egui::Theme::Light] {
+                let scroll = ctx.style_of(theme).spacing.scroll;
+                if !scroll.floating {
+                    continue;
+                }
+                assert!(
+                    scroll.interact_handle_opacity > scroll.interact_background_opacity,
+                    "{kind:?}/{theme:?}: handle {} vs track {} under the pointer",
+                    scroll.interact_handle_opacity,
+                    scroll.interact_background_opacity
+                );
+                assert_eq!(scroll.interact_handle_opacity, 1.0, "{kind:?}/{theme:?}: the thumb is opaque under the pointer");
+            }
+        }
     }
 
     /// The desktop app installs fonts and loads the saved UI Font Size in its first frame, while
@@ -1259,6 +1318,32 @@ mod tests {
         let lum = |c: Color32| 0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b());
         let (hi, lo) = if lum(a) > lum(b) { (lum(a), lum(b)) } else { (lum(b), lum(a)) };
         (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// The light themes outline their white slider knob so its edge holds WCAG's 3:1 non-text
+    /// contrast against the panels sliders sit on (#7927); the dark ones keep the plain knob.
+    #[test]
+    fn light_themes_outline_the_slider_knob() {
+        for kind in ThemeKind::ALL {
+            let t = Tokens::for_kind(kind);
+            // The Pro layouts keep their dark ring (it rims a grey knob), Classic its bevelled knob.
+            if t.pro || t.bevel {
+                continue;
+            }
+            match t.knob_outline() {
+                Some(outline) => {
+                    assert!(!t.dark(), "{kind:?}");
+                    for panel in [t.dock, t.card, t.chrome] {
+                        assert!(contrast(outline, panel) >= 3.0, "{kind:?}: knob outline {outline:?} on {panel:?}");
+                    }
+                }
+                None => assert!(t.dark(), "{kind:?}: a light theme without a knob outline"),
+            }
+        }
+        assert_eq!(Tokens::for_kind(ThemeKind::Pro).knob_outline(), Some(Color32::from_gray(40)), "Pro is unchanged");
+        for kind in [ThemeKind::StudioLight, ThemeKind::Adwaita, ThemeKind::BreezeLight, ThemeKind::SoftLight] {
+            assert!(Tokens::for_kind(kind).knob_outline().is_some(), "{kind:?}");
+        }
     }
 
     #[test]
@@ -1424,7 +1509,7 @@ pub mod live {
                     super::apply(ctx, kind);
                     let mut t = Tokens::get(ctx);
                     let unknown = apply_overrides(&mut t, &v);
-                    ctx.data_mut(|d| d.insert_temp(egui::Id::new("photocraft-theme"), t));
+                    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("photocraft-theme"), t));
                     if !unknown.is_empty() {
                         log::warn!("unknown token keys: {unknown:?}");
                     }

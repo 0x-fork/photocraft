@@ -13,6 +13,7 @@ use photocraft_raster::{Surface, from_rgba_into, to_rgba};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::channel_cmds::Target;
 use crate::commands::{CommandSpec, blend_from_str, int, layer_param};
 use crate::{EngineError, Result, Session};
 
@@ -24,9 +25,21 @@ pub struct FadeSource {
     pub doc: DocId,
     /// Document revision right after the command; any later change disables Fade.
     pub revision: u64,
-    pub layer: LayerId,
-    pub mask: bool,
+    pub target: FadeTarget,
     pub label: String,
+}
+
+/// What the faded command changed, and so what Fade blends back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FadeTarget {
+    /// A layer's pixels.
+    Pixels(LayerId),
+    /// A layer's layer mask.
+    Mask(LayerId),
+    /// An alpha or spot channel (index into [`Document::channels`]).
+    Channel(usize),
+    /// The Quick Mask.
+    QuickMask,
 }
 
 /// A custom shape (Edit › Define Custom Shape), usable by the Custom Shape tool.
@@ -55,13 +68,27 @@ fn fadeable(id: &str) -> bool {
 }
 
 /// Called after every successful command: remember a fadeable result.
-pub(crate) fn after_command(s: &mut Session, id: &str) {
+pub(crate) fn after_command(s: &mut Session, id: &str, params: &Value) {
     if !fadeable(id) {
         return;
     }
     let Some(st) = s.active() else { return };
-    let Some(layer) = st.active_layer else { return };
     let label = st.history.undo_label().unwrap_or(id).to_string();
+    // An alpha channel or the Quick Mask took the edit instead of the layer when the command ran
+    // on it (#7382): its explicit `target`, or the one the Channels panel gave it. Only commands
+    // routed to channels edit them; the others edit the layer whatever `target` says.
+    let run = crate::channel_cmds::inject_target(s, id, params.clone());
+    let channel = match crate::channel_cmds::target_of(&run) {
+        _ if !crate::channel_cmds::routed(id) => None,
+        Target::Alpha(i) if i < st.doc.channels.len() => Some(FadeTarget::Channel(i)),
+        Target::QuickMask if st.doc.quick_mask.is_some() => Some(FadeTarget::QuickMask),
+        _ => None,
+    };
+    if let Some(target) = channel {
+        s.edit_state.fade = Some(FadeSource { doc: st.doc.id, revision: st.revision, target, label });
+        return;
+    }
+    let Some(layer) = st.active_layer else { return };
     let mask = st.doc.layer(layer).is_some_and(|l| l.mask.is_some())
         && st.history.state(st.history.past_len().wrapping_sub(1)).is_some_and(|prev| {
             // The mask changed and the pixels didn't: the command painted the mask.
@@ -75,7 +102,8 @@ pub(crate) fn after_command(s: &mut Session, id: &str) {
             surf_eq(now.and_then(|l| l.surface()), was.and_then(|l| l.surface()))
                 && !surf_eq(now.and_then(|l| l.mask.as_ref().map(|m| &m.surface)), was.and_then(|l| l.mask.as_ref().map(|m| &m.surface)))
         });
-    s.edit_state.fade = Some(FadeSource { doc: st.doc.id, revision: st.revision, layer, mask, label });
+    let target = if mask { FadeTarget::Mask(layer) } else { FadeTarget::Pixels(layer) };
+    s.edit_state.fade = Some(FadeSource { doc: st.doc.id, revision: st.revision, target, label });
 }
 
 /// Tile identity of a surface (pointer equality of its COW tiles).
@@ -144,15 +172,31 @@ fn can_fade(s: &Session) -> std::result::Result<(), String> {
     if f.doc != st.doc.id || f.revision != st.revision || !st.history.can_undo() {
         return Err("Fade is only available right after a filter, adjustment or painting step".into());
     }
-    if st.doc.layer(f.layer).is_none() {
-        return Err("the faded layer no longer exists".into());
+    if surface_of(&st.doc, f.target).is_none() {
+        return Err(match f.target {
+            FadeTarget::Pixels(_) | FadeTarget::Mask(_) => "the faded layer no longer exists".into(),
+            FadeTarget::Channel(_) | FadeTarget::QuickMask => "the faded channel no longer exists".into(),
+        });
     }
     Ok(())
 }
 
-fn surface_of(doc: &Document, id: LayerId, mask: bool) -> Option<&Surface> {
-    let l = doc.layer(id)?;
-    if mask { l.mask.as_ref().map(|m| &m.surface) } else { l.surface() }
+fn surface_of(doc: &Document, target: FadeTarget) -> Option<&Surface> {
+    match target {
+        FadeTarget::Pixels(id) => doc.layer(id)?.surface(),
+        FadeTarget::Mask(id) => doc.layer(id)?.mask.as_ref().map(|m| &m.surface),
+        FadeTarget::Channel(i) => doc.channels.get(i).map(|c| &c.surface),
+        FadeTarget::QuickMask => doc.quick_mask.as_ref().map(|c| &c.surface),
+    }
+}
+
+fn surface_of_mut(doc: &mut Document, target: FadeTarget) -> Option<&mut Surface> {
+    match target {
+        FadeTarget::Pixels(id) => doc.layer_mut(id)?.surface_mut(),
+        FadeTarget::Mask(id) => doc.layer_mut(id)?.mask.as_mut().map(|m| &mut m.surface),
+        FadeTarget::Channel(i) => doc.channels.get_mut(i).map(|c| &mut c.surface),
+        FadeTarget::QuickMask => doc.quick_mask.as_mut().map(|c| &mut c.surface),
+    }
 }
 
 /// Blend `after` back towards `before` over `area`: `before + opacity × (B(before, after) − before)`
@@ -208,9 +252,9 @@ fn fade(s: &mut Session, p: &Value) -> Result<Value> {
     let opacity = f32_or(p, "opacity", 100.0).clamp(0.0, 100.0) / 100.0;
     let mode = blend_from_str(str_or(p, "mode", "normal")).ok_or_else(|| bad(cmd, "unknown blend mode"))?;
     let st = s.active().ok_or(EngineError::NoDocument)?;
-    let prev = st.history.state(st.history.past_len() - 1).ok_or_else(|| bad(cmd, "no previous state"))?;
-    let before = surface_of(&prev, src.layer, src.mask).cloned().ok_or_else(|| EngineError::Other("the layer did not exist before this step".into()))?;
-    let now = surface_of(&st.doc, src.layer, src.mask).ok_or(EngineError::NoLayer(src.layer))?;
+    let prev = st.history.past_len().checked_sub(1).and_then(|i| st.history.state(i)).ok_or_else(|| bad(cmd, "no previous state"))?;
+    let before = surface_of(&prev, src.target).cloned().ok_or_else(|| EngineError::Other("the layer or channel did not exist before this step".into()))?;
+    let now = surface_of(&st.doc, src.target).ok_or_else(|| EngineError::Other("the faded layer or channel no longer exists".into()))?;
     if now.format() != before.format() {
         return Err(EngineError::Other("can't fade a step that changed the layer's pixel format".into()));
     }
@@ -219,8 +263,7 @@ fn fade(s: &mut Session, p: &Value) -> Result<Value> {
     let area = if before.default_pixel() != now.default_pixel() { st.doc.bounds() } else { before.content_bounds().union(&now.content_bounds()) };
     let label = format!("Fade {}", src.label);
     s.edit(&label, |doc, _| {
-        let l = doc.layer_mut(src.layer).ok_or(EngineError::NoLayer(src.layer))?;
-        let surf = if src.mask { l.mask.as_mut().map(|m| &mut m.surface) } else { l.surface_mut() }.ok_or(EngineError::NoLayer(src.layer))?;
+        let surf = surface_of_mut(doc, src.target).ok_or_else(|| EngineError::Other("the faded layer or channel no longer exists".into()))?;
         fade_surface(&before, surf, area, mode, opacity)?;
         surf.prune();
         Ok(())
@@ -1190,13 +1233,13 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                 return Ok(json!({"count": 0, "layers": 0}));
             }
             s.edit("Replace All Text", |doc, _| {
-                let snapshot = doc.clone();
+                let (dpi, format) = (doc.resolution_dpi, doc.pixel_format());
                 for (id, matches) in &plan {
                     if let Some(LayerContent::Text(t)) = doc.layer_mut(*id).map(|l| &mut l.content) {
                         for (a, b) in matches.iter().rev() {
                             crate::type_cmds::replace_text(t, *a, *b, &replace);
                         }
-                        crate::type_cmds::refresh(&snapshot, t);
+                        crate::type_cmds::refresh_at(dpi, format, t);
                     }
                 }
                 Ok(())
@@ -1214,10 +1257,10 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
             {
                 crate::type_cmds::check_text_unlocked(&doc, id)?;
                 s.edit("Replace Text", |doc, _| {
-                    let snapshot = doc.clone();
+                    let (dpi, format) = (doc.resolution_dpi, doc.pixel_format());
                     if let Some(LayerContent::Text(t)) = doc.layer_mut(id).map(|l| &mut l.content) {
                         crate::type_cmds::replace_text(t, a, b, &replace);
-                        crate::type_cmds::refresh(&snapshot, t);
+                        crate::type_cmds::refresh_at(dpi, format, t);
                     }
                     Ok(())
                 })?;
@@ -1354,6 +1397,7 @@ pub struct PresetFile {
     pub version: u32,
     pub brushes: Vec<photocraft_paint::BrushPreset>,
     pub custom_shapes: Vec<CustomShape>,
+    pub tool_presets: Vec<crate::presets::tools::ToolPreset>,
 }
 
 pub const PRESET_FORMAT: &str = "photocraft-presets";
@@ -1364,7 +1408,7 @@ fn export_import(s: &mut Session, p: &Value) -> Result<Value> {
         .get("kinds")
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
-        .unwrap_or_else(|| ["brushes", "customShapes"].iter().map(|k| k.to_string()).collect());
+        .unwrap_or_else(|| ["brushes", "customShapes", "tools"].iter().map(ToString::to_string).collect());
     let want = |k: &str| kinds.iter().any(|x| x == k);
     match str_or(p, "action", "export") {
         "export" => {
@@ -1383,8 +1427,14 @@ fn export_import(s: &mut Session, p: &Value) -> Result<Value> {
                     Vec::new()
                 },
                 custom_shapes: if want("customShapes") { s.edit_state.custom_shapes.clone() } else { Vec::new() },
+                tool_presets: if want("tools") {
+                    let builtins = crate::presets::tools::builtin();
+                    s.presets.tool_presets.iter().filter(|preset| bool_or(p, "includeBuiltins", false) || !builtins.contains(preset)).cloned().collect()
+                } else {
+                    Vec::new()
+                },
             };
-            Ok(json!({"data": file, "brushes": file.brushes.len(), "customShapes": file.custom_shapes.len()}))
+            Ok(json!({"data": file, "brushes": file.brushes.len(), "customShapes": file.custom_shapes.len(), "tools": file.tool_presets.len()}))
         }
         "import" => {
             let data = p.get("data").cloned().ok_or_else(|| bad(cmd, "missing `data` (an exported preset file)"))?;
@@ -1395,6 +1445,29 @@ fn export_import(s: &mut Session, p: &Value) -> Result<Value> {
             let file: PresetFile = serde_json::from_value(data).map_err(|e| bad(cmd, format!("not a preset file: {e}")))?;
             if file.format != PRESET_FORMAT {
                 return Err(bad(cmd, format!("not a preset file (format `{}`)", file.format)));
+            }
+            // Validate the whole tool import before changing any preset library.
+            let mut tools = s.presets.tool_presets.clone();
+            let nt = if want("tools") { file.tool_presets.len() } else { 0 };
+            if nt > crate::presets::tools::MAX_PRESETS {
+                return Err(bad(cmd, "too many tool presets"));
+            }
+            if want("tools") {
+                for mut preset in file.tool_presets {
+                    preset.name = crate::presets::tools::checked_name(&preset.name, cmd)?;
+                    if preset.tool.trim().is_empty() || !preset.options.is_object() {
+                        return Err(bad(cmd, "tool presets require a non-empty tool and an options object"));
+                    }
+                    if let Some(old) = tools.iter_mut().find(|old| old.name == preset.name && old.tool.eq_ignore_ascii_case(&preset.tool)) {
+                        *old = preset;
+                    } else if tools.iter().any(|old| old.name == preset.name) {
+                        return Err(bad(cmd, "a preset of that name belongs to another tool; rename it before importing"));
+                    } else if tools.len() < crate::presets::tools::MAX_PRESETS {
+                        tools.push(preset);
+                    } else {
+                        return Err(bad(cmd, "too many tool presets"));
+                    }
+                }
             }
             let (mut nb, mut ns) = (0, 0);
             if want("brushes") {
@@ -1420,7 +1493,11 @@ fn export_import(s: &mut Session, p: &Value) -> Result<Value> {
                     ns += 1;
                 }
             }
-            Ok(json!({"brushes": nb, "customShapes": ns}))
+            if want("tools") {
+                s.presets.tool_presets = tools;
+                s.presets_changed();
+            }
+            Ok(json!({"brushes": nb, "customShapes": ns, "tools": nt}))
         }
         other => Err(bad(cmd, format!("unknown action `{other}` (export|import)"))),
     }
@@ -1512,7 +1589,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Export/Import Presets…",
             ["Edit", "Presets"],
             None,
-            r##"{"action":"export|import","kinds":["brushes","customShapes"]?,"data":json (import),"includeBuiltins":bool=false}"##,
+            r##"{"action":"export|import","kinds":["brushes","customShapes","tools"]?,"data":json (import),"includeBuiltins":bool=false}"##,
             always,
             export_import
         ),

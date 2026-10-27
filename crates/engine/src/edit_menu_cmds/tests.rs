@@ -72,7 +72,7 @@ fn fade_uniform_layer_mask_invert_at_all_depths() {
             assert!((mask_pixel(&s) - 1.0).abs() < 0.01);
             s.execute("image.adjustments.invert", json!({})).unwrap();
             assert!(mask_pixel(&s) < 0.01, "depth {depth}: invert changed the mask");
-            assert!(s.edit_state.fade.as_ref().is_some_and(|f| f.mask), "depth {depth}: Fade must target the mask");
+            assert!(s.edit_state.fade.as_ref().is_some_and(|f| matches!(f.target, FadeTarget::Mask(_))), "depth {depth}: Fade must target the mask");
             let history_before_fade = s.active().unwrap().history.past_len();
 
             s.execute("edit.fade", json!({"opacity": opacity})).unwrap();
@@ -87,6 +87,69 @@ fn fade_uniform_layer_mask_invert_at_all_depths() {
             assert!((mask_pixel(&s) - expected).abs() < 0.02, "redo restores faded mask");
         }
     }
+}
+
+/// #7382: with an alpha channel or the Quick Mask targeted, the edit changes it, not the layer, and
+/// Fade blends it back: at 0 % to the channel as it was, at every depth.
+#[test]
+fn fade_an_alpha_channel_or_the_quick_mask_at_all_depths() {
+    for depth in [8, 16, 32] {
+        for quick_mask in [false, true] {
+            for (opacity, k) in [(0, 0.0), (25, 0.25), (100, 1.0)] {
+                let mut s = session(depth);
+                if quick_mask {
+                    s.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+                } else {
+                    s.execute("channel.new", json!({"fill": "black"})).unwrap();
+                    s.execute("channel.target", json!({"channel": 0})).unwrap();
+                }
+                let channel = |s: &Session, x, y| {
+                    let doc = &s.active().unwrap().doc;
+                    let c = if quick_mask { doc.quick_mask.as_ref() } else { doc.channels.first() };
+                    c.unwrap().surface.pixel(x, y)[0]
+                };
+                let was = channel(&s, 5, 5);
+                s.execute("image.adjustments.invert", json!({})).unwrap();
+                assert!((channel(&s, 5, 5) - (1.0 - was)).abs() < 0.01, "depth {depth}, quick mask {quick_mask}: inverted");
+                let expected = was + (1.0 - 2.0 * was) * k;
+                let steps = s.active().unwrap().history.past_len();
+                s.execute("edit.fade", json!({"opacity": opacity})).unwrap();
+                for (x, y) in [(0, 0), (5, 5), (63, 47)] {
+                    let v = channel(&s, x, y);
+                    assert!((v - expected).abs() < 0.02, "depth {depth}, quick mask {quick_mask}, {opacity} %, ({x}, {y}): {v}");
+                }
+                assert_eq!(px(&s, 5, 5)[0], 1.0, "the layer is left alone");
+                let st = s.active().unwrap();
+                assert_eq!((st.history.past_len(), st.history.undo_label()), (steps + 1, Some("Fade Invert")));
+                assert!(s.undo());
+                assert!((channel(&s, 5, 5) - (1.0 - was)).abs() < 0.01, "undo puts the inverted channel back");
+            }
+        }
+    }
+}
+
+/// A command told to edit the layer (`"target": "pixels"`) does so with an alpha channel targeted,
+/// and Fade then fades the layer, not the channel.
+#[test]
+fn fade_follows_the_target_the_command_ran_on() {
+    let mut s = session(8);
+    s.execute("channel.new", json!({"fill": "black"})).unwrap();
+    s.execute("channel.target", json!({"channel": 0})).unwrap();
+    s.execute("edit.fill", json!({"color": "#000000", "target": "pixels"})).unwrap();
+    assert_eq!(px(&s, 5, 5)[0], 0.0, "the layer was filled");
+    assert!(matches!(s.edit_state.fade.as_ref().map(|f| f.target), Some(FadeTarget::Pixels(_))));
+    s.execute("edit.fade", json!({"opacity": 25})).unwrap();
+    assert!((px(&s, 5, 5)[0] - 0.75).abs() < 0.01, "the layer faded");
+    assert_eq!(s.active().unwrap().doc.channels[0].surface.pixel(5, 5)[0], 0.0, "the channel is left alone");
+}
+
+/// A command that only edits layers (Auto Tone) fades the layer, even given a channel `target`.
+#[test]
+fn fade_ignores_a_target_the_command_doesnt_take() {
+    let mut s = session(8);
+    s.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+    s.execute("image.autoTone", json!({"target": "quickMask"})).unwrap();
+    assert!(matches!(s.edit_state.fade.as_ref().map(|f| f.target), Some(FadeTarget::Pixels(_))));
 }
 
 #[test]
@@ -692,4 +755,50 @@ fn fade_allocation_failure_keeps_document_and_history() {
         assert!(s.undo());
         assert_eq!(*s.active().unwrap().doc, *before);
     }
+}
+
+#[test]
+fn tool_presets_round_trip_through_export_import() {
+    let mut source = Session::new();
+    source.execute("tool.presets.new", json!({"name":"2 : 3", "tool":"crop", "options":{"toolOptions":{"crop_ratio":"2:3"}}})).unwrap();
+    let exported = source.execute("edit.presets.exportImportPresets", json!({"action":"export"})).unwrap();
+    assert_eq!(exported["tools"], 1);
+    assert_eq!(exported["data"]["toolPresets"][0]["name"], "2 : 3");
+    let mut target = Session::new();
+    target.execute("tool.presets.new", json!({"name":"2 : 3", "tool":"crop", "options":{"toolOptions":{"crop_ratio":"1:1"}}})).unwrap();
+    for _ in 0..2 {
+        let result = target.execute("edit.presets.exportImportPresets", json!({"action":"import", "data":exported["data"]})).unwrap();
+        assert_eq!(result["tools"], 1);
+    }
+    let selected = target.execute("tool.presets.select", json!({"preset":"2 : 3"})).unwrap();
+    assert_eq!(selected["options"]["toolOptions"]["crop_ratio"], "2:3");
+    assert_eq!(target.presets.tool_presets.iter().filter(|p| p.name == "2 : 3").count(), 1);
+    let only_brushes = source.execute("edit.presets.exportImportPresets", json!({"kinds":["brushes"]})).unwrap();
+    assert_eq!(only_brushes["tools"], 0);
+    let with_builtins = source.execute("edit.presets.exportImportPresets", json!({"kinds":["tools"], "includeBuiltins":true})).unwrap();
+    assert_eq!(with_builtins["tools"].as_u64().unwrap() as usize, source.presets.tool_presets.len());
+}
+
+#[test]
+fn tool_preset_import_is_validated_before_mutation_and_accepts_old_files() {
+    let mut s = Session::new();
+    let before = s.presets.tool_presets.clone();
+    for preset in [
+        json!({"name":"", "tool":"crop", "options":{}}),
+        json!({"name":"x".repeat(256), "tool":"crop", "options":{}}),
+        json!({"name":"Crop", "tool":" ", "options":{}}),
+        json!({"name":"Crop", "tool":"crop", "options":[]}),
+    ] {
+        let result = s.execute(
+            "edit.presets.exportImportPresets",
+            json!({"action":"import", "data":{"format":PRESET_FORMAT, "toolPresets":[{"name":"Valid", "tool":"crop", "options":{}}, preset]}}),
+        );
+        assert!(result.is_err());
+        assert_eq!(s.presets.tool_presets, before);
+    }
+    let too_many: Vec<_> = (0..crate::presets::tools::MAX_PRESETS + 1).map(|i| json!({"name":format!("Crop {i}"), "tool":"crop", "options":{}})).collect();
+    assert!(s.execute("edit.presets.exportImportPresets", json!({"action":"import", "data":{"format":PRESET_FORMAT, "toolPresets":too_many}})).is_err());
+    assert_eq!(s.presets.tool_presets, before);
+    let result = s.execute("edit.presets.exportImportPresets", json!({"action":"import", "data":{"format":PRESET_FORMAT, "version":1}})).unwrap();
+    assert_eq!(result["tools"], 0);
 }

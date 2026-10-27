@@ -1,16 +1,18 @@
 //! Content-Aware Move drags and its Transform On Drop box shown with the result: once the pointer
 //! (or the box) rests for a moment, the move is computed as a background job
 //! ([`photocraft_engine::retouch_cmds::content_aware_move_preview`]: a smaller sampling window than
-//! the command and only small selections) and the canvas shows the document with it. Any change of
-//! the offset, scale or rotation cancels the job and starts the wait again, so the UI never waits
-//! for the blend. Releasing (or Enter) runs the exact `paint.contentAwareMove`; the document is
-//! untouched until then. Not available on wasm (no threads).
+//! the command) and the canvas shows the document with it. A selection too large to solve at once
+//! shows a coarse result first (solved scaled down), then the exact one, computed as a second job.
+//! Any change of the offset, scale or rotation cancels the jobs and starts the wait again, so the
+//! UI never waits for the blend. Releasing (or Enter) runs the exact `paint.contentAwareMove`; the
+//! document is untouched until then. Not available on wasm (no threads).
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
 use photocraft_doc::{DocId, Document};
 use photocraft_engine::jobs::JobCtx;
+use photocraft_engine::retouch_cmds::ContentAwarePreview;
 use serde_json::Value;
 
 use crate::PhotocraftApp;
@@ -27,6 +29,13 @@ struct Running {
     key: String,
     ctx: JobCtx,
     rx: Receiver<photocraft_engine::Result<Document>>,
+    /// Test-only notification sent after this worker publishes its real result.
+    #[cfg(test)]
+    finished: Receiver<()>,
+    /// The full-resolution job that follows a coarse one.
+    refine: Option<ContentAwarePreview>,
+    /// This job refines a coarse preview already shown: its failure leaves that one shown.
+    refining: bool,
 }
 
 pub(crate) struct CamPreview {
@@ -35,7 +44,7 @@ pub(crate) struct CamPreview {
     /// The params the move has now, and when they last changed (ms).
     key: String,
     since: f64,
-    /// Params whose preview failed (too large a selection, say): not tried again.
+    /// Params whose preview failed (a locked layer, say): not tried again.
     failed: Option<String>,
     running: Option<Running>,
     /// The latest finished preview, with the params it shows.
@@ -126,15 +135,21 @@ fn step(app: &mut PhotocraftApp, now: f64) -> Option<(Arc<Document>, u64)> {
                     (Ok(d), Some(r)) => {
                         // Duotone documents display through their inks.
                         let d = photocraft_engine::mode_cmds::display_document(&d).unwrap_or(d);
-                        p.shown = Some((r.key, Arc::new(d)));
+                        p.shown = Some((r.key.clone(), Arc::new(d)));
                         p.serial += 1;
+                        // A coarse result: the exact one follows.
+                        if let Some(job) = r.refine {
+                            p.running = spawn(job, r.key, true);
+                        }
                     }
+                    // A failed refinement leaves the coarse result shown.
+                    (_, Some(r)) if r.refining => {}
                     (_, Some(r)) => p.failed = Some(r.key),
                     _ => {}
                 }
             }
             Err(TryRecvError::Disconnected) => {
-                if let Some(r) = p.running.take() {
+                if let Some(r) = p.running.take().filter(|r| !r.refining) {
                     p.failed = Some(r.key);
                 }
             }
@@ -158,16 +173,34 @@ fn step(app: &mut PhotocraftApp, now: f64) -> Option<(Arc<Document>, u64)> {
 /// Compute the preview of `params` on a worker thread.
 fn start(app: &PhotocraftApp, params: &Value, key: String) -> Option<Running> {
     let job = photocraft_engine::retouch_cmds::content_aware_move_preview(&app.session, params).ok()?;
+    spawn(job, key, false)
+}
+
+/// Run `job` on a worker thread (`refining` a coarse preview already shown).
+fn spawn(job: ContentAwarePreview, key: String, refining: bool) -> Option<Running> {
+    let refine = job.refine();
     let ctx = JobCtx::new();
     let (tx, rx) = std::sync::mpsc::channel();
     let worker = ctx.clone();
+    #[cfg(test)]
+    let (finished_tx, finished) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name("cam-preview".into())
         .spawn(move || {
             let _ = tx.send(job.run(&worker).map(|(d, _)| d));
+            #[cfg(test)]
+            let _ = finished_tx.send(());
         })
         .ok()?;
-    Some(Running { key, ctx, rx })
+    Some(Running {
+        key,
+        ctx,
+        rx,
+        #[cfg(test)]
+        finished,
+        refine,
+        refining,
+    })
 }
 
 /// Keep frames coming while a preview waits out its debounce or computes.
@@ -215,16 +248,8 @@ mod tests {
         assert!(step(&mut app, 1000.0 + DEBOUNCE_MS / 2.0).is_none() && app.cam_preview.as_ref().unwrap().running.is_none());
         // At rest: the job runs, off this thread, and its result shows once it arrives.
         let mut now = 1000.0 + DEBOUNCE_MS;
-        let mut shown = step(&mut app, now);
-        for _ in 0..600 {
-            if shown.is_some() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            now += 10.0;
-            shown = step(&mut app, now);
-        }
-        let (preview, key) = shown.expect("a preview once the pointer rested");
+        assert!(step(&mut app, now).is_none() && app.cam_preview.as_ref().is_some_and(|p| p.running.is_some()), "the preview job starts off this thread");
+        let (preview, key) = wait_for(&mut app, &mut now, 0).expect("a preview once the pointer rested");
         assert!(key > BASE && showing(&app));
         assert!(blue(&preview, 72, 30) && !blue(&preview, 22, 30), "the preview shows the move");
         let doc = app.session.active().unwrap().doc.clone();
@@ -252,34 +277,93 @@ mod tests {
         tool_event(&mut app, ToolEvent::Move { x: 72.0, y: 30.0, pressure: 1.0 }, m);
         tool_event(&mut app, ToolEvent::Up { x: 72.0, y: 30.0 }, m);
         assert!(crate::cam_transform::active(&app));
-        let (mut now, mut shown) = (0.0, step(&mut app, 0.0));
-        for _ in 0..800 {
-            if shown.is_some() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            now += 10.0;
-            shown = step(&mut app, now);
-        }
-        let (preview, _) = shown.expect("the box shows the result");
+        let mut now = 0.0;
+        let (preview, _) = wait_for(&mut app, &mut now, 0).expect("the box shows the result");
         assert!(blue(&preview, 72, 30) && !blue(&preview, 22, 30));
         // Cancelling the box drops the preview.
         crate::cam_transform::cancel(&mut app);
         assert!(step(&mut app, now + 1.0).is_none() && app.cam_preview.is_none());
     }
 
+    /// Wait for the specific worker to publish its result, then let the normal non-blocking
+    /// `step` path consume it. Coverage instrumentation can make a solve much slower than a
+    /// fixed polling loop; the watchdog bounds a stuck worker without setting its expected speed.
+    fn wait_for(app: &mut PhotocraftApp, now: &mut f64, after: u64) -> Option<(Arc<Document>, u64)> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        loop {
+            let shown = step(app, *now);
+            if shown.as_ref().is_some_and(|s| s.1 > after) {
+                return shown;
+            }
+            let p = app.cam_preview.as_ref()?;
+            if let Some(running) = &p.running {
+                let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+                running.finished.recv_timeout(remaining).ok()?;
+            } else if shown.is_some() || p.failed.as_deref() == Some(p.key.as_str()) {
+                return None;
+            } else if *now < p.since + DEBOUNCE_MS {
+                // Advance the simulated debounce clock without sleeping in real time.
+                *now = p.since + DEBOUNCE_MS;
+            } else {
+                return None;
+            }
+        }
+    }
+
     #[test]
-    fn a_selection_too_large_to_preview_is_not_retried() {
+    fn a_large_selection_shows_a_coarse_result_then_the_exact_one() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 600, "height": 400})).unwrap();
+        app.run("paint.pencil", json!({"points": [[150, 160], [170, 160]], "size": 12, "color": "#0000ff"})).unwrap();
         app.run("select.rect", json!({"x": 10, "y": 10, "width": 300, "height": 300})).unwrap();
         app.ui.tool = Tool::ContentAwareMove;
         let m = egui::Modifiers::NONE;
         tool_event(&mut app, ToolEvent::Down { x: 100.0, y: 100.0, pressure: 1.0 }, m);
-        tool_event(&mut app, ToolEvent::Move { x: 140.0, y: 100.0, pressure: 1.0 }, m);
+        tool_event(&mut app, ToolEvent::Move { x: 340.0, y: 100.0, pressure: 1.0 }, m);
         assert!(step(&mut app, 0.0).is_none());
-        assert!(step(&mut app, DEBOUNCE_MS + 1.0).is_none());
+        let mut now = DEBOUNCE_MS;
+        // First the coarse result, while the exact one computes.
+        let (coarse, first) = wait_for(&mut app, &mut now, 0).expect("a coarse preview");
+        assert!(blue(&coarse, 400, 160) && !blue(&coarse, 160, 160), "the coarse preview shows the move");
+        let refining = app.cam_preview.as_ref().unwrap().running.as_ref().is_some_and(|r| r.refining);
+        assert!(refining || app.cam_preview.as_ref().unwrap().serial > 1, "the exact result follows");
+        // Then the exact one: the command's own result.
+        let (exact, _) = wait_for(&mut app, &mut now, first).expect("the exact preview");
+        assert!(app.cam_preview.as_ref().unwrap().running.is_none() && showing(&app));
+        assert!(!blue(&app.session.active().unwrap().doc, 400, 160), "the document is untouched");
+        tool_event(&mut app, ToolEvent::Up { x: 340.0, y: 100.0 }, m);
+        let doc = app.session.active().unwrap().doc.clone();
+        let b = doc.bounds();
+        assert!(
+            exact.layers[0].surface().unwrap().read_region(b) == doc.layers[0].surface().unwrap().read_region(b),
+            "the exact preview is what release makes"
+        );
+    }
+
+    #[test]
+    fn a_failed_preview_is_not_retried() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 100, "height": 60})).unwrap();
+        app.run("select.rect", json!({"x": 6, "y": 14, "width": 32, "height": 32})).unwrap();
+        app.run("layer.lockLayers", json!({"pixels": true})).unwrap();
+        app.ui.tool = Tool::ContentAwareMove;
+        let m = egui::Modifiers::NONE;
+        tool_event(&mut app, ToolEvent::Down { x: 22.0, y: 30.0, pressure: 1.0 }, m);
+        tool_event(&mut app, ToolEvent::Move { x: 72.0, y: 30.0, pressure: 1.0 }, m);
+        assert!(step(&mut app, 0.0).is_none());
+        let mut now = DEBOUNCE_MS;
+        for _ in 0..3000 {
+            assert!(step(&mut app, now).is_none(), "nothing to show");
+            if app.cam_preview.as_ref().unwrap().failed.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            now += 10.0;
+        }
         let p = app.cam_preview.as_ref().unwrap();
-        assert!(p.running.is_none() && p.failed.as_deref() == Some(p.key.as_str()));
+        assert!(p.running.is_none() && p.shown.is_none() && p.failed.as_deref() == Some(p.key.as_str()));
+        // Resting longer starts nothing new.
+        assert!(step(&mut app, now + 1000.0).is_none());
+        assert!(app.cam_preview.as_ref().unwrap().running.is_none());
     }
 }
