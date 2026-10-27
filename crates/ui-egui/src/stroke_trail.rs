@@ -126,13 +126,19 @@ impl Trail {
         let tail = tail.map(|(_, t)| t);
         let renderer = &dabs.renderer;
         let full = |c: f32| if dabs.reach && c > 0.0 { 1.0 } else { c };
-        self.restamp(changed, |x, y| full(renderer.coverage_at(x, y).max(tail.as_ref().map_or(0.0, |t| t.coverage_at(x, y)))));
+        let reach = dabs.reach;
+        let touches = |r| renderer.touches(r) || tail.as_ref().is_some_and(|t| t.touches(r));
+        self.restamp(changed, reach, touches, |x, y| full(renderer.coverage_at(x, y).max(tail.as_ref().map_or(0.0, |t| t.coverage_at(x, y)))));
         self.dabs = Some(dabs);
     }
 
     /// Recompute the mask pixels over the document rectangle `r` from `cov` (document pixel →
-    /// coverage 0..=1), sampled at each mask pixel's centre.
-    fn restamp(&mut self, r: photocraft_geom::Rect, cov: impl Fn(i32, i32) -> f32) {
+    /// coverage 0..=1), sampled at each mask pixel's centre. With `block`, a mask pixel takes the
+    /// largest coverage of all the document pixels it stands for instead: on a big document (one
+    /// mask pixel per k x k) a thin Remove stroke can fall between the centres, and every pixel it
+    /// touches is removed. `touches` says whether `cov` can be above 0 anywhere in a document
+    /// rectangle, so blocks the stroke never reached aren't scanned pixel by pixel.
+    fn restamp(&mut self, r: photocraft_geom::Rect, block: bool, touches: impl Fn(photocraft_geom::Rect) -> bool, cov: impl Fn(i32, i32) -> f32) {
         if r.is_empty() {
             return;
         }
@@ -144,14 +150,39 @@ impl Trail {
         if x1 <= x0 || y1 <= y0 {
             return;
         }
+        // Document pixels of mask pixel `i` along a side `n` long: its centre, or its whole span
+        // clipped to the document (at least one pixel).
+        let span = |i: usize, n: u32| -> (i32, i32) {
+            if block {
+                let lo = (i as f64 * k) as i64;
+                let hi = (((i + 1) as f64 * k) as i64).min(i64::from(n)).max(lo + 1);
+                (i32::try_from(lo).unwrap_or(i32::MAX), i32::try_from(hi).unwrap_or(i32::MAX))
+            } else {
+                let c = ((i as f64 + 0.5) * k).floor() as i32;
+                (c, c.saturating_add(1))
+            }
+        };
         for y in y0..y1 {
-            let dy = ((y as f64 + 0.5) * k).floor() as i32;
+            let (dy0, dy1) = span(y, self.doc[1]);
             for x in x0..x1 {
-                let dx = ((x as f64 + 0.5) * k).floor() as i32;
-                let c = cov(dx, dy);
-                let c = if c.is_finite() { (c.clamp(0.0, 1.0) * 255.0).round() as u8 } else { 0 };
+                let (dx0, dx1) = span(x, self.doc[0]);
                 let i = y * self.w + x;
-                let c = c.max(self.base.get(i).copied().unwrap_or(0));
+                let base = self.base.get(i).copied().unwrap_or(0);
+                let mut c = 0.0f32;
+                let skip = base == u8::MAX || !touches(photocraft_geom::Rect::new(dx0, dy0, dx1, dy1));
+                'block: for dy in if skip { 0..0 } else { dy0..dy1 } {
+                    for dx in dx0..dx1 {
+                        let v = cov(dx, dy);
+                        if v > c {
+                            c = v;
+                            if c >= 1.0 {
+                                break 'block;
+                            }
+                        }
+                    }
+                }
+                let c = if c.is_finite() { (c.clamp(0.0, 1.0) * 255.0).round() as u8 } else { 0 };
+                let c = c.max(base);
                 if let Some(v) = self.cov.get_mut(i) {
                     *v = c;
                 }
@@ -310,6 +341,41 @@ mod tests {
             assert_eq!(t.coverage(x, y), 255, "({x}, {y}) lies on a stroke");
         }
         assert_eq!(t.coverage(40, 40), 0);
+    }
+
+    /// On a big document one mask pixel stands for k x k document pixels. A thin Remove stroke
+    /// that falls between the mask pixels' centres still removes what it touches, so it still
+    /// shows.
+    #[test]
+    fn a_thin_reach_stroke_on_a_big_document_still_shows() {
+        // A 2 px brush reaches document rows 10-14, a 4 px one rows 9-16; the mask's centres
+        // sample rows 9 and 15 at k = 6, rows 6 and 18 at k = 12.
+        for (doc, size) in [([6000, 4000], 2.0), ([12000, 8000], 4.0)] {
+            let brush = BrushSettings { size, hardness: 1.0, ..Default::default() };
+            let pts = [[300.0, 12.5, 1.0], [3000.0, 12.5, 1.0]];
+            let mut t = Trail::new(doc);
+            t.feed_reach(&pts, || brush.clone());
+            let x = (1500.0 / t.scale()) as usize;
+            assert!((0..3).any(|y| t.coverage(x, y) == 255), "{size} px on {doc:?}: the stroke shows");
+            assert_eq!(t.coverage(x, 3), 0, "{size} px on {doc:?}: nothing below it");
+            let mut s = Trail::new(doc);
+            s.feed_stroke_reach(&pts, || brush.clone());
+            assert!((0..3).any(|y| s.coverage(x, y) == 255), "{size} px on {doc:?}: a waiting stroke too");
+        }
+    }
+
+    /// A later stroke restamps its whole dirty rectangle, earlier strokes' tint included, also
+    /// off its own path.
+    #[test]
+    fn a_crossing_reach_stroke_keeps_the_earlier_tint_inside_its_rect() {
+        let mut t = Trail::new([200, 200]);
+        let brush = BrushSettings { size: 20.0, ..Default::default() };
+        t.feed_stroke_reach(&[[20.0, 100.0, 1.0], [180.0, 100.0, 1.0]], || brush.clone());
+        t.feed_stroke_reach(&[[20.0, 20.0, 1.0], [180.0, 180.0, 1.0]], || brush.clone());
+        assert_eq!(t.coverage(150, 100), 255, "the first stroke, off the second, inside its rect");
+        assert_eq!(t.coverage(50, 100), 255);
+        assert_eq!(t.coverage(150, 150), 255, "the second stroke");
+        assert_eq!(t.coverage(150, 40), 0);
     }
 
     #[test]
