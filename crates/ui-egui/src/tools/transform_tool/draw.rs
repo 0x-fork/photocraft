@@ -1,18 +1,40 @@
 use super::begin::warps_type;
+use super::drag_modes::{HandleIndicator, handle_indicator};
 use super::options_bar::{quad_scale, readout};
-use super::drag_modes::distort_refused;
-use super::pointer::{Hit, hit, rotate_dir, rotation_degrees};
+use super::pointer::{Hit, handle_at, rotate_dir, rotation_degrees};
 use super::warp::{on_section_edge, quick_split_kind, single_patch};
 use super::*;
 
+/// The distort or skew pointer at screen point `at`, where [`super::cursor`] hid the system
+/// pointer over a handle. The canvas calls it from its cursor branch, so nothing is drawn where a
+/// guide, a pan or a zoom set the cursor instead.
+pub(crate) fn draw_handle_cursor(app: &PhotocraftApp, ctx: &egui::Context, xf: &ViewXform, at: Pos2, mods: egui::Modifiers) {
+    let Some(t) = &app.ui.transform else { return };
+    let h = handle_at(app, t, xf.to_doc(at), super::handle_tolerance(app));
+    let scr = |q: [f64; 2]| xf.to_screen(q[0] as f32, q[1] as f32);
+    match (h, handle_indicator(app, t, h, mods)) {
+        (Hit::Corner(i), Some(HandleIndicator::Distort)) => {
+            if let Some(q) = t.quad.get(i) {
+                draw_distort_cursor(ctx, at, scr(*q) - scr(t.pivot));
+            }
+        }
+        (Hit::Edge(i), Some(HandleIndicator::Skew)) => {
+            if let (Some(a), Some(b)) = (t.quad.get(i), t.quad.get((i + 1) % 4)) {
+                draw_skew_cursor(ctx, at, scr(*b) - scr(*a));
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Draws the Free Distort cursor at `at`: a high-contrast vector pointer pointing toward
 /// or outward through the corner, with shadow outline for contrast on any canvas background.
-pub fn draw_distort_cursor(ctx: &egui::Context, at: Pos2, toward: egui::Vec2) {
+fn draw_distort_cursor(ctx: &egui::Context, at: Pos2, toward: egui::Vec2) {
     let len = toward.length();
     let u = if len.is_finite() && len > 1e-6 { toward / len } else { vec2(-1.0, -1.0).normalized() };
     let perp = vec2(-u.y, u.x);
     let tokens = crate::theme::Tokens::get(ctx);
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("transform-distort-cursor")));
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("transform-distort-cursor")));
 
     // An arrowhead dart pointing along `u` with tip at `at`.
     let tip = at;
@@ -30,12 +52,12 @@ pub fn draw_distort_cursor(ctx: &egui::Context, at: Pos2, toward: egui::Vec2) {
 }
 
 /// Draws the Skew cursor at `at`: opposing parallel arrows aligned with the edge tangent `tangent`.
-pub fn draw_skew_cursor(ctx: &egui::Context, at: Pos2, tangent: egui::Vec2) {
+fn draw_skew_cursor(ctx: &egui::Context, at: Pos2, tangent: egui::Vec2) {
     let len = tangent.length();
     let u = if len.is_finite() && len > 1e-6 { tangent / len } else { vec2(1.0, 0.0) };
     let perp = vec2(-u.y, u.x);
     let tokens = crate::theme::Tokens::get(ctx);
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("transform-skew-cursor")));
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("transform-skew-cursor")));
 
     for (offset, dir) in [(4.0f32, 1.0f32), (-4.0f32, -1.0f32)] {
         let center = at + perp * offset;
@@ -130,7 +152,9 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     if let Some(w) = &t.warp {
         let over_canvas = painter.ctx().input(|i| i.pointer.hover_pos()).filter(|p| xf.rect.contains(*p)).map(|p| xf.to_doc(p));
         let at = pv.split_pointer.or(over_canvas);
-        let alt = painter.ctx().input(|i| i.modifiers.alt || i.modifiers.command);
+        // The same keys as `cursor`, sticky ones included, so the guide matches the pointer.
+        let mods = crate::workspace_ui::sticky_mods(app, painter.ctx().input(|i| i.modifiers));
+        let alt = mods.alt || mods.command;
         let guide = at.filter(|_| !warps_type(app)).and_then(|p| {
             let tool = pv.split_tool.or_else(|| {
                 (alt || pv.split_quick).then(|| {
@@ -172,32 +196,10 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     painter.circle_stroke(c, 5.0, Stroke::new(0.5, Color32::BLACK));
     painter.line_segment([c - vec2(8.0, 0.0), c + vec2(8.0, 0.0)], Stroke::new(1.0, Color32::WHITE));
     painter.line_segment([c - vec2(0.0, 8.0), c + vec2(0.0, 8.0)], Stroke::new(1.0, Color32::WHITE));
-    if let Some(at) = painter.ctx().input(|i| i.pointer.interact_pos().or(i.pointer.hover_pos())).filter(|p| xf.rect.contains(*p)) {
+    if let Some(at) = painter.ctx().pointer_hover_pos().filter(|p| xf.rect.contains(*p)) {
         let p = xf.to_doc(at);
         let tol = HANDLE_PX / f64::from(xf.zoom.max(0.01));
-        let mods = crate::workspace_ui::sticky_mods(app, painter.ctx().input(|i| i.modifiers));
-        let active_hit = pv.gesture.map(|g| g.hit);
-        let h = active_hit.unwrap_or_else(|| hit(t, p, tol));
-        let distort_armed = (mods.command || t.mode == TransformMode::Distort) && !distort_refused(app, t) && t.content_aware.is_none();
-        let skew_armed = (mods.command || t.mode == TransformMode::Skew) && t.content_aware.is_none();
-
-        if let Hit::Corner(i) = h
-            && distort_armed
-        {
-            let corner_scr = scr(t.quad[i]);
-            let pivot_scr = scr(t.pivot);
-            let toward = corner_scr - pivot_scr;
-            draw_distort_cursor(painter.ctx(), at, toward);
-        } else if let Hit::Edge(i) = h
-            && skew_armed
-        {
-            let a_scr = scr(t.quad[i]);
-            let b_scr = scr(t.quad[(i + 1) % 4]);
-            let tangent = b_scr - a_scr;
-            draw_skew_cursor(painter.ctx(), at, tangent);
-        } else if !mods.command
-            && let Some(k) = rotate_dir(t, Some(pv), p, tol)
-        {
+        if let Some(k) = rotate_dir(t, Some(pv), p, tol) {
             // Through the view, so the arc bends round the corner as it shows under a turned or
             // flipped view.
             let toward = xf.to_screen((p[0] + k[0] * 16.0) as f32, (p[1] + k[1] * 16.0) as f32) - at;
