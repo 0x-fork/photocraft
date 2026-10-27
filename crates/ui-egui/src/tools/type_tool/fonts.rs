@@ -304,7 +304,7 @@ pub(crate) fn family_picker_in(
     let labels: Option<Arc<HashMap<String, String>>> = ui.ctx().data(|d| d.get_temp(font_labels_id()));
     let labels = labels.as_deref();
     let shown = labels.and_then(|l| l.get(current.as_str())).unwrap_or(current).clone();
-    let combo = egui::ComboBox::from_id_salt(salt)
+    let combo = craft_ui::ComboBox::from_id_salt(salt)
         .selected_text(shown)
         .width(width)
         .height(FONT_MENU_HEIGHT)
@@ -313,8 +313,8 @@ pub(crate) fn family_picker_in(
         // picking a font closes it explicitly below.
         .close_behavior(if matches!(close, egui::PopupCloseBehavior::IgnoreClicks) { close } else { egui::PopupCloseBehavior::CloseOnClickOutside });
 
-    let mut response = combo.show_ui(ui, |ui| {
-        let height_id = search_id.with("height");
+    // The search field is the menu's header: only the list scrolls under it.
+    let header = |ui: &mut egui::Ui| {
         // Each opening focuses the search, including a reopen on the very next pass. Keep
         // asking through the invisible sizing pass, until the field receives focus.
         let mut focus = ui.data(|d| d.get_temp(focus_id)).unwrap_or(true);
@@ -336,6 +336,9 @@ pub(crate) fn family_picker_in(
             d.insert_temp(focus_id, focus);
             d.insert_temp(search_id, q.clone());
         });
+        (q, down, up, enter)
+    };
+    let mut response = combo.show_ui_with_header(ui, header, |ui, (q, down, up, enter)| {
         let ql = q.to_lowercase();
         // The recent group stays as it was when the menu opened: each arrow step applies (and so
         // records) a family, and moving it to the top would send the next step back up.
@@ -391,83 +394,64 @@ pub(crate) fn family_picker_in(
         let preview = crate::font_preview::sample(preview);
         let row_h = preview.map_or(28.0, |(_, [_, h])| (h + 4.0).max(28.0));
 
-        // Wrap the font rows in a ScrollArea so only the list scrolls: the search field above
-        // stays fixed at the top of the popup.
         let mut hovered: Option<String> = None;
         let reveal = if stepped.is_some() { None } else { reveal };
         let mut reveal_top: Option<egui::Rect> = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for (i, (f, label)) in rows.into_iter().enumerate() {
-                if i == n_recent && n_recent > 0 {
-                    ui.separator();
+        for (i, (f, label)) in rows.into_iter().enumerate() {
+            if i == n_recent && n_recent > 0 {
+                ui.separator();
+            }
+            // Highlighted by its fill alone, as Photoshop's font menu is. A selectable button lays
+            // out its frame's stroke only once hovered or selected, so with the theme's stroke the
+            // row under the pointer (and the selected one) grew and pushed the rows below down:
+            // the list jumped as the pointer moved (#7406). One row only, though a recent
+            // family is listed twice.
+            let mut button = egui::Button::selectable(selected == Some(i), label).truncate().stroke(egui::Stroke::NONE);
+            if let Some((size, [_, h])) = preview {
+                button = button
+                    .right_text(egui::Atom::custom(egui::IdSalt::new(("font-sample", f)), egui::vec2(crate::font_preview::slot_width(ui.ctx(), f, size), h)));
+            }
+            let response = ui.add_sized([330.0, row_h], button);
+            if stepped == Some(i) {
+                response.scroll_to_me(Some(egui::Align::Center));
+            } else if reveal.is_some() {
+                if reveal_from == Some(i) {
+                    reveal_top = Some(response.rect);
                 }
-                // Highlighted by its fill alone, as Photoshop's font menu is. A selectable button lays
-                // out its frame's stroke only once hovered or selected, so with the theme's stroke the
-                // row under the pointer (and the selected one) grew and pushed the rows below down:
-                // the list jumped as the pointer moved (#7406). One row only, though a recent
-                // family is listed twice.
-                let mut button = egui::Button::selectable(selected == Some(i), label).truncate().stroke(egui::Stroke::NONE);
-                if let Some((size, [_, h])) = preview {
-                    button = button.right_text(egui::Atom::custom(
-                        egui::IdSalt::new(("font-sample", f)),
-                        egui::vec2(crate::font_preview::slot_width(ui.ctx(), f, size), h),
-                    ));
-                }
-                let response = ui.add_sized([330.0, row_h], button);
-                if stepped == Some(i) {
-                    response.scroll_to_me(Some(egui::Align::Center));
-                } else if reveal.is_some() {
-                    if reveal_from == Some(i) {
-                        reveal_top = Some(response.rect);
-                    }
-                    if reveal == Some(i) {
-                        // Jump, not glide: the menu opens with its current family in view. Arrow
-                        // steps above keep the animation. A recent row too far below the top of
-                        // the group (large previews, many recents) is brought up to the bottom.
-                        let top = reveal_top.unwrap_or(response.rect);
-                        let (rect, align) = if response.rect.bottom() - top.top() <= ui.clip_rect().height() {
-                            (top, egui::Align::Min)
-                        } else {
-                            (response.rect, egui::Align::Max)
-                        };
-                        ui.scroll_to_rect_animation(rect, Some(align), egui::style::ScrollAnimation::none());
-                    }
-                }
-                if let Some((size, _)) = preview
-                    && ui.is_rect_visible(response.rect)
-                {
-                    crate::font_preview::paint(ui, f, response.rect, size);
-                }
-                if response.hovered() {
-                    hovered = Some(f.clone());
-                }
-                if press.chosen(ui, &response) {
-                    *current = f.clone();
-                    // A served family not fetched yet: start now, before any text needs it.
-                    photocraft_text::served::request(f);
-                    changed = true;
-                    picked = true;
-                    ui.data_mut(|d| d.remove::<String>(search_id));
-                    hovered = None;
-                    ui.close();
+                if reveal == Some(i) {
+                    // Jump, not glide: the menu opens with its current family in view. Arrow
+                    // steps above keep the animation. A recent row too far below the top of
+                    // the group (large previews, many recents) is brought up to the bottom.
+                    let top = reveal_top.unwrap_or(response.rect);
+                    let (rect, align) =
+                        if response.rect.bottom() - top.top() <= ui.clip_rect().height() { (top, egui::Align::Min) } else { (response.rect, egui::Align::Max) };
+                    ui.scroll_to_rect_animation(rect, Some(align), egui::style::ScrollAnimation::none());
                 }
             }
-        });
-        // egui measures a popup only when it opens and never lets it grow back, so a filtered
-        // list would leave the menu short after the query is cleared (#1369). Keep the unfiltered
-        // height while searching. Measured after the rows: before them `min_rect` only holds the
-        // search field, and the cache would shrink the menu to it.
-        if ql.is_empty() {
-            let h = ui.min_rect().height();
-            ui.data_mut(|d| d.insert_temp(height_id, h));
-        } else if let Some(h) = ui.data(|d| d.get_temp::<f32>(height_id)) {
-            ui.set_min_height(h.min(FONT_MENU_HEIGHT));
+            if let Some((size, _)) = preview
+                && ui.is_rect_visible(response.rect)
+            {
+                crate::font_preview::paint(ui, f, response.rect, size);
+            }
+            if response.hovered() {
+                hovered = Some(f.clone());
+            }
+            if press.chosen(ui, &response) {
+                *current = f.clone();
+                // A served family not fetched yet: start now, before any text needs it.
+                photocraft_text::served::request(f);
+                changed = true;
+                picked = true;
+                ui.data_mut(|d| d.remove::<String>(search_id));
+                hovered = None;
+                ui.close();
+            }
         }
         if accept { None } else { hovered }
     });
     response.response = response.response.accessible_name(tl!("Font"));
     press.after(&response.response);
-    if !egui::ComboBox::is_open(ui.ctx(), response.response.id) {
+    if !craft_ui::ComboBox::is_open(ui.ctx(), response.response.id) {
         ui.data_mut(|d| {
             d.remove::<bool>(focus_id);
             d.remove::<Vec<String>>(recents_id);
@@ -484,7 +468,7 @@ pub(crate) fn family_picker_in(
     if picked {
         ui.memory_mut(|m| m.request_focus(field));
     }
-    let open = egui::ComboBox::is_open(ui.ctx(), field);
+    let open = craft_ui::ComboBox::is_open(ui.ctx(), field);
     if !open && ui.is_enabled() && ui.memory(|m| m.has_focus(field)) {
         ui.memory_mut(|m| m.set_focus_lock_filter(field, egui::EventFilter { vertical_arrows: true, ..Default::default() }));
         let down = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown));
@@ -512,7 +496,7 @@ pub(crate) fn family_picker_in(
 
     // The wheel over the closed button steps through the families, a notch each, like Photoshop's
     // options-bar font menu: no need to open the list (#3350).
-    if !egui::ComboBox::is_open(ui.ctx(), response.response.id) && ui.is_enabled() {
+    if !craft_ui::ComboBox::is_open(ui.ctx(), response.response.id) && ui.is_enabled() {
         let hovered = response.response.hovered();
         if hovered {
             ui.input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
@@ -537,7 +521,7 @@ pub(crate) fn family_picker_in(
         let hover_id = egui::Id::unique("type-font-hover");
         if let Some(f) = hovered_font {
             ui.ctx().data_mut(|d| d.insert_temp(hover_id, f));
-        } else if egui::ComboBox::is_open(ui.ctx(), response.response.id) {
+        } else if craft_ui::ComboBox::is_open(ui.ctx(), response.response.id) {
             // Only the open menu clears it: the options bar and the Character section both draw
             // this picker, and the closed one must not wipe the other's hover (#5152).
             ui.ctx().data_mut(|d| d.remove::<String>(hover_id));

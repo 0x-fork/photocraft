@@ -244,7 +244,7 @@ pub(super) fn kerning_field(ui: &mut egui::Ui, shown: &str, width: f32) -> Optio
         }
         let presets = ["Metrics", "Optical", "0", "-100", "-75", "-50", "-25", "-10", "-5", "5", "10", "25", "50", "75", "100", "200"];
         let (press, close) = crate::press_menu::PressCombo::before(ui, "props-kern-presets");
-        let combo = egui::ComboBox::from_id_salt("props-kern-presets")
+        let combo = craft_ui::ComboBox::from_id_salt("props-kern-presets")
             .selected_text("")
             .width(16.0)
             .height(420.0)

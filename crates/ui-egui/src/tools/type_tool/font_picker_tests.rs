@@ -1,4 +1,4 @@
-//! The Type tool's searchable font menu (#1369): it keeps its height and focuses its search field.
+//! The Type tool's searchable font menu (#1369): it grows back after a search and focuses its search field.
 
 use super::font_picker_in;
 use egui::accesskit::Role;
@@ -173,23 +173,28 @@ fn the_search_field_stays_put_while_the_arrows_scroll_the_list() {
     assert_eq!(search, h.get_by_role(Role::TextInput).rect(), "the search field scrolled away with the list");
 }
 
+/// A query matching no family shrinks the menu; clearing it grows the menu back to its full
+/// height (egui#5225), and the search field stays where it was throughout.
 #[test]
-fn clearing_the_query_restores_the_menu_height() {
+fn clearing_a_query_that_matches_nothing_grows_the_menu_back() {
     let mut h = harness();
     open(&mut h);
     let full = popup_rect(&h).expect("menu open").height();
-    h.get_by_role(Role::TextInput).type_text("zeta");
+    let search = h.get_by_role(Role::TextInput).rect();
+    h.get_by_role(Role::TextInput).type_text("xxxx");
     h.run();
-    assert!(h.query_by_label("Family 01").is_none(), "the query filters the list");
-    let searching = popup_rect(&h).expect("still open").height();
-    for _ in 0.."zeta".len() {
+    assert!(h.query_by_label("Family 00").is_none(), "the query matches no family");
+    let none = popup_rect(&h).expect("still open").height();
+    assert!(none < full / 2.0, "no matches shrink the menu: {none} vs {full}");
+    assert_eq!(search, h.get_by_role(Role::TextInput).rect(), "the search field moved when the list emptied");
+    for _ in 0.."xxxx".len() {
         h.key_press(Key::Backspace);
     }
     h.run();
     assert!(h.query_by_label("Family 01").is_some(), "the cleared query lists every family");
     let cleared = popup_rect(&h).expect("still open").height();
     assert!((cleared - full).abs() < 0.5, "height after clearing {cleared} != original {full}");
-    assert!((searching - full).abs() < 0.5, "the menu keeps its height while searching: {searching} vs {full}");
+    assert_eq!(search, h.get_by_role(Role::TextInput).rect(), "the search field moved when the list grew back");
 }
 
 #[test]

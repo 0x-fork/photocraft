@@ -1045,7 +1045,7 @@ fn reset_harness(app: PhotocraftApp) -> egui_kittest::Harness<'static, ResetHarn
                         let input = search.with("input");
                         state.search_input = Some(input);
                         state.search_focused = ui.memory(|m| m.has_focus(input));
-                        state.search_height = ui.data(|d| d.get_temp::<f32>(search.with("height")));
+                        state.search_height = ui.memory(|m| m.area_rect(button.with("popup"))).map(|r| r.height());
                     });
                 }
                 if state.picker_button {

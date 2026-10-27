@@ -158,7 +158,7 @@ pub(super) fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> E
         label(ui, tl!("Preset:"));
         let mut picked = None;
         let (press, close) = crate::press_menu::PressCombo::before(ui, cx.mem.with("gm-preset"));
-        let combo = egui::ComboBox::from_id_salt(cx.mem.with("gm-preset"))
+        let combo = craft_ui::ComboBox::from_id_salt(cx.mem.with("gm-preset"))
             .selected_text(tl!("Custom"))
             .width(ui.available_width().min(190.0))
             .height(420.0)
