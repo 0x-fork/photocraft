@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn print_dialog_retries_an_uncached_printer_list_after_the_spooler_is_released() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let (mut app, ctx) = app();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&asked);
+    app.session.printer_source = Some(Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+        vec![craft_print::Printer { name: "Retry printer".into(), default: true, two_sided: None, description: String::new() }]
+    }));
+    let (held_tx, held) = std::sync::mpsc::channel();
+    let (release, released_rx) = std::sync::mpsc::channel::<()>();
+    let released = Arc::new(AtomicBool::new(false));
+    let done = Arc::clone(&released);
+    let holder = std::thread::spawn(move || {
+        photocraft_engine::print_cmds::with_spooler(|| {
+            held_tx.send(()).unwrap();
+            let _ = released_rx.recv_timeout(std::time::Duration::from_secs(5));
+            done.store(true, Ordering::SeqCst);
+        });
+    });
+    held.recv().unwrap();
+    let id = open_print(&mut app);
+    let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+    fields.insert("dryRun".into(), json!(true));
+    ctx.run_ui(Default::default(), |ui| print_body(&mut app, ui, &mut fields, id)).textures_delta.clear();
+    let waited = released.load(Ordering::SeqCst);
+    let calls_while_busy = asked.load(Ordering::SeqCst);
+    let _ = release.send(());
+    holder.join().unwrap();
+    assert!(!waited, "opening or drawing Print waited for the spooler");
+    assert_eq!(calls_while_busy, 0);
+    assert_eq!(fields["__systemPrinters"], json!([]));
+    photocraft_engine::print_cmds::with_spooler(|| {
+        ctx.run_ui(Default::default(), |ui| print_body(&mut app, ui, &mut fields, id)).textures_delta.clear();
+        assert_eq!(fields["__systemPrinters"], json!([{"name": "Retry printer", "default": true}]));
+        assert_eq!(fields.get("__printers"), cfg!(windows).then(|| json!(["Retry printer"])).as_ref());
+        assert!(!fields.contains_key("__printerListingPending"));
+        assert!(asked.load(Ordering::SeqCst) > 0);
+    });
+}
+
+#[test]
 fn driver_calls_do_not_wait_while_the_spooler_is_busy() {
     use std::sync::atomic::{AtomicBool, Ordering};
     let (mut app, _) = app();
@@ -471,7 +513,7 @@ fn printer_menu_lists_the_spooler_printers_after_the_default() {
     assert_eq!(printer_options(None, "").len(), 1);
     // The dialog asks the engine, and the list never reaches file.print's params.
     let (mut app, ctx) = app();
-    let id = crate::menus::invoke(&mut app, &ctx, "file.print", json!({})).unwrap()["dialog"].as_u64().unwrap();
+    let id = photocraft_engine::print_cmds::with_spooler(|| crate::menus::invoke(&mut app, &ctx, "file.print", json!({})).unwrap()["dialog"].as_u64().unwrap());
     let f = &app.ui.dialog_mut(id).unwrap().fields;
     assert_eq!(f["__systemPrinters"], json!([{"name": "Test printer", "default": true}]));
     assert_eq!(f.get("__printers"), cfg!(windows).then(|| json!(["Test printer"])).as_ref());

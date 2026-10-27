@@ -31,8 +31,6 @@ pub fn open_print(app: &mut PhotocraftApp) -> u64 {
     let mut f = Map::new();
     f.insert("__print".into(), json!(true));
     f.insert("__label".into(), json!("PhotoCraft Print Settings"));
-    let printers = photocraft_engine::print_cmds::printers_without_waiting(&mut app.session);
-    f.insert("__systemPrinters".into(), printers["printers"].clone());
     // The settings of the last print, also from an earlier session (#7410).
     if let Some(Value::Object(m)) = photocraft_engine::print_cmds::last_print(&app.session) {
         f.extend(m);
@@ -62,17 +60,31 @@ pub fn open_print(app: &mut PhotocraftApp) -> u64 {
     ] {
         f.entry(k.to_string()).or_insert(v);
     }
-    // Windows: the system's printers, and the paper from the chosen printer's driver settings.
+    refresh_printers(app, &mut f);
+    app.ui.open_dialog(DialogKind::Command, f)
+}
+
+fn refresh_printers(app: &mut PhotocraftApp, f: &mut Map<String, Value>) {
+    if photocraft_engine::print_cmds::try_with_spooler(|| take_printer_lists(app, f)).is_some() {
+        f.remove("__printerListingPending");
+    } else {
+        take_printer_lists(app, f);
+        f.insert("__printerListingPending".into(), json!(true));
+    }
+}
+
+fn take_printer_lists(app: &mut PhotocraftApp, f: &mut Map<String, Value>) {
+    let printers = photocraft_engine::print_cmds::printers_without_waiting(&mut app.session);
+    f.insert("__systemPrinters".into(), printers["printers"].clone());
     if let Ok(list) = photocraft_engine::print_cmds::rgb_printers_without_waiting(&app.session) {
         f.insert("__printers".into(), json!(list.iter().map(|p| p.name.clone()).collect::<Vec<_>>()));
         let known = |n: &str| list.iter().any(|p| p.name == n);
-        if !known(&s(&f, "printer", "")) {
+        if !known(&s(f, "printer", "")) {
             let fallback = list.iter().find(|p| p.default).or(list.first()).map(|p| p.name.clone()).unwrap_or_default();
             f.insert("printer".into(), json!(fallback));
             f.remove("printerSettings");
         }
     }
-    app.ui.open_dialog(DialogKind::Command, f)
 }
 
 /// Whether the driver's paper, as `driver_page` took it, is wider than tall: the Orientation
@@ -288,6 +300,12 @@ pub(super) fn print_preview_image(l: photocraft_engine::print_cmds::PrintLayout,
 /// Dragging the visible image updates dialog offsets live from a fixed gesture origin;
 /// the position row stays present while centered so switching to manual cannot move the page.
 pub(super) fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, id: u64) {
+    if b(f, "__printerListingPending", false) {
+        refresh_printers(app, f);
+        if b(f, "__printerListingPending", false) {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+        }
+    }
     let t = Tokens::get(ui.ctx());
     let Some(doc) = app.session.active().map(|d| d.doc.clone()) else { return };
     // PDF exports and previews retain editable paper on Windows too. Only a real native

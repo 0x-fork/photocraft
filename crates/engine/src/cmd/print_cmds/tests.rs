@@ -881,15 +881,17 @@ fn uncached_listings_do_not_wait(cache_other: bool) {
     assert_eq!(asked.load(Ordering::SeqCst), 0);
     assert_eq!(listed, printers_answer(Vec::new()));
     assert_eq!(listed_rgb, Err(craft_print::rgb::PrintError::Unsupported));
-    let listed = printers_without_waiting(&mut s);
-    let listed_rgb = rgb_printers_without_waiting(&s);
-    assert_eq!(listed["printers"], json!([{"name": "Proofing", "default": true}]));
-    let names = listed_rgb.map(|list| list.into_iter().map(|p| p.name).collect::<Vec<_>>());
-    if cfg!(windows) {
-        assert_eq!(names, Ok(vec!["Proofing".to_string()]));
-    } else {
-        assert_eq!(names, Err(craft_print::rgb::PrintError::Unsupported));
-    }
+    with_spooler(|| {
+        let listed = printers_without_waiting(&mut s);
+        let listed_rgb = rgb_printers_without_waiting(&s);
+        assert_eq!(listed["printers"], json!([{"name": "Proofing", "default": true}]));
+        let names = listed_rgb.map(|list| list.into_iter().map(|p| p.name).collect::<Vec<_>>());
+        if cfg!(windows) {
+            assert_eq!(names, Ok(vec!["Proofing".to_string()]));
+        } else {
+            assert_eq!(names, Err(craft_print::rgb::PrintError::Unsupported));
+        }
+    });
 }
 
 /// Spooling tests run in a child process: `disable_printing` is process-wide and a test above
