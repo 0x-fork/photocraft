@@ -234,6 +234,13 @@ pub fn builtin() -> Vec<Group<GradientPreset>> {
         stops: vec![(0.0, StopColor::Foreground), (1.0, StopColor::Foreground)],
         opacity: vec![(0.0, 1.0), (1.0, 0.0)],
     };
+    // A smooth spectrum: 13 hues evenly spaced from red (0°) to magenta (300°). The pastel and
+    // neon presets reuse the same hues at a different saturation/lightness, and Rainbow Fade
+    // reuses the classic ramp with its ends transparent. Colours are our own.
+    let rainbow = GradientPreset::new(
+        "Rainbow",
+        &["#ec1313", "#ec6d13", "#ecc813", "#b6ec13", "#5bec13", "#13ec25", "#13ec80", "#13ecda", "#13a4ec", "#1349ec", "#3713ec", "#9213ec", "#ec13ec"],
+    );
     vec![
         Group::new("Basics", vec![GradientPreset::foreground_to_background(), fg_transparent, GradientPreset::new("Black, White", &["#000000", "#ffffff"])]),
         Group::new(
@@ -348,6 +355,31 @@ pub fn builtin() -> Vec<Group<GradientPreset>> {
                 ],
             ),
         ),
+        Group::new(
+            "Rainbows",
+            vec![
+                rainbow.clone(),
+                GradientPreset::new(
+                    "Pastel Rainbow",
+                    &[
+                        "#f4afaf", "#f4cbaf", "#f4e8af", "#e2f4af", "#c6f4af", "#aff4b4", "#aff4d1", "#aff4ee", "#afddf4", "#afc0f4", "#baaff4", "#d7aff4",
+                        "#f4aff4",
+                    ],
+                ),
+                GradientPreset::new(
+                    "Neon Rainbow",
+                    &[
+                        "#ff0000", "#ff6a00", "#ffd400", "#bfff00", "#55ff00", "#00ff15", "#00ff80", "#00ffea", "#00aaff", "#0040ff", "#2a00ff", "#9500ff",
+                        "#ff00ff",
+                    ],
+                ),
+                GradientPreset::new(
+                    "Oil Slick",
+                    &["#0b0f1a", "#1b2a4a", "#0f6f6f", "#1fae8a", "#5ac8a8", "#7a5cff", "#b13bd6", "#e04a8f", "#f2a65a", "#3a2a6b", "#0b0f1a"],
+                ),
+                GradientPreset { name: "Rainbow Fade".into(), opacity: vec![(0.0, 0.0), (0.125, 1.0), (0.875, 1.0), (1.0, 0.0)], ..rainbow },
+            ],
+        ),
     ]
 }
 
@@ -409,15 +441,47 @@ fn active_gradient_fill(s: &Session) -> Option<photocraft_doc::LayerId> {
     matches!(d.doc.layer(id)?.content, LayerContent::Fill(Fill::Gradient { .. })).then_some(id)
 }
 
+fn active_shape(s: &Session) -> Option<photocraft_doc::LayerId> {
+    let d = s.active()?;
+    let id = d.active_layer?;
+    matches!(d.doc.layer(id)?.content, LayerContent::Shape(_)).then_some(id)
+}
+
 fn select(s: &mut Session, p: &Value) -> Result<Value> {
     let g = preset_param(s, p, CMD_SELECT)?;
+    let apply = p.get("applyToLayer").and_then(Value::as_bool).unwrap_or(true);
+    let shape = active_shape(s).filter(|_| apply);
+    // A locked shape refuses before anything changes, the Gradient tool's gradient included.
+    if let (Some(id), Some(d)) = (shape, s.active()) {
+        let locks = d.doc.effective_locks(id);
+        if locks.all || locks.pixels {
+            return Err(bad(CMD_SELECT, "the selected shape layer is locked"));
+        }
+    }
     s.presets.gradient = g.clone();
     s.presets_changed();
     let mut out = json!({"current": g.to_json()});
+    // Clicking a preset with a shape layer selected fills the shape with it (Photoshop, #5568);
+    // a gradient fill keeps its angle, style, scale and reverse.
+    if let Some(id) = shape {
+        let (stops_new, opacity_new) = g.fill_stops(s.tools.foreground, s.tools.background);
+        crate::vector_cmds::with_shape(s, id, "Edit Shape", |sh, _| {
+            let (angle, scale, style, reverse) = match &sh.fill {
+                Some(Fill::Gradient { angle, scale, style, reverse, .. }) => (*angle, *scale, *style, *reverse),
+                _ => (90.0, 1.0, photocraft_doc::GradientStyle::Linear, false),
+            };
+            let mut fill = Fill::gradient(stops_new, angle, scale, style, reverse);
+            if let Fill::Gradient { opacity_stops, .. } = &mut fill {
+                *opacity_stops = opacity_new;
+            }
+            sh.fill = Some(fill);
+            Ok(())
+        })?;
+        out["layer"] = json!(id.0);
+        return Ok(out);
+    }
     // Clicking a preset with a Gradient Fill layer selected changes that layer (Photoshop).
-    if p.get("applyToLayer").and_then(Value::as_bool).unwrap_or(true)
-        && let Some(id) = active_gradient_fill(s)
-    {
+    if apply && let Some(id) = active_gradient_fill(s) {
         let (stops_new, opacity_new) = g.fill_stops(s.tools.foreground, s.tools.background);
         s.edit("Change Gradient Fill", |doc, _| {
             let mode = doc.mode;
@@ -571,8 +635,8 @@ fn apply(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "gradient.presets.apply";
     let g = preset_param(s, p, CMD)?;
     let stops = g.doc_stops(s.tools.foreground, s.tools.background);
-    let angle = p.get("angle").and_then(Value::as_f64).unwrap_or(90.0) as f32;
-    let scale = (p.get("scale").and_then(Value::as_f64).unwrap_or(100.0) as f32 / 100.0).clamp(0.1, 1.5);
+    let angle = crate::gradient_fill_cmds::angle_param(CMD, p, 90.0)?;
+    let scale = crate::gradient_fill_cmds::clamp_scale(p.get("scale").and_then(Value::as_f64).unwrap_or(100.0) as f32 / 100.0);
     let style = crate::layer_style::gradient_style(p.get("style").and_then(Value::as_str).unwrap_or("linear"));
     let reverse = p.get("reverse").and_then(Value::as_bool).unwrap_or(false);
     let id = s.edit("New Gradient Fill Layer", |doc, active| {
@@ -642,7 +706,7 @@ pub fn specs() -> Vec<CommandSpec> {
             menu: &[],
             shortcut: None,
             params: leak(format!(
-                r##"{{"preset":name|{stops},"group":name?,"applyToLayer":bool=true (also recolours a selected Gradient Fill layer)}} → {{current,layer?}}. The Gradient tool paints with it."##
+                r##"{{"preset":name|{stops},"group":name?,"applyToLayer":bool=true (also recolours a selected Gradient Fill layer, or fills a selected shape layer with it)}} → {{current,layer?}}. The Gradient tool paints with it."##
             )),
             enabled: always,
             run: select,
@@ -664,7 +728,7 @@ pub fn specs() -> Vec<CommandSpec> {
             menu: &[],
             shortcut: None,
             params: leak(format!(
-                r##"{{"preset":name?=current|{stops},"angle":deg=90,"style":"linear|radial|angle|reflected|diamond"="linear","scale":10..150=100,"reverse":bool}} → {{layer}}"##
+                r##"{{"preset":name?=current|{stops},"angle":deg=90,"style":"linear|radial|angle|reflected|diamond"="linear","scale":1..1000=100,"reverse":bool}} → {{layer}}"##
             )),
             enabled: super::has_doc,
             run: apply,

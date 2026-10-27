@@ -138,7 +138,9 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
     if is_cfa && samples != 1 {
         return Err(RawError::unsupported(format!("CFA data with {samples} samples per pixel")));
     }
-    if !is_cfa && samples != 3 {
+    // LinearRaw: three colour samples, or one for a monochrome camera or scanner (DNG 1.7,
+    // ColorPlanes 1: Leica Monochrom, VueScan film scans).
+    if !is_cfa && samples != 1 && samples != 3 {
         return Err(RawError::unsupported(format!("LinearRaw data with {samples} samples per pixel")));
     }
     let active = rect_from(t, &raw, plane.width, plane.height);
@@ -191,18 +193,26 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
     if scale.len() == 2 && (scale[0] - scale[1]).abs() > 1e-6 {
         warnings.push("non-square pixels (DefaultScale) are not resampled".to_string());
     }
-    // Opcode lists: OpcodeList2 gain maps (lens shading) are applied; everything else is reported.
+    // Opcode lists: OpcodeList2 gain maps (lens shading) and polynomials (the tone mapping lossy
+    // DNGs carry per plane, #8125) are applied; everything else is reported.
     let mut gain_maps = Vec::new();
+    let mut polynomials = Vec::new();
     for (tg, what) in [(tag::OPCODE_LIST_1, 1), (tag::OPCODE_LIST_2, 2), (tag::OPCODE_LIST_3, 3)] {
         let Some(bytes) = raw.get(tg).and_then(|e| t.raw(e)) else { continue };
-        let (maps, skipped) = opcodes::parse(bytes);
+        let ops = opcodes::parse(bytes);
         if what == 2 {
-            gain_maps = maps;
-        } else if !maps.is_empty() {
-            warnings.push(format!("DNG OpcodeList{what}: GainMap is not applied"));
+            gain_maps = ops.gain_maps;
+            polynomials = ops.polynomials;
+        } else {
+            if !ops.gain_maps.is_empty() {
+                warnings.push(format!("DNG OpcodeList{what}: GainMap is not applied"));
+            }
+            if !ops.polynomials.is_empty() {
+                warnings.push(format!("DNG OpcodeList{what}: MapPolynomial is not applied"));
+            }
         }
-        if !skipped.is_empty() {
-            warnings.push(format!("DNG OpcodeList{what}: {} not applied", skipped.join(", ")));
+        if !ops.skipped.is_empty() {
+            warnings.push(format!("DNG OpcodeList{what}: {} not applied", ops.skipped.join(", ")));
         }
     }
 
@@ -213,14 +223,18 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
     }
 
     let max = ((1u32 << plane.bits) - 1) as f32;
-    let linearization = raw.get(tag::LINEARIZATION_TABLE).map(|e| t.uints(e)).filter(|v| !v.is_empty() && v.len() <= 65536);
-    let linearization: Option<Vec<u16>> = linearization.map(|v| v.into_iter().map(|x| x.min(65535) as u16).collect());
+    // A LinearizationTable maps integer samples; floating-point data is linear already.
+    let linearization =
+        raw.get(tag::LINEARIZATION_TABLE).filter(|_| plane.float_scale.is_none()).map(|e| t.uints(e)).filter(|v| !v.is_empty() && v.len() <= 65536);
+    let mut linearization: Option<Vec<u16>> = linearization.map(|v| v.into_iter().map(|x| x.min(65535) as u16).collect());
     let white_default = match &linearization {
         Some(l) => f32::from(l.iter().copied().max().unwrap_or(u16::MAX)),
         None => max,
     };
+    // Floating-point levels are in the floats' units: scale them as the samples were.
+    let unit = plane.float_scale.unwrap_or(1.0);
     let wl = t.tag_floats(&raw, tag::WHITE_LEVEL);
-    let white = [0, 1, 2].map(|s| wl.get(s).or_else(|| wl.first()).map(|v| *v as f32).filter(|v| *v > 0.0).unwrap_or(white_default));
+    let white = [0, 1, 2].map(|s| wl.get(s).or_else(|| wl.first()).map(|v| *v as f32 * unit).filter(|v| v.is_finite() && *v > 0.0).unwrap_or(white_default));
 
     let (rows, cols) = match t.tag_uints(&raw, tag::BLACK_LEVEL_REPEAT_DIM).as_slice() {
         [r, c] if (1..=16).contains(r) && (1..=16).contains(c) => (*r as usize, *c as usize),
@@ -228,21 +242,34 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
     };
     let bl = t.tag_floats(&raw, tag::BLACK_LEVEL);
     let mut black = if bl.len() == rows * cols * samples {
-        BlackLevels { rows, cols, values: bl.iter().map(|v| *v as f32).collect(), delta_h: Vec::new(), delta_v: Vec::new() }
+        BlackLevels { rows, cols, values: bl.iter().map(|v| *v as f32 * unit).collect(), delta_h: Vec::new(), delta_v: Vec::new() }
     } else {
-        BlackLevels::uniform(bl.first().copied().unwrap_or(0.0) as f32)
+        BlackLevels::uniform(bl.first().copied().unwrap_or(0.0) as f32 * unit)
     };
     let dh = t.tag_floats(&raw, tag::BLACK_LEVEL_DELTA_H);
     if dh.len() == active.width {
-        black.delta_h = dh.iter().map(|v| *v as f32).collect();
+        black.delta_h = dh.iter().map(|v| *v as f32 * unit).collect();
     }
     let dv = t.tag_floats(&raw, tag::BLACK_LEVEL_DELTA_V);
     if dv.len() == active.height {
-        black.delta_v = dv.iter().map(|v| *v as f32).collect();
+        black.delta_v = dv.iter().map(|v| *v as f32 * unit).collect();
+    }
+
+    // MapPolynomial maps linear reference values: linearize the samples first (the table is then
+    // done with), and map them in place.
+    let mut data = plane.data;
+    if !polynomials.is_empty() {
+        if let Some(l) = linearization.take() {
+            for v in &mut data {
+                *v = l.get(usize::from(*v)).or_else(|| l.last()).copied().unwrap_or(*v);
+            }
+        }
+        opcodes::apply_polynomials(&mut data, plane.width, samples, active, &polynomials, &black, white);
     }
 
     let color = color_info(t, &ifd0);
-    if color.calibrations.is_empty() {
+    // A monochrome image has no colour to calibrate: it develops as neutral grey.
+    if color.calibrations.is_empty() && (is_cfa || samples != 1) {
         warnings.push("the DNG has no colour matrix; colours are approximate".to_string());
     }
     let baseline_exposure = t.tag_floats(&ifd0, tag::BASELINE_EXPOSURE).first().copied().unwrap_or(0.0)
@@ -255,7 +282,7 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
         width: plane.width,
         height: plane.height,
         samples,
-        data: plane.data,
+        data,
         cfa,
         linearization,
         black,
@@ -268,6 +295,7 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
         baseline_exposure: if baseline_exposure.is_finite() { baseline_exposure.clamp(-10.0, 10.0) } else { 0.0 },
         gain_maps,
         tone_curve: Vec::new(),
+        black_point: 0.0,
         warnings,
     })
 }
