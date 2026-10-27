@@ -364,6 +364,10 @@ pub(crate) fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: 
                 };
             }
         }
+        // A Frame's stroke over the frame's content, at the group's opacity.
+        if let Some(stroke) = shape_split::frame_stroke(layer, cx.canvas, cx.depth) {
+            blend_into(backdrop, &surface_to_buffer(&stroke, rect), BlendMode::Normal, opacity);
+        }
         // Layers clipped to a pass-through group sit atop the group's
         // isolated rendering; their effect (isolated result with vs. without
         // them, each placed over the original backdrop) is added to the
@@ -629,7 +633,7 @@ fn composite_atop_any(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
 }
 
 /// Blend an isolated layer buffer into the backdrop.
-fn blend_into(backdrop: &mut Buffer, src: &Buffer, mode: BlendMode, opacity: f32) {
+pub(crate) fn blend_into(backdrop: &mut Buffer, src: &Buffer, mode: BlendMode, opacity: f32) {
     blend_into_g(backdrop, src, mode, opacity, 1.0);
 }
 
