@@ -132,9 +132,15 @@ pub struct RenderPath {
 
 impl RenderPath {
     /// Why document `doc` is drawn on the CPU now, or None on the GPU: the window's reason, else
-    /// the canvas's, else the adjustment preview's.
+    /// the canvas's, else the adjustment preview's. A software adapter still runs the GPU canvas,
+    /// so a document that left even that names its own reason first.
     pub fn current(&self, doc: u64) -> Option<&CpuReason> {
-        self.app_wide.as_ref().or_else(|| self.docs.get(&doc)).or_else(|| self.preview.as_ref().filter(|(d, _)| *d == doc).map(|(_, r)| r))
+        let own = || self.docs.get(&doc).or_else(|| self.preview.as_ref().filter(|(d, _)| *d == doc).map(|(_, r)| r));
+        match &self.app_wide {
+            Some(CpuReason::SoftwareAdapter) => own().or(self.app_wide.as_ref()),
+            Some(r) => Some(r),
+            None => own(),
+        }
     }
 
     /// The changes, oldest first.
@@ -455,5 +461,27 @@ mod tests {
         note_app(&mut app, None);
         frame(&mut app);
         assert_eq!(app.render_path.current(1), Some(&CpuReason::SoftwareAdapter), "after Retry GPU");
+    }
+
+    /// A software adapter still runs the GPU canvas, so a document that left even that names its
+    /// own reason; the others keep the adapter's. CI's runners have software adapters.
+    #[test]
+    fn a_document_reason_comes_before_a_software_adapter() {
+        let mut app = app();
+        app.render_path.assume_gpu = true;
+        app.perf.gpu_info.device_type = "cpu".into();
+        app.perf.gpu_info.canvas = "gpu".into();
+        frame(&mut app);
+        let too_large = CpuReason::CanvasTooLarge { bytes: 2 << 30, budget: 1 << 30 };
+        note(&mut app, 7, Path::Cpu(too_large.clone()));
+        assert_eq!(app.render_path.current(7), Some(&too_large));
+        assert_eq!(app.render_path.current(8), Some(&CpuReason::SoftwareAdapter));
+        note(&mut app, 7, Path::Gpu { full: true });
+        assert_eq!(app.render_path.current(7), Some(&CpuReason::SoftwareAdapter), "back on the GPU canvas");
+
+        // No GPU canvas at all: the app-wide reason is the cause for every document.
+        note_app(&mut app, Some(CpuReason::Unsupported("out of memory".into())));
+        note(&mut app, 7, Path::Cpu(too_large));
+        assert_eq!(app.render_path.current(7), Some(&CpuReason::Unsupported("out of memory".into())));
     }
 }

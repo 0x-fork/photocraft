@@ -602,7 +602,8 @@ fn a_canvas_over_the_texture_budget_records_its_reason() {
     g.harness.state_mut().run("file.new", json!({"width": 400, "height": 300, "background": "#336699"})).expect("new");
     g.harness.run_steps(3);
     assert_eq!(render_path_of(&g), (Some("canvasTooLarge"), Some("CPU Rendering")));
-    assert_eq!(g.harness.state().render_path.history().count(), 1, "once, not every frame");
+    let doc = g.harness.state().session.active().expect("document").doc.id.0;
+    assert_eq!(g.harness.state().render_path.history().filter(|c| c.doc == doc).count(), 1, "once, not every frame");
 }
 
 #[test]
