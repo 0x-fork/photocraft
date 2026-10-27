@@ -156,7 +156,7 @@ goes in `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`, so host build scripts aren't affected
 - `photocraft.wxs` (WiX v5) is a dual-scope package (Microsoft "Single Package Authoring"):
   it installs per-user by default, without a UAC prompt, into `%LOCALAPPDATA%\Programs\ArtCraft\PhotoCraft`
   (Windows Installer redirects the ProgramFiles folder in a per-user install); the setup
-  setup wizard's "Everyone on this computer" option, or `msiexec ... ALLUSERS=1`, installs per-machine into
+  wizard's "Everyone on this computer" option, or `msiexec ... ALLUSERS=1`, installs per-machine into
   `Program Files\ArtCraft\PhotoCraft`. It installs an advertised Start Menu shortcut associated with the
   `PhotocraftExe` file component. PhotoCraft
   becomes the default app for `.pcraft` and is listed under "Open with" for PSD/PSB and image
@@ -168,7 +168,7 @@ goes in `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`, so host build scripts aren't affected
   The MSI version is the numeric `X.Y.Z`, because MSI has no pre-release field. Same-version
   upgrades are allowed so that release candidates replace each other.
 - Double-clicking the MSI opens a setup wizard (WixUI_InstallDir without the licence page):
-  Welcome, a scope page ("Only for me" or "Everyone on this computer"), the install folder
+  a scope page ("Only for me" or "Everyone on this computer"), Welcome, the install folder
   (remembered for upgrades in `HKLM` or `HKCU\Software\PhotoCraft\InstallDir` according to context),
   Ready, a progress page, and a Finish page that says where to find the app, with a ticked "Launch
   PhotoCraft" box. The pages name the full version (`photocraft.en-us.wxl`). `package.ps1` draws
