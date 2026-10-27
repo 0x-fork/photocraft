@@ -146,6 +146,30 @@ fn dialog_body_renders_for_alpha_spot_and_quick_mask() {
 }
 
 #[test]
+fn value_fields_are_named_for_the_visible_solidity_or_opacity_caption() {
+    use egui::accesskit::Role;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    let labels = |f: Map<String, Value>, body: fn(&mut egui::Ui, &mut Map<String, Value>)| -> Vec<String> {
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(520.0, 300.0))
+            .with_context_setup(|ctx| crate::PhotocraftApp::setup_context(ctx, crate::theme::ThemeKind::ALL[0]))
+            .build_ui_state(&body, f);
+        h.run_steps(2);
+        h.query_all_by_role(Role::SpinButton).filter_map(|n| n.accesskit_node().label()).collect()
+    };
+
+    let app = app();
+    let mut f = fields(&app, &json!(0)).unwrap();
+    f.insert("indicates".into(), json!("spot"));
+    assert_eq!(labels(f.clone(), body), ["Solidity:"]);
+    f.insert("indicates".into(), json!("masked"));
+    assert_eq!(labels(f, body), ["Opacity:"]);
+    assert_eq!(labels(new_spot_fields(&app).unwrap(), new_spot_body), ["Solidity:"]);
+}
+
+#[test]
 fn new_spot_channel_dialog_creates_the_ink_from_the_selection_and_remembers_it() {
     let mut app = app();
     app.run("select.rect", json!({"x": 2, "y": 2, "width": 8, "height": 8})).unwrap();
