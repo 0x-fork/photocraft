@@ -581,6 +581,23 @@ fn define_brush_from_selection() {
 }
 
 #[test]
+fn fill_survives_allocation_failure() {
+    // CodeRabbit on #9775: a fill's buffers span the region, up to the whole canvas. Their peak is
+    // reserved through the fallible allocator before any of them is built, so running out of
+    // memory is the fill's own error, leaving the pixels and history alone, never an abort.
+    let mut s = session(60, 60);
+    let pixels_before = surface(&s);
+    let history_before = s.active().unwrap().history.past_len();
+    crate::allocation::fail_next_for_test();
+    let result = s.execute("paint.stroke", json!({"points": [[10, 10], [50, 10], [50, 50], [10, 50]], "fill": true, "color": "#ff0000"}));
+    let _ = crate::allocation::capacity::<u8>(0, "reset failpoint");
+    let err = result.expect_err("an allocation failure must be reported, not panic").to_string();
+    assert!(err.contains("filling a painted region"), "the fill reserves its buffers first: {err}");
+    assert_eq!(surface(&s), pixels_before, "no pixels changed");
+    assert_eq!(s.active().unwrap().history.past_len(), history_before, "no history step was recorded");
+}
+
+#[test]
 fn define_brush_from_selection_survives_allocation_failure() {
     // The sampled tip is one f32 buffer over the whole selection, and the selection mask is a
     // second of the same size. Both are reserved through the fallible allocator, so an allocation

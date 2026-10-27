@@ -484,14 +484,19 @@ fn fill_region(s: &mut Session, p: &Value, label: &str, brush: BrushSettings, pt
                 return Ok(Rect::new(0, 0, 0, 0));
             }
             let (w, h) = (bounds.width() as usize, bounds.height() as usize);
+            // The coverage, its feathered copy (and the blur's scratch), the selection read and
+            // the mask are each a buffer over the whole region, which can be the whole canvas:
+            // reserve that peak first, so a region too big for memory is an error, not an abort.
+            const FILL: &str = "filling a painted region";
+            let peak = w.checked_mul(h).and_then(|n| n.checked_mul(5)).ok_or_else(|| crate::allocation::error(FILL, "requested size overflowed"))?;
+            drop(crate::allocation::capacity::<f32>(peak, FILL)?);
             let xy: Vec<(f32, f32)> = pts.iter().map(|sp| (sp.x as f32, sp.y as f32)).collect();
             let mut cov = photocraft_algo::selection::polygon(&xy, bounds, true);
             if feather_px > 0.01 {
                 cov = photocraft_algo::selection::feather(&cov, w, h, feather_px);
             }
             if let Some(sel) = sel.as_ref() {
-                let mut sv = Vec::new();
-                sel.read_region_into(bounds, &mut sv);
+                let sv = crate::allocation::read_region(sel, bounds, FILL)?;
                 for (c, s) in cov.iter_mut().zip(&sv) {
                     *c *= s.clamp(0.0, 1.0);
                 }
