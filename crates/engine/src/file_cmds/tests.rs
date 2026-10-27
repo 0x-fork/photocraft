@@ -1835,16 +1835,16 @@ fn folder_listing_recognises_gzipped_xcf_by_its_double_extension() {
     assert!(!super::openable_name("notes.txt"));
 }
 
-/// A folder batch picks up every extension that the codecs and the camera raw reader open:
-/// Cineon, DICOM, Amiga IFF, PCX, XPM, DDS, the Netpbm family, Photoshop templates and the CR3,
-/// ORF, RW2, RAF, SRF and SR2 raws.
+/// A folder batch picks up every extension that the codecs open: Cineon, DICOM, Amiga IFF, PCX,
+/// XPM, DDS, the Netpbm family, and Photoshop templates. Not the raws whose usual files open only
+/// as the embedded JPEG preview (CR3, compressed ORF and RAF, RW2 other than raw formats 3, 4 and
+/// 5): a batch would process the thumbnail without a word.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn folder_listing_takes_every_format_photocraft_opens() {
-    for name in [
-        "a.cin", "a.dcm", "a.dicom", "a.dc3", "a.iff", "a.lbm", "a.ilbm", "a.pcx", "a.xpm", "a.dds", "a.pbm", "a.pam", "a.pfm", "a.psdt", "a.cr3", "a.orf",
-        "a.rw2", "a.raf", "a.srf", "a.sr2", "A.PCX",
-    ] {
+    let codecs = ["a.cin", "a.dcm", "a.dicom", "a.dc3", "a.iff", "a.lbm", "a.ilbm", "a.pcx", "a.xpm", "a.dds", "a.pbm", "a.pam", "a.pfm", "a.psdt", "A.PCX"];
+    let raws = ["a.dng", "IMG_0001.CR2", "a.nef", "a.nrw", "a.arw", "a.pef"];
+    for name in codecs.into_iter().chain(raws) {
         assert!(super::openable_name(name), "{name}");
     }
     for f in photocraft_codecs::Format::ALL.into_iter().filter(|f| f.caps().read) {
@@ -1852,8 +1852,8 @@ fn folder_listing_takes_every_format_photocraft_opens() {
             assert!(super::openable_name(&format!("a.{ext}")), "{f:?} .{ext}");
         }
     }
-    for ext in photocraft_io::raw::EXTENSIONS {
-        assert!(super::openable_name(&format!("a.{ext}")), ".{ext}");
+    for name in ["a.cr3", "IMG_0001.CR3", "a.orf", "a.raf", "a.rw2", "a.srf", "a.sr2"] {
+        assert!(!super::openable_name(name), "{name}");
     }
     // PhotoCraft does not read AVIF.
     assert!(!super::openable_name("a.avif"));
