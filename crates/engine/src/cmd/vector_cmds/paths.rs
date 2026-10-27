@@ -1,6 +1,9 @@
 use super::params::{color, f64p, layer_id, op_from, parse_path, path_json};
 use super::shape::{map_path, map_shape, transform_shape, with_shape};
-use super::*;
+use super::{
+    Affine, BlendMode, ClippingPath, Color, Document, EngineError, LayerContent, LayerId, NamedPath, Path, Rect, Result, SelectionMode, Session, Value, bad,
+    blend_from_str, json, sel, vector,
+};
 
 // ---------------------------------------------------------------------------
 // Document paths
