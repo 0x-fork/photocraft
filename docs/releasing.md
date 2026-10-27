@@ -156,9 +156,9 @@ goes in `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`, so host build scripts aren't affected
 - `photocraft.wxs` (WiX v5) is a dual-scope package (Microsoft "Single Package Authoring"):
   it installs per-user by default, without a UAC prompt, into `%LOCALAPPDATA%\Programs\ArtCraft\PhotoCraft`
   (Windows Installer redirects the ProgramFiles folder in a per-user install); the setup
-  wizard's "Install for all users" box, or `msiexec ... ALLUSERS=1`, installs per-machine into
-  `Program Files\ArtCraft\PhotoCraft`. It installs a Start Menu shortcut (non-advertised, its
-  own component keyed on a registry value, as the ArtCraft Launcher's MSI does). PhotoCraft
+  setup wizard's "Everyone on this computer" option, or `msiexec ... ALLUSERS=1`, installs per-machine into
+  `Program Files\ArtCraft\PhotoCraft`. It installs an advertised Start Menu shortcut associated with the
+  `PhotocraftExe` file component. PhotoCraft
   becomes the default app for `.pcraft` and is listed under "Open with" for PSD/PSB and image
   files (in a per-user install those registrations and the `InstallDir` record live under
   HKCU instead of HKLM; the package's registry roots follow the context automatically). It also
@@ -168,8 +168,8 @@ goes in `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`, so host build scripts aren't affected
   The MSI version is the numeric `X.Y.Z`, because MSI has no pre-release field. Same-version
   upgrades are allowed so that release candidates replace each other.
 - Double-clicking the MSI opens a setup wizard (WixUI_InstallDir without the licence page):
-  Welcome, install folder with the all-users box (remembered for upgrades in
-  `HKLM` or `HKCU\Software\PhotoCraft\InstallDir` according to context),
+  Welcome, a scope page ("Only for me" or "Everyone on this computer"), the install folder
+  (remembered for upgrades in `HKLM` or `HKCU\Software\PhotoCraft\InstallDir` according to context),
   Ready, a progress page, and a Finish page that says where to find the app, with a ticked "Launch
   PhotoCraft" box. The pages name the full version (`photocraft.en-us.wxl`). `package.ps1` draws
   the wizard's banner and side bitmaps from the app icon, so no WiX stock art ships. `msiexec /qn`
