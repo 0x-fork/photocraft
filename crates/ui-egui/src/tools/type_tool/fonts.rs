@@ -386,7 +386,7 @@ pub(crate) fn family_picker_in(
     let labels: Option<Arc<HashMap<String, String>>> = ui.ctx().data(|d| d.get_temp(font_labels_id()));
     let labels = labels.as_deref();
     let shown = labels.and_then(|l| l.get(current.as_str())).unwrap_or(current).clone();
-    let combo = egui::ComboBox::from_id_salt(salt)
+    let combo = craft_ui::ComboBox::from_id_salt(salt)
         .selected_text(shown)
         .width(width)
         .height(FONT_MENU_HEIGHT)
@@ -716,7 +716,7 @@ pub(crate) fn family_picker_in(
     });
     response.response = response.response.accessible_name(tl!("Font"));
     press.after(&response.response);
-    if !egui::ComboBox::is_open(ui.ctx(), response.response.id) {
+    if !craft_ui::ComboBox::is_open(ui.ctx(), response.response.id) {
         ui.data_mut(|d| {
             d.remove::<bool>(focus_id);
             d.remove::<Vec<String>>(recents_id);
@@ -734,7 +734,7 @@ pub(crate) fn family_picker_in(
     if picked {
         ui.memory_mut(|m| m.request_focus(field));
     }
-    let open = egui::ComboBox::is_open(ui.ctx(), field);
+    let open = craft_ui::ComboBox::is_open(ui.ctx(), field);
     if !open && ui.is_enabled() && ui.memory(|m| m.has_focus(field)) {
         ui.memory_mut(|m| m.set_focus_lock_filter(field, egui::EventFilter { vertical_arrows: true, ..Default::default() }));
         let down = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown));
@@ -762,7 +762,7 @@ pub(crate) fn family_picker_in(
 
     // The wheel over the closed button steps through the families, a notch each, like Photoshop's
     // options-bar font menu: no need to open the list (#3350).
-    if !egui::ComboBox::is_open(ui.ctx(), response.response.id) && ui.is_enabled() {
+    if !craft_ui::ComboBox::is_open(ui.ctx(), response.response.id) && ui.is_enabled() {
         let hovered = response.response.hovered();
         if hovered {
             ui.input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
@@ -787,7 +787,7 @@ pub(crate) fn family_picker_in(
         let hover_id = egui::Id::unique("type-font-hover");
         if let Some(f) = hovered_font {
             ui.ctx().data_mut(|d| d.insert_temp(hover_id, f));
-        } else if egui::ComboBox::is_open(ui.ctx(), response.response.id) {
+        } else if craft_ui::ComboBox::is_open(ui.ctx(), response.response.id) {
             // Only the open menu clears it: the options bar and the Character section both draw
             // this picker, and the closed one must not wipe the other's hover (#5152).
             ui.ctx().data_mut(|d| d.remove::<String>(hover_id));
