@@ -215,6 +215,7 @@ impl PsdFile {
             global_blocks,
             layer_mask_trailing,
             image_data: ImageData::new(Compression::Raw, Vec::new()),
+            write_as_psb: false,
         };
         if !want(&file) {
             let compression = Compression::from_u16(c.u16()?);
@@ -361,6 +362,20 @@ mod tests {
         for bytes in samples() {
             same(bytes);
         }
+    }
+
+    /// A PSD read lazily and written as PSB widens the RLE count tables of channels still in the
+    /// source, byte for byte as an eager read does (main's PSB promotion, #5285, on #6583's reader).
+    #[test]
+    fn a_lazy_psd_promotes_to_the_same_psb_as_an_eager_one() {
+        let bytes = testgen::layered(Version::Psd, crate::ColorMode::Rgb, 8, Compression::Rle).to_bytes().unwrap();
+        let mut eager = PsdFile::from_bytes(&bytes).unwrap();
+        let mut lazy = PsdFile::from_source(Source::new(bytes)).unwrap();
+        eager.promote_to_psb().unwrap();
+        lazy.promote_to_psb().unwrap();
+        let written = eager.to_bytes().unwrap();
+        assert_eq!(lazy.encoded_len().unwrap(), written.len() as u64);
+        assert!(lazy.to_bytes().unwrap() == written, "the lazily read PSD writes another PSB");
     }
 
     #[test]

@@ -408,6 +408,10 @@ fn resume_at(app: &PhotocraftApp, x: f64, y: f64, tol: f64) -> Option<PenPath> {
     let st = app.session.active()?;
     let doc = st.doc.id.0;
     let name = app.ui.selected_path.clone().filter(|n| path_exists(&st.doc, n)).unwrap_or_else(|| "work".into());
+    // A Work Path hidden by Make Selection isn't carried on: a new path replaces it (#6079).
+    if name == "work" && !work_path_shown(app) {
+        return None;
+    }
     let near = |k: &photocraft_doc::Knot| (k.anchor.x - x).hypot(k.anchor.y - y) < tol;
     doc_path(&st.doc, &name)?.subpaths.iter().enumerate().filter(|(_, s)| !s.closed).find_map(|(i, s)| {
         let reversed = if s.knots.last().is_some_and(near) {

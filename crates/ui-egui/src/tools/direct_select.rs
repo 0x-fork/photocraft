@@ -174,7 +174,7 @@ pub(crate) fn active_paths(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
         .or_else(|| crate::vector_ui::active_shape_path(app))
         .map(|(id, p)| (PathRef::Layer(id), p))
         .or_else(|| crate::vector_ui::active_type_path(app).map(|(id, p)| (PathRef::TypePath(id), p)));
-    let work = app.session.active().and_then(|st| st.doc.work_path.clone());
+    let work = app.session.active().and_then(|st| st.doc.work_path.clone()).filter(|_| crate::vector_ui::work_path_shown(app));
     layer.into_iter().chain(work.map(|p| (PathRef::Work, p))).collect()
 }
 
