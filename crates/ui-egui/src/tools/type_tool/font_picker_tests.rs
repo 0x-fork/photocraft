@@ -33,11 +33,15 @@ fn harness_with(preview: FontPreview) -> Harness<'static, State> {
 }
 
 fn harness_with_recents(preview: FontPreview, recents: Vec<String>) -> Harness<'static, State> {
+    harness_sized(preview, recents, vec2(600.0, 900.0))
+}
+
+fn harness_sized(preview: FontPreview, recents: Vec<String>, size: egui::Vec2) -> Harness<'static, State> {
     // Enough families that the unfiltered menu hits its maximum height and scrolls.
     let mut families: Vec<String> = (0..60).map(|i| format!("Family {i:02}")).collect();
     families.push("Zeta Sans".into());
     let state = State { current: "Family 00".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview, recents };
-    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).with_max_steps(SETTLE_STEPS).build_ui_state(
+    let mut h = Harness::builder().with_size(size).with_max_steps(SETTLE_STEPS).build_ui_state(
         |ui, s: &mut State| {
             s.button = ui.make_persistent_id(egui::IdSalt::new("type-font"));
             s.popup = s.button.with("popup");
@@ -157,6 +161,33 @@ fn the_search_field_stays_put_while_the_list_scrolls() {
     assert!(popup.contains(after.center()), "the search field left the menu");
 }
 
+/// The wheel past the end of the list, or over the class list, leaves the preview, filters and
+/// search field in place, also in a window too short for the menu's full height: the lists stay
+/// within the room the menu leaves them, so the menu itself has nothing to scroll.
+#[test]
+fn the_wheel_past_the_end_of_the_list_leaves_the_header_in_place() {
+    // Over the font list, and over the class list beside it, which has no scroll area of its own.
+    for (size, over) in
+        [(vec2(600.0, 900.0), "Family 02"), (vec2(600.0, 900.0), "All Classes"), (vec2(600.0, 420.0), "Family 02"), (vec2(600.0, 420.0), "All Classes")]
+    {
+        let mut h = harness_sized(FontPreview::Medium, Vec::new(), size);
+        open(&mut h);
+        let search = h.get_by_role(Role::TextInput).rect();
+        h.hover_at(h.get_by_label(over).rect().center());
+        for _ in 0..40 {
+            h.event(egui::Event::MouseWheel {
+                source: egui::MouseWheelSource::Unknown,
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, -10.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            });
+            h.run();
+        }
+        assert_eq!(search, h.get_by_role(Role::TextInput).rect(), "{size:?} over {over}: the search field moved under the wheel");
+    }
+}
+
 /// #7792: the arrow keys scroll the list to the selected family without moving the search
 /// field: they scroll the list, not the whole menu.
 #[test]
@@ -175,8 +206,9 @@ fn the_search_field_stays_put_while_the_arrows_scroll_the_list() {
     assert_eq!(search, h.get_by_role(Role::TextInput).rect(), "the search field scrolled away with the list");
 }
 
-/// A query matching no family shrinks the menu; clearing it grows the menu back to its full
-/// height (egui#5225), and the search field stays where it was throughout.
+/// A query matching no family shrinks the menu to its header and the class list beside the
+/// list; clearing it grows the menu back to its full height (egui#5225), and the search field
+/// stays where it was throughout.
 #[test]
 fn clearing_a_query_that_matches_nothing_grows_the_menu_back() {
     let mut h = harness();
@@ -187,7 +219,9 @@ fn clearing_a_query_that_matches_nothing_grows_the_menu_back() {
     h.run();
     assert!(h.query_by_label("Family 00").is_none(), "the query matches no family");
     let none = popup_rect(&h).expect("still open").height();
-    assert!(none < full / 2.0, "no matches shrink the menu: {none} vs {full}");
+    let classes = h.get_by_label("Decorative").rect();
+    let menu = popup_rect(&h).expect("still open");
+    assert!(none < full - 100.0 && menu.bottom() < classes.bottom() + 20.0, "no matches shrink the menu to the class list: {menu:?}, {classes:?}, full {full}");
     assert_eq!(search, h.get_by_role(Role::TextInput).rect(), "the search field moved when the list emptied");
     for _ in 0.."xxxx".len() {
         h.key_press(Key::Backspace);

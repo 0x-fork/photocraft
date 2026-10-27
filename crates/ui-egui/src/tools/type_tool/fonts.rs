@@ -550,14 +550,19 @@ pub(crate) fn family_picker_in(
         let reveal = if stepped.is_some() { None } else { reveal };
         let mut reveal_top: Option<egui::Rect> = None;
         ui.separator();
+        // The line between the class list and the font list. A separator in the row would take
+        // the row's whole available height and hold the menu at its full height under a short
+        // search result, so the row keeps its room and the line is drawn once the row is laid out.
+        let mut divider: Option<f32> = None;
         let body = ui.horizontal_top(|ui| {
             if !filters.hide_classes {
                 crate::font_filters::class_list(ui, &mut filters);
-                ui.separator();
+                divider = Some(ui.cursor().min.x + 3.0);
+                ui.add_space(6.0 + ui.spacing().item_spacing.x);
             }
-            // The list scrolls under the fixed search field and filters, and keeps one height
-            // whatever it holds (egui never grows a popup back after a short list, #1369).
-            let list = egui::ScrollArea::vertical().id_salt(search_id.with("list")).max_height(FONT_LIST_HEIGHT).auto_shrink([true, false]);
+            // The list scrolls under the fixed search field and filters, and shrinks to a short
+            // search result: the menu grows back with it (craft_ui::ComboBox, #9849).
+            let list = egui::ScrollArea::vertical().id_salt(search_id.with("list")).max_height(FONT_LIST_HEIGHT).auto_shrink([true, true]);
             // Top to bottom, though the list sits beside the class list.
             let shown = list.show(ui, |ui| {
                 ui.vertical(|ui| {
@@ -700,6 +705,9 @@ pub(crate) fn family_picker_in(
             ui.data_mut(|d| d.insert_temp(list_left_id, shown.inner_rect.left() - origin));
             shown.inner_rect.right()
         });
+        if let Some(x) = divider {
+            ui.painter().vline(x, body.response.rect.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
+        }
         // The lists' own extent, from the class list to the font list's scroll bar: the row
         // itself stretches with the popup, so it can't tell when the popup is too wide.
         let list_right = body.inner + FONT_SCROLL_BAR_WIDTH;
