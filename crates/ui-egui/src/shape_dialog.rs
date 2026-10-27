@@ -202,6 +202,7 @@ pub fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) 
             }
             let mut linked = f.get("linkRadii").and_then(Value::as_bool).unwrap_or(true);
             let mut changed = None;
+            // `radii` is [top-left, top-right, bottom-right, bottom-left].
             ui.horizontal(|ui| {
                 label(ui, tl!("Radius:"));
                 ui.vertical(|ui| {

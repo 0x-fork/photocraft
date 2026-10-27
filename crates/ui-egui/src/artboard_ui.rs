@@ -145,25 +145,26 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
             edit = Some(json!({"layer": layer.id.0, "preset": preset}));
         }
     });
-    // The visible label and the accessible name differ for X and Y ("X" alone does not say
-    // position), so the name comes from the call site.
+    // W/H use a short visible label but the full word as the accessible name (a screen reader
+    // says "Width", not "W"); X/Y already name their axis, so their name comes from the call site
+    // too.
     let num = |ui: &mut egui::Ui, label: &str, name: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>| -> bool {
         ui.label(egui::RichText::new(tl!(&label)).color(t.text_dim).size(12.0));
-        crate::widgets::value_field(ui, v, range, "px", 64.0).accessible_name(tl!(name)).changed()
+        crate::widgets::value_field(ui, v, range, "px", 64.0).accessible_name(name).changed()
     };
     let r = a.rect;
     ui.horizontal(|ui| {
         let (mut w, mut h) = (r.width() as f32, r.height() as f32);
-        let cw = num(ui, "W", "Width", &mut w, 1.0..=300_000.0);
-        let ch = num(ui, "H", "Height", &mut h, 1.0..=300_000.0);
+        let cw = num(ui, "W", tl!("Width"), &mut w, 1.0..=300_000.0);
+        let ch = num(ui, "H", tl!("Height"), &mut h, 1.0..=300_000.0);
         if cw || ch {
             edit = Some(json!({"layer": layer.id.0, "width": w.round(), "height": h.round(), "coalesce": key("wh")}));
         }
     });
     ui.horizontal(|ui| {
         let (mut x, mut y) = (r.x0 as f32, r.y0 as f32);
-        let cx = num(ui, "X", "X", &mut x, -300_000.0..=300_000.0);
-        let cy = num(ui, "Y", "Y", &mut y, -300_000.0..=300_000.0);
+        let cx = num(ui, "X", tl!("X"), &mut x, -300_000.0..=300_000.0);
+        let cy = num(ui, "Y", tl!("Y"), &mut y, -300_000.0..=300_000.0);
         if cx || cy {
             edit = Some(json!({"layer": layer.id.0, "x": x.round(), "y": y.round(), "coalesce": key("xy")}));
         }
@@ -445,5 +446,24 @@ mod tests {
         assert_eq!(crate::comps_ui::target(&app), Some(a));
         app.ui.layer_comp_selected = Some(999);
         assert_eq!(crate::comps_ui::target(&app), Some(b));
+    }
+
+    #[test]
+    fn property_fields_are_named_for_their_axis() {
+        use egui::accesskit::Role;
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::{NodeT, Queryable};
+
+        let (mut app, _) = app();
+        app.run("layer.new.artboard", json!({"rect": [0, 0, 40, 50]})).unwrap();
+        let id = app.session.active().unwrap().doc.artboards()[0].0;
+        let layer = app.session.active().unwrap().doc.layer(id).unwrap().clone();
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(520.0, 420.0))
+            .with_context_setup(|ctx| PhotocraftApp::setup_context(ctx, crate::theme::ThemeKind::ALL[0]))
+            .build_ui_state(move |ui, app: &mut PhotocraftApp| properties(app, ui, &layer), app);
+        h.run_steps(2);
+        let labels: Vec<String> = h.query_all_by_role(Role::SpinButton).filter_map(|n| n.accesskit_node().label()).collect();
+        assert_eq!(labels, ["Width", "Height", "X", "Y"].map(String::from).to_vec(), "the fields announce their own axis in layout order");
     }
 }

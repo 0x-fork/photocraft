@@ -16,6 +16,8 @@
 //! uploads those blocks instead of compositing every layer again.
 
 use std::collections::VecDeque;
+#[cfg(test)]
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, Weak};
@@ -42,6 +44,55 @@ const KEEP: usize = 2;
 
 /// [`GpuCanvas::refresh`] kind of a redraw served from a [`Kept`] composite.
 pub(crate) const KEPT: &str = "kept";
+
+/// Tests hold the redraw worker before it draws a batch, so an edit lands while blocks are still
+/// to come. A real run never waits: a fast machine draws a test document before its next frame,
+/// leaving nothing drawn "before" the edit.
+#[cfg(test)]
+static HOLD: AtomicBool = AtomicBool::new(false);
+
+/// Identity of the next spawned redraw worker: lets a test tell the worker it watched from a
+/// replacement that [`restart`] spawns after an edit.
+#[cfg(test)]
+static NEXT_WORKER_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+/// Hold the redraw worker until the guard drops.
+#[cfg(test)]
+pub(crate) fn hold_redraws() -> HoldRedraws {
+    HOLD.store(true, Ordering::SeqCst);
+    HoldRedraws
+}
+
+/// Wait until worker `generation` of document `doc`'s [`Redraw`] has reached its pre-batch
+/// [`HOLD`]. A replacement worker has another generation, so an edit only lands while the worker
+/// the test watched still has its blocks to draw. Returns `false` after `timeout`.
+#[cfg(test)]
+pub(crate) fn wait_for_held_redraw(app: &PhotocraftApp, doc: DocId, generation: u64, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Some(r) = app.redraws.get(&doc)
+            && r.worker_generation == generation
+            && r.reached_hold.load(Ordering::SeqCst)
+        {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// Releases [`hold_redraws`], including while a test unwinds.
+#[cfg(test)]
+pub(crate) struct HoldRedraws;
+
+#[cfg(test)]
+impl Drop for HoldRedraws {
+    fn drop(&mut self) {
+        HOLD.store(false, Ordering::SeqCst);
+    }
+}
 
 /// One finished block, as texels of the canvas texture.
 struct Piece {
@@ -70,6 +121,11 @@ pub(crate) struct Redraw {
     collected_bytes: u64,
     /// Bytes the kept composites may hold: what Memory Usage leaves beside the document.
     cap: u64,
+    /// Set when this worker first reaches the test [`HOLD`], and this worker's generation.
+    #[cfg(test)]
+    reached_hold: Arc<AtomicBool>,
+    #[cfg(test)]
+    worker_generation: u64,
 }
 
 impl Redraw {
@@ -423,11 +479,22 @@ fn spawn(app: &mut PhotocraftApp, ctx: &egui::Context, s: Spawn) {
     let left = todo.len();
     let (tx, rx) = std::sync::mpsc::sync_channel(BATCH);
     let stop = Arc::new(AtomicBool::new(false));
+    #[cfg(test)]
+    let reached_hold = Arc::new(AtomicBool::new(false));
+    #[cfg(test)]
+    let worker_generation = NEXT_WORKER_GENERATION.fetch_add(1, Ordering::SeqCst);
+    #[cfg(test)]
+    let worker_hold = reached_hold.clone();
     let work = (blocks.clone(), stop.clone(), ctx.clone());
     let spawned = std::thread::Builder::new().name("canvas-redraw".into()).spawn(move || {
         let (blocks, stop, ctx) = work;
         // A panic stops the redraw: the receiver sees the worker gone and drops it.
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| draw(&doc, display.as_deref(), format, &blocks, &todo, &stop, &tx, &ctx)));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            #[cfg(test)]
+            draw(&doc, display.as_deref(), format, &blocks, &todo, &stop, &tx, &ctx, &worker_hold);
+            #[cfg(not(test))]
+            draw(&doc, display.as_deref(), format, &blocks, &todo, &stop, &tx, &ctx);
+        }));
         ctx.request_repaint();
     });
     if let Err(e) = spawned {
@@ -452,38 +519,12 @@ fn spawn(app: &mut PhotocraftApp, ctx: &egui::Context, s: Spawn) {
             collected,
             collected_bytes,
             cap,
+            #[cfg(test)]
+            reached_hold,
+            #[cfg(test)]
+            worker_generation,
         },
     );
-}
-
-/// A test can hold the worker after a batch: a real worker's speed is not reproducible, and the
-/// edit-during-a-redraw test needs the redraw to be certainly still running.
-#[cfg(test)]
-pub(crate) mod test_hold {
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    static HELD: AtomicBool = AtomicBool::new(false);
-
-    /// Holds every redraw worker after its next batch until this guard drops.
-    pub(crate) struct Hold;
-
-    pub(crate) fn hold() -> Hold {
-        HELD.store(true, Ordering::SeqCst);
-        Hold
-    }
-
-    impl Drop for Hold {
-        fn drop(&mut self) {
-            HELD.store(false, Ordering::SeqCst);
-        }
-    }
-
-    /// Called by the worker between batches while a test holds it.
-    pub(crate) fn wait() {
-        while HELD.load(Ordering::SeqCst) {
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-    }
 }
 
 /// The worker: composite `todo`'s blocks of `doc` in batches and hand each over, until done or
@@ -498,8 +539,17 @@ fn draw(
     stop: &AtomicBool,
     tx: &SyncSender<Piece>,
     ctx: &egui::Context,
+    #[cfg(test)] reached_hold: &AtomicBool,
 ) {
     for batch in todo.chunks(BATCH) {
+        // A test may hold the worker here; a cancelled redraw must still exit, not wait for release.
+        #[cfg(test)]
+        while HOLD.load(Ordering::SeqCst) && !stop.load(Ordering::Relaxed) {
+            // This worker, identified by its own acknowledgement, reached the hold: a replacement
+            // spawned after the edit starts with another one and can't satisfy the test's wait.
+            reached_hold.store(true, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         if stop.load(Ordering::Relaxed) {
             return;
         }
@@ -517,8 +567,6 @@ fn draw(
             }
             ctx.request_repaint();
         }
-        #[cfg(test)]
-        test_hold::wait();
     }
 }
 

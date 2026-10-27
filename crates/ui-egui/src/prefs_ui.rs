@@ -2764,6 +2764,28 @@ mod tests {
     }
 
     #[test]
+    fn graphics_dropdowns_are_named_for_their_settings() {
+        use egui::accesskit::Role;
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::{NodeT, Queryable};
+
+        let obj = json!({"gpuBackend": "auto", "gpuAdapter": ""}).as_object().unwrap().clone();
+        let mut h = Harness::builder()
+            .with_size(vec2(700.0, 500.0))
+            .with_context_setup(|ctx| PhotocraftApp::setup_context(ctx, crate::theme::ThemeKind::ALL[0]))
+            .build_ui_state(|ui, obj| gpu_status_rows(ui, None, None, obj), obj);
+        h.run_steps(2);
+        h.get_by_label("Advanced").click();
+        h.run_steps(2);
+        let labels: Vec<String> = h.query_all_by_role(Role::ComboBox).filter_map(|n| n.accesskit_node().label()).collect();
+        assert!(labels.iter().any(|label| label == "GPU Backend"), "{labels:?}");
+        if cfg!(target_os = "linux") {
+            assert!(labels.iter().any(|label| label == "GPU adapter"), "{labels:?}");
+        }
+        assert!(!labels.iter().any(|label| label == "Graphics"), "the section title names neither control: {labels:?}");
+    }
+
+    #[test]
     fn colour_preferences_take_a_typed_hex_value() {
         // #668: the canvas colour (and every colour preference) showed its hex but couldn't take one.
         use egui::accesskit::Role;
