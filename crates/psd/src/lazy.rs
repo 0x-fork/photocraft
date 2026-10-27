@@ -182,11 +182,17 @@ impl PsdFile {
                             return Ok(None);
                         }
                         candidate_seen = true;
-                        let Ok(info) = read_layer_info(data, version) else {
-                            if target_key.is_some() {
-                                layer_info = None;
+                        let info = match read_layer_info(data, version) {
+                            Ok(info) => info,
+                            // A failed read of the source is not damage: fail the parse, as
+                            // reading the whole file would.
+                            Err(e @ PsdError::Read(_)) => return Err(e),
+                            Err(_) => {
+                                if target_key.is_some() {
+                                    layer_info = None;
+                                }
+                                return Ok(None);
                             }
-                            return Ok(None);
                         };
                         layer_info = Some(info);
                         layer_info_placement = LayerInfoPlacement::GlobalBlock { index, signature, key, padding: padding.clone() };
@@ -371,6 +377,44 @@ mod tests {
                         let records_ok = PsdFile::from_bytes_and_merged_recovering(b, |_| false, |_| true).is_ok();
                         assert!(lazy.is_err() || records_ok, "cut at {cut}: eager {e:?}");
                     }
+                }
+            }
+        }
+    }
+
+    /// A source whose `fail_at`-th read fails once.
+    struct FailOnce {
+        bytes: Vec<u8>,
+        fail_at: usize,
+        reads: std::sync::atomic::AtomicUsize,
+    }
+
+    impl crate::source::ReadAt for FailOnce {
+        fn len(&self) -> u64 {
+            self.bytes.len() as u64
+        }
+
+        fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<()> {
+            if self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == self.fail_at {
+                return Err(PsdError::Read("injected".into()));
+            }
+            self.bytes.read_at(offset, buf)
+        }
+    }
+
+    #[test]
+    fn a_failed_read_fails_the_parse_instead_of_dropping_the_layers() {
+        for bytes in samples() {
+            let eager = PsdFile::from_bytes(&bytes).unwrap();
+            let clean = std::sync::Arc::new(FailOnce { bytes: bytes.clone(), fail_at: usize::MAX, reads: 0.into() });
+            PsdFile::from_source(Source::from_arc(clean.clone())).unwrap();
+            let reads = clean.reads.load(std::sync::atomic::Ordering::SeqCst);
+            for fail_at in 0..reads {
+                let src = FailOnce { bytes: bytes.clone(), fail_at, reads: 0.into() };
+                match PsdFile::from_source(Source::new(src)) {
+                    Err(PsdError::Read(_)) => {}
+                    Ok(lazy) => assert_eq!(lazy, eager, "read {fail_at} failed silently"),
+                    Err(e) => panic!("read {fail_at}: {e:?}"),
                 }
             }
         }
