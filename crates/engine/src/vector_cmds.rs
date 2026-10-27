@@ -851,11 +851,9 @@ fn paths_list(s: &Session) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let doc = &d.doc;
     let knots = |p: &Path| p.subpaths.iter().map(|s| s.knots.len()).sum::<usize>();
-    let layer = d.active_layer.and_then(|id| doc.layer(id)).and_then(|l| match &l.content {
+    let active = d.active_layer.and_then(|id| doc.layer(id));
+    let layer = active.and_then(|l| match &l.content {
         LayerContent::Shape(sh) => Some(json!({ "kind": "shape", "layer": l.id.0, "name": format!("{} Shape Path", l.name), "knots": knots(&sh.path) })),
-        // Type on a path: Photoshop's Type Path, which Direct Selection edits (#9114).
-        LayerContent::Text(t) if crate::type_extra_cmds::type_path(t).is_some() => crate::type_extra_cmds::type_path(t)
-            .map(|p| json!({ "kind": "typePath", "layer": l.id.0, "name": format!("{} Type Path", l.name), "knots": knots(&p) })),
         _ => {
             l.vector_mask.as_ref().map(|v| json!({ "kind": "vectorMask", "layer": l.id.0, "name": format!("{} Vector Mask", l.name), "knots": knots(&v.path) }))
         }
@@ -865,6 +863,12 @@ fn paths_list(s: &Session) -> Result<Value> {
         "workPath": doc.work_path.as_ref().map(|p| json!({ "knots": knots(p), "subpaths": p.subpaths.len() })),
         "clippingPath": doc.clipping_path.as_ref().map(|c| json!({ "name": c.name, "flatness": c.flatness })),
         "layerPath": layer,
+        // Type on a path: Photoshop's Type Path, which Direct Selection edits (#9114).
+        "typePath": active.and_then(|l| match &l.content {
+            LayerContent::Text(t) => crate::type_extra_cmds::type_path(t)
+                .map(|p| json!({ "kind": "typePath", "layer": l.id.0, "name": format!("{} Type Path", l.name), "knots": knots(&p) })),
+            _ => None,
+        }),
     }))
 }
 
@@ -1800,7 +1804,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "List Paths",
             menu: &[],
             shortcut: None,
-            params: r##"{} → {paths:[{name,knots,subpaths}],workPath,clippingPath,layerPath (active layer's shape path / vector mask)}"##,
+            params: r##"{} → {paths:[{name,knots,subpaths}],workPath,clippingPath,layerPath (active layer's shape path / vector mask),typePath (active type layer's Type Path, if it is on a path)}"##,
             enabled: has_doc,
             run: |s, _| paths_list(s),
             journal: false,

@@ -433,6 +433,9 @@ pub(crate) fn set_type_path(t: &mut TextLayer, edited: &Path) -> Result<()> {
     if sub.knots.len() < 2 {
         return Err(EngineError::Other("type on a path needs a path of two or more points".into()));
     }
+    if sub.knots.len() > MAX_TYPE_PATH_KNOTS {
+        return Err(EngineError::Other("the type path has too many anchor points".into()));
+    }
     let inv = t.transform.inverse().ok_or_else(|| EngineError::Other("the type layer's transform cannot be inverted".into()))?;
     let map = |q: Point| inv.apply(q);
     let knots: Vec<Knot> =

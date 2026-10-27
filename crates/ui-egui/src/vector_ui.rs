@@ -1229,6 +1229,10 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         if let Some((_, p)) = targeted_vector_mask(app) {
             draw_path(&p, anchors);
         }
+        // So does type on a path's Type Path, which the Pen's Auto Add/Delete edits (#9114).
+        if let Some((_, p)) = active_type_path(app) {
+            draw_path(&p, anchors);
+        }
         crate::corner_radius::draw(app, painter, &to_scr, accent);
     }
     // Pen path in progress, with handles of the last knot and a rubber band to the pointer. While
@@ -2280,6 +2284,19 @@ mod tests {
             app.ui.tool = tool;
             assert!(overlay_shapes(&app, &ctx) > 0, "{tool:?}: path tools draw the Work Path");
         }
+    }
+
+    /// #9114: the active type layer's Type Path shows with the Pen, whose Auto Add/Delete edits it.
+    #[test]
+    fn the_type_path_of_type_on_a_path_is_drawn_with_the_pen() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        app.run("path.set", json!({"name": "work", "path": {"subpaths": [{"closed": false, "knots": [[100, 20], [100, 180]]}]}})).unwrap();
+        app.run("type.create", json!({"x": 20, "y": 70, "text": "On a path", "size": 24})).unwrap();
+        app.run("type.attachToPath", json!({})).unwrap();
+        app.run("path.delete", json!({"name": "work"})).unwrap();
+        app.ui.tool = Tool::Pen;
+        assert!(overlay_shapes(&app, &ctx) > 0, "the Type Path is drawn");
     }
 
     #[test]
