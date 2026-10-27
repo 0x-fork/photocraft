@@ -1,5 +1,5 @@
 use super::editing::edit_home;
-use super::*;
+use super::{LayerId, PhotocraftApp, TextLayer, hex, json, text_layer};
 
 /// Representative for the displayed properties: the edit layer, else a selected type layer.
 pub(crate) fn target(app: &PhotocraftApp) -> Option<(u64, Option<[usize; 2]>)> {
