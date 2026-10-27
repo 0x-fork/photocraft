@@ -79,7 +79,7 @@ fn take_printer_lists(app: &mut PhotocraftApp, f: &mut Map<String, Value>) {
     if let Ok(list) = photocraft_engine::print_cmds::rgb_printers_without_waiting(&app.session) {
         f.insert("__printers".into(), json!(list.iter().map(|p| p.name.clone()).collect::<Vec<_>>()));
         let known = |n: &str| list.iter().any(|p| p.name == n);
-        if !known(&s(f, "printer", "")) {
+        if !list.is_empty() && !known(&s(f, "printer", "")) {
             let fallback = list.iter().find(|p| p.default).or(list.first()).map(|p| p.name.clone()).unwrap_or_default();
             f.insert("printer".into(), json!(fallback));
             f.remove("printerSettings");

@@ -1,5 +1,52 @@
 use super::*;
 
+#[cfg(windows)]
+#[test]
+fn print_dialog_keeps_saved_settings_when_the_cached_printer_list_is_empty() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (mut app, ctx) = app();
+    let available = Arc::new(AtomicBool::new(false));
+    let listed = Arc::clone(&available);
+    app.session.printer_source = Some(Arc::new(move || {
+        if listed.load(Ordering::SeqCst) {
+            vec![craft_print::Printer { name: "Saved printer".into(), default: true, two_sided: None, description: String::new() }]
+        } else {
+            Vec::new()
+        }
+    }));
+    app.session.prefs.edit(|p| {
+        p.dialogs.insert(photocraft_engine::print_cmds::REMEMBERED.into(), json!({"printer": "Saved printer", "printerSettings": "0011"}));
+    });
+    let mut lister = photocraft_engine::Session::new();
+    lister.printer_source = app.session.printer_source.clone();
+    let (held_tx, held) = std::sync::mpsc::channel();
+    let (release, released_rx) = std::sync::mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        photocraft_engine::print_cmds::with_spooler(|| {
+            assert!(photocraft_engine::print_cmds::rgb_printers(&lister).unwrap().is_empty());
+            available.store(true, Ordering::SeqCst);
+            held_tx.send(()).unwrap();
+            let _ = released_rx.recv_timeout(std::time::Duration::from_secs(5));
+        });
+    });
+    held.recv().unwrap();
+    let id = open_print(&mut app);
+    let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+    let before_retry = (fields.get("printer").cloned(), fields.get("printerSettings").cloned());
+    let pending = fields.get("__printerListingPending").cloned();
+    let _ = release.send(());
+    holder.join().unwrap();
+    assert_eq!(pending, Some(json!(true)));
+    assert_eq!(before_retry, (Some(json!("Saved printer")), Some(json!("0011"))));
+    fields.insert("dryRun".into(), json!(true));
+    photocraft_engine::print_cmds::with_spooler(|| {
+        ctx.run_ui(Default::default(), |ui| print_body(&mut app, ui, &mut fields, id)).textures_delta.clear();
+        assert_eq!(fields["printer"], "Saved printer");
+        assert_eq!(fields["printerSettings"], "0011");
+        assert!(!fields.contains_key("__printerListingPending"));
+    });
+}
+
 #[test]
 fn print_dialog_retries_an_uncached_printer_list_after_the_spooler_is_released() {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
