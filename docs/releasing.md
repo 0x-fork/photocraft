@@ -167,7 +167,8 @@ goes in `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`, so host build scripts aren't affected
   message, not a silent duplicate (a scope change needs an explicit uninstall first).
   The MSI version is the numeric `X.Y.Z`, because MSI has no pre-release field. Same-version
   upgrades are allowed so that release candidates replace each other.
-- Double-clicking the MSI opens a setup wizard (WixUI_InstallDir without the licence page):
+- Double-clicking the MSI opens a setup wizard (WixUI_InstallDir without the licence page; the scope page appears only for a new full-UI install, not for
+  maintenance, uninstall or reduced and silent runs):
   a scope page ("Only for me" or "Everyone on this computer"), Welcome, the install folder
   (remembered for upgrades in `HKLM` or `HKCU\Software\PhotoCraft\InstallDir` according to context),
   Ready, a progress page, and a Finish page that says where to find the app, with a ticked "Launch
