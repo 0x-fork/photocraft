@@ -301,6 +301,11 @@ fn save_as_offers_only_writable_formats_including_ico() {
     // neutral .pnm (#3609; CodeRabbit on #9775): a .pbm, .pgm or .pfm name would hold other data.
     let netpbm = save_filters("Untitled").into_iter().find(|(name, _)| name == "Netpbm").map(|(_, exts)| exts);
     assert_eq!(netpbm, Some(vec!["pnm".to_string()]));
+    // The suggested name itself becomes .pnm, as macOS and rfd keep it (CodeRabbit on #9775).
+    assert_eq!(netpbm_as_pnm("scans/image.pgm"), Path::new("scans/image.pnm").to_string_lossy());
+    assert_eq!(netpbm_as_pnm("image.PFM"), "image.pnm");
+    assert_eq!(netpbm_as_pnm("image.png"), "image.png");
+    assert_eq!(netpbm_as_pnm("Untitled-1"), "Untitled-1");
     // Also when Save As starts from a subtype's name: no filter offers that subtype again.
     for name in ["image.pbm", "image.pgm", "image.ppm", "image.pam", "image.pfm"] {
         let filters = save_filters(name);

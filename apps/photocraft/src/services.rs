@@ -116,6 +116,15 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
 /// never swaps their extension for a document format's.
 const OTHER_SAVE_FILTERS: &[(&str, &[&str])] = &[("Color Swatches", &["aco"]), ("Color Table", &["act"]), ("Swatch Exchange", &["ase"])];
 
+/// `suggested` with a Netpbm subtype's extension (an opened .pgm) as the neutral .pnm, the name
+/// every save dialog starts from: the encoder picks P5, P6, P7 or PFM from the image, so the old
+/// suffix could name other data, and macOS and rfd keep the suggested name as it is.
+fn netpbm_as_pnm(suggested: &str) -> String {
+    let path = Path::new(suggested);
+    let subtype = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).is_some_and(|e| ["pbm", "pgm", "ppm", "pam", "pfm"].contains(&e.as_str()));
+    if subtype { path.with_extension("pnm").to_string_lossy().into_owned() } else { suggested.to_string() }
+}
+
 /// Lists the save dialog's file types with the `suggested` type first (added if unlisted), so the dialog keeps that extension instead of .psd.
 fn save_filters(suggested: &str) -> Vec<(String, Vec<String>)> {
     let ext = Path::new(suggested).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
@@ -223,6 +232,7 @@ fn show_file_dialog(request: FileDialogRequest, parent: Option<&eframe::Frame>, 
             Box::pin(async move { picked.await.map(|folder| answer_one(folder.path(), true, FileDialogAnswer::FolderTo)) })
         }
         FileDialogRequest::Save { suggested } => {
+            let suggested = netpbm_as_pnm(&suggested);
             let filters = save_filters(&suggested);
             let name = dialog_file_name(&suggested, cfg!(windows));
             let dir = Path::new(&suggested).parent().filter(|p| !p.as_os_str().is_empty()).map(Path::to_path_buf);
