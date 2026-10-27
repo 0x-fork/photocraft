@@ -535,6 +535,11 @@ fn render_path_of(g: &Gpu) -> (Option<&'static str>, Option<&'static str>) {
     (app.render_path.current(doc).map(crate::render_path::CpuReason::kind), crate::chrome_ui::render_path_label(app).map(|l| l.0))
 }
 
+/// On the GPU canvas: no reason, or only a software adapter's (CI's runners have one).
+fn on_gpu_canvas(g: &Gpu) -> bool {
+    matches!(render_path_of(g).0, None | Some("softwareAdapter"))
+}
+
 #[test]
 fn advanced_blending_fallback_is_shown_in_the_status_bar() {
     use egui_kittest::kittest::Queryable;
@@ -565,7 +570,7 @@ fn over_budget_fallback_shows_working_set_and_budget() {
     app.run("select.deselect", json!({})).expect("deselect");
     let layer = app.session.active().expect("document").active_layer.expect("layer");
     settle(&mut g);
-    assert_eq!(render_path_of(&g).0, None, "the document fits the GPU");
+    assert!(on_gpu_canvas(&g), "the document fits the GPU");
     g.observer.set_memory_budget(48 << 20);
     g.harness.state_mut().run("layer.setProps", json!({"layer": layer.0, "visible": false})).expect("hide");
     g.harness.step();
@@ -612,11 +617,11 @@ fn a_flipped_view_records_why_it_draws_on_the_cpu() {
     let Some(mut g) = gpu_app() else { return };
     g.harness.state_mut().run("file.new", json!({"width": 400, "height": 300, "background": "#336699"})).expect("new");
     g.harness.run_steps(3);
-    assert_eq!(render_path_of(&g).0, None);
+    assert!(on_gpu_canvas(&g));
     g.harness.state_mut().ui.view.flip_horizontal = true;
     g.harness.run_steps(3);
     assert_eq!(render_path_of(&g), (Some("viewTransform"), Some("CPU Rendering")));
     g.harness.state_mut().ui.view.flip_horizontal = false;
     g.harness.run_steps(3);
-    assert_eq!(render_path_of(&g).0, None, "back on the GPU");
+    assert!(on_gpu_canvas(&g), "back on the GPU");
 }
