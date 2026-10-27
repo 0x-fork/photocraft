@@ -449,13 +449,17 @@ fn fill_region(s: &mut Session, p: &Value, label: &str, brush: BrushSettings, pt
     // the brush width, the way its tip fades.
     let feather_px = ((1.0 - brush.hardness.clamp(0.0, 1.0)) * brush.size * 0.5).max(0.0);
     let (color, opacity, mode) = (brush.color, brush.opacity.clamp(0.0, 1.0), brush.mode);
+    // A colour picked as CMYK fills with its inks in a CMYK target where it covers fully, as
+    // Edit › Fill does (blend_color_mask blends partial coverage through the colour's RGB).
+    let picked = brush.color_cmyk.filter(|(rgb, _)| *rgb == [color[0], color[1], color[2]]).map(|(_, inks)| inks);
     let cmyk = doc_cmyk_space(s);
     let dmg = photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || {
         s.edit(label, |doc, _| {
             let sel = doc.selection.clone();
             let canvas = doc.bounds();
             let (surf, lock) = crate::channel_cmds::target_surface(doc, id, p)?;
-            // The polygon's whole-pixel bounds, grown by the feather so a soft edge is not clipped.
+            // The polygon's whole-pixel bounds, grown by the feather's reach (3σ) so a soft edge
+            // fades out instead of being clipped.
             let (mut bx0, mut by0, mut bx1, mut by1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
             for sp in &pts {
                 if !(sp.x.is_finite() && sp.y.is_finite()) {
@@ -467,7 +471,8 @@ fn fill_region(s: &mut Session, p: &Value, label: &str, brush: BrushSettings, pt
                 by1 = by1.max(sp.y);
             }
             let ix = |v: f64| v.clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32;
-            let pad = (feather_px.ceil() as i64).clamp(0, i64::from(i32::MAX) / 4) as i32 + 2;
+            let reach = photocraft_algo::selection::feather_reach(feather_px);
+            let pad = i32::try_from(reach).unwrap_or(i32::MAX).saturating_add(2);
             let bounds = Rect::new(
                 ix(bx0.floor()).saturating_sub(pad),
                 ix(by0.floor()).saturating_sub(pad),
@@ -492,7 +497,7 @@ fn fill_region(s: &mut Session, p: &Value, label: &str, brush: BrushSettings, pt
                 }
             }
             let coverage = photocraft_algo::selection::mask_to_surface(&cov, bounds);
-            crate::fill_cmds::blend_color_mask(surf, bounds, color, &coverage, mode, opacity, lock)?;
+            crate::fill_cmds::blend_color_mask(surf, bounds, color, picked, &coverage, mode, opacity, lock)?;
             Ok(bounds)
         })
     })?;
