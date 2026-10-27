@@ -1219,6 +1219,29 @@ fn variable_and_similar_filters_and_clear_all() {
     assert!(h.query_by_label("Family 10").is_none(), "fonts that can't be compared aren't listed");
 }
 
+/// With Show Similar Fonts on, the arrows step down the list made for the font current when it
+/// was turned on: re-sorting around each font stepped to sent the next step back.
+#[test]
+fn the_arrows_walk_down_the_similar_fonts_list() {
+    let mut h = filter_harness();
+    h.get_by_label("Show Similar Fonts").click();
+    h.run();
+    let order: Vec<String> = {
+        let mut rows: Vec<(f32, String)> = ["Family 00", "Family 01", "Family 02", "Family 03", "Family 04", "Zeta Sans"]
+            .iter()
+            .filter_map(|f| h.query_by_label(f).map(|n| (n.rect().top(), f.to_string())))
+            .collect();
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+        rows.into_iter().map(|(_, f)| f).collect()
+    };
+    assert_eq!(order[0], "Family 00", "the current font first");
+    for step in 1..4 {
+        h.key_press(egui::Key::ArrowDown);
+        h.run();
+        assert_eq!(h.state().current, order[step], "step {step} through {order:?}");
+    }
+}
+
 #[test]
 fn a_style_picked_under_the_expander_picks_the_family_in_that_style() {
     let mut h = filter_harness();
@@ -1230,6 +1253,35 @@ fn a_style_picked_under_the_expander_picks_the_family_in_that_style() {
     assert_eq!(h.state().current, "Family 01");
     assert_eq!(h.state().library.picked_style.as_deref(), Some("Bold"));
     assert!(h.query_by_label("Family 10").is_none(), "picking a style closes the menu");
+}
+
+/// An expanded family's style rows stay listed while the list scrolls its own row out of view:
+/// they used to vanish then, so the rows below jumped up.
+#[test]
+fn an_expanded_familys_styles_stay_listed_when_its_row_scrolls_away() {
+    let mut h = filter_harness();
+    let top = h.get_by_label("Family 00").rect().top();
+    h.get_by_label("Show Styles").click();
+    h.run();
+    assert!(h.query_by_label("Italic").is_some(), "Family 01 lists its styles");
+    let over = h.get_by_label("Family 05").rect().center();
+    h.hover_at(over);
+    h.run();
+    let mut styles_without_family_row = false;
+    for _ in 0..40 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -6.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+            source: egui::MouseWheelSource::Unknown,
+        });
+        h.run_steps(3);
+        let family_gone = h.query_by_label("Family 01").is_none_or(|n| n.rect().bottom() <= top);
+        let italic = h.query_by_label("Italic").map(|n| n.rect());
+        styles_without_family_row |= family_gone && italic.is_some_and(|r| r.bottom() > top);
+    }
+    assert!(styles_without_family_row, "the style rows show below the family row scrolled out of view");
 }
 
 #[test]

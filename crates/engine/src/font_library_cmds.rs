@@ -1,7 +1,8 @@
 //! The font menu's favourite font families: the star beside each font, kept until un-starred. They
 //! live in the preferences, so they survive a restart, and are plain family names: a favourite
-//! whose font is uninstalled stays listed until removed, as in Photoshop. (The recently used
-//! fonts are the shell's, `PhotocraftApp::note_recent_font`.)
+//! whose font is uninstalled is kept, though the menu lists installed fonts only, and shows it
+//! again once the font is back (`type.font.favorite` with `"on": false` removes it). (The
+//! recently used fonts are the shell's, `PhotocraftApp::note_recent_font`.)
 
 use serde_json::{Value, json};
 

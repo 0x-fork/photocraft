@@ -17,24 +17,25 @@ use rayon::prelude::*;
 
 /// Faux-italic slant in degrees (Photoshop-like).
 pub const FAUX_ITALIC_DEG: f32 = 12.0;
-/// Faux-bold ring radius as a fraction of the font size (tuned so stem weight stays close to the old summed-coverage look).
+/// How far faux bold grows the outline on every side, as a fraction of the font size
+/// ([`crate::embolden`]): stems get twice this heavier, close to the weight of the earlier
+/// faux bold, which stamped the glyph at offsets of this radius.
 pub const FAUX_BOLD_RADIUS: f32 = 0.036;
 /// Largest raster we produce (pixels), as a guard against absurd sizes.
 const MAX_PIXELS: u64 = 256 * 1024 * 1024;
-/// Cumulative coverage-pixel work budget across all colour and faux-bold passes of one render.
+/// Cumulative coverage-pixel work budget across the colour passes of one render.
 const MAX_PASS_PIXELS: u64 = MAX_PIXELS * 4;
 /// Peak working bytes one rasterization may keep live. [`MAX_PIXELS`] does not bound them: the
-/// accumulator and the output surface are both `stride` deep, and a faux-bold pass keeps one more
-/// coverage buffer live, so a CMYK bold render reserves several times what a plain grey one does
-/// for the same pixels.
+/// accumulator and the output surface are both `stride` deep, so a CMYK render reserves several
+/// times what a plain grey one does for the same pixels.
 const MAX_RASTER_BYTES: u64 = if cfg!(target_pointer_width = "64") { 4 << 30 } else { 1 << 30 };
 
 /// Whether a `w` x `h` render's peak working bytes fit `max_bytes`: the f32 accumulator and the
-/// output surface (both `stride` deep), plus the coverage buffers live at the peak. A plain pass
-/// peaks inside `Coverage::finish`, which holds its accumulator and the vector it builds beside
-/// it; a faux-bold pass peaks one buffer higher, since the resolved plain coverage is kept while
-/// the bold pass resolves into it. `false` when the arithmetic overflows, so an absurd size is
-/// refused rather than wrapping.
+/// output surface (both `stride` deep), plus the coverage buffers live at the peak. A pass peaks
+/// inside `Coverage::finish`, which holds its accumulator and the vector it builds beside it.
+/// Faux bold draws its thickened outlines in that same pass; a `bold` render is still budgeted
+/// one buffer higher, as when it was stamped into a buffer of its own, which leaves it headroom.
+/// `false` when the arithmetic overflows, so an absurd size is refused rather than wrapping.
 fn fits_raster_budget(w: usize, h: usize, stride: usize, sample: SampleType, bold: bool, max_bytes: u64) -> bool {
     let f32s = size_of::<f32>() as u64;
     let peak = (w as u64).checked_mul(h as u64).and_then(|px| {

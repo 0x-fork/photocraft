@@ -22,6 +22,22 @@ fn starring_toggles_and_on_sets_a_favourite() {
 }
 
 #[test]
+fn resetting_the_type_preferences_keeps_the_favourites() {
+    let mut s = session();
+    s.execute("type.font.favorite", json!({"family": "Bebas Neue"})).unwrap();
+    s.execute("prefs.set", json!({"path": "type.smartQuotes", "value": false})).unwrap();
+    s.execute("prefs.reset", json!({"path": "type"})).unwrap();
+    assert!(s.prefs().type_.smart_quotes, "the Type settings are reset");
+    assert_eq!(favorite_fonts(&s), ["Bebas Neue"], "the favourites are the user's library, not a setting");
+    // Asked for by name, or with everything, they go.
+    s.execute("prefs.reset", json!({"path": "type.favoriteFonts"})).unwrap();
+    assert!(favorite_fonts(&s).is_empty());
+    s.execute("type.font.favorite", json!({"family": "Bebas Neue"})).unwrap();
+    s.execute("prefs.reset", json!({})).unwrap();
+    assert!(favorite_fonts(&s).is_empty());
+}
+
+#[test]
 fn the_library_survives_a_preferences_round_trip_and_hostile_lists_are_tidied() {
     let mut s = session();
     s.execute("type.font.favorite", json!({"family": "Arial"})).unwrap();

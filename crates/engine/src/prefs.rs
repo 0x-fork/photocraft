@@ -1476,9 +1476,15 @@ impl Preferences {
             self.shortcuts.clear();
             return Ok(());
         }
+        // The favourite fonts are the user's library, not a Type setting: resetting the Type
+        // section keeps them (only `type.favoriteFonts` itself, or Reset All, clears them).
+        let favorites = (path == "type").then(|| self.type_.favorite_fonts.clone());
         let mut root = self.to_json();
         set_path(&mut root, path, def)?;
         *self = serde_json::from_value(root).map_err(|e| e.to_string())?;
+        if let Some(favorites) = favorites {
+            self.type_.favorite_fonts = favorites;
+        }
         Ok(())
     }
 

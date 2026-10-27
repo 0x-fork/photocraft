@@ -70,7 +70,8 @@ impl Outline {
     /// Grow the ink by `r` on every side (the stems get `2r` heavier, counters `2r` smaller).
     /// Points, on and off the curve, move along the bisector of their neighbouring edges by
     /// `r / cos(half the turn)`, capped by the shorter neighbouring edge so short segments and
-    /// sharp inner corners can't spike. Nothing moves for a non-finite or non-positive `r`, or an
+    /// sharp inner corners can't spike; a pointed tip (an A apex) never moves further than `2r`,
+    /// so it grows a little instead of a long miter. Nothing moves for a non-finite or non-positive `r`, or an
     /// outline without area.
     pub(crate) fn embolden(&mut self, r: f64) {
         if !(r.is_finite() && r > 0.0) {
@@ -118,42 +119,85 @@ impl Outline {
     }
 }
 
-/// How far each point of one closed contour moves (see [`Outline::embolden`]).
+/// How far each point of one closed contour moves (see [`Outline::embolden`]). No point moves
+/// further than [`MAX_SHIFT`] times `r`: an uncapped miter puts a long spike on every pointed tip
+/// (an A apex), and a tip past FreeType's spike threshold would not move at all.
 fn shifts(pts: &[(f64, f64)], r: f64, sign: f64) -> Vec<(f64, f64)> {
     let n = pts.len();
     let mut out = vec![(0.0, 0.0); n];
     if n < 2 {
         return out;
     }
-    // The nearest point in direction `step` that differs from `pts[i]`, and the edge to it.
-    let neighbour = |i: usize, forward: bool| -> Option<(f64, f64, f64)> {
-        let p = pts[i];
-        (1..n).find_map(|k| {
-            let j = if forward { (i + k) % n } else { (i + n - k) % n };
-            let (dx, dy) = if forward { (pts[j].0 - p.0, pts[j].1 - p.1) } else { (p.0 - pts[j].0, p.1 - pts[j].1) };
-            let len = dx.hypot(dy);
-            (len > 1e-9 && len.is_finite()).then(|| (dx / len, dy / len, len))
-        })
+    // Runs of coincident points (or points that can't be measured) share their neighbours: the
+    // last point of the run before and the first of the run after. Found in one pass, so a
+    // contour of many repeated points (a hostile font) costs O(n), not O(n²).
+    let apart = |p: (f64, f64), q: (f64, f64)| {
+        let len = (q.0 - p.0).hypot(q.1 - p.1);
+        len > 1e-9 && len.is_finite()
     };
-    for (i, shift) in out.iter_mut().enumerate() {
-        let (Some((ix, iy, l_in)), Some((ox, oy, l_out))) = (neighbour(i, false), neighbour(i, true)) else { continue };
-        let dot = ix * ox + iy * oy;
-        // A near reversal (a spike) has no useful bisector: leave it.
-        if dot <= -0.9375 {
-            continue;
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    let mut run_of = vec![0usize; n];
+    for (i, &p) in pts.iter().enumerate() {
+        match runs.last_mut() {
+            Some(run) if !pts.get(run.0).is_some_and(|&a| apart(a, p)) => run.1 = i,
+            _ => runs.push((i, i)),
         }
+        run_of[i] = runs.len().saturating_sub(1);
+    }
+    // The contour is closed: a last run back at the start point is the first run.
+    if runs.len() > 1
+        && let (Some(&(first, _)), Some(&(last, _))) = (runs.first(), runs.last())
+        && !apart(pts[first], pts[last])
+    {
+        runs.pop();
+        for k in &mut run_of[last..] {
+            *k = 0;
+        }
+        runs[0].0 = last;
+    }
+    let m = runs.len();
+    if m < 2 {
+        return out;
+    }
+    // The edge from `pts[i]` to `pts[j]` (or from `pts[j]` when `into`), as a unit vector and length.
+    let edge = |i: usize, j: usize, into: bool| -> Option<(f64, f64, f64)> {
+        let (p, q) = (pts[i], pts[j]);
+        let (dx, dy) = if into { (p.0 - q.0, p.1 - q.1) } else { (q.0 - p.0, q.1 - p.1) };
+        let len = dx.hypot(dy);
+        (len > 1e-9 && len.is_finite()).then(|| (dx / len, dy / len, len))
+    };
+    let cap = MAX_SHIFT * r;
+    for (i, shift) in out.iter_mut().enumerate() {
+        let k = run_of[i];
+        let prev = runs[(k + m - 1) % m].1;
+        let next = runs[(k + 1) % m].0;
+        let (Some((ix, iy, l_in)), Some((ox, oy, l_out))) = (edge(i, prev, true), edge(i, next, false)) else { continue };
+        let dot = ix * ox + iy * oy;
         let d = 1.0 + dot;
         let (sx, sy) = (sign * (iy + oy), -sign * (ix + ox));
+        let len = sx.hypot(sy);
+        // An exact reversal has no bisector, and no side to call outward: leave it.
+        if !(len > 1e-9 && len.is_finite()) {
+            continue;
+        }
         // How sharply the contour turns towards the ink at this point (negative: away).
         let q = sign * (ox * iy - oy * ix);
         let l = l_in.min(l_out);
         let scale = if r * q <= l * d { r / d } else { l / q };
+        // A pointed tip (turning away from the ink) moves no more than the cap along the bisector
+        // (`len` is the bisector's length, √(2d)). An inner corner keeps its exact miter, already
+        // limited by the shorter edge above: capping it would thin the strokes meeting there.
+        let scale = if q < 0.0 { scale.min(cap / len) } else { scale };
         if scale.is_finite() {
             *shift = (sx * scale, sy * scale);
         }
     }
     out
 }
+
+/// The longest move of an emboldened point, in radii: a square corner moves √2, and a tip moves
+/// `1 / sin(half its angle)`, so only tips sharper than 60° are capped.
+const MAX_SHIFT: f64 = 2.0;
 
 #[cfg(test)]
 mod tests {
@@ -283,5 +327,71 @@ mod tests {
         o.embolden(5.0);
         let b = bounds(&o);
         assert!(b.iter().all(|v| v.abs() < 60.0), "no runaway miter: {b:?}");
+    }
+
+    /// How far the tip of an isosceles triangle with a `deg`-degree tip (long sides) moves.
+    fn tip_shift(deg: f64, r: f64) -> f64 {
+        let half = (deg / 2.0).to_radians();
+        let (a, b) = ((1000.0 * half.sin()) as f32, (1000.0 * half.cos()) as f32);
+        let mut o = Outline::default();
+        o.move_to(0.0, 0.0);
+        o.line_to(a, b);
+        o.line_to(-a, b);
+        o.line_to(0.0, 0.0);
+        o.embolden(r);
+        let tip = o.contours[0].pts[0];
+        tip.0.hypot(tip.1)
+    }
+
+    #[test]
+    fn pointed_tips_grow_by_at_most_twice_the_radius_and_never_stop_growing() {
+        // 30°: an uncapped miter moves 1/sin(15°) = 3.86 r. 20.5° is just short of the spike
+        // threshold (5.6 r uncapped); 20° and 10° are past it, where the tip used to stay put.
+        for deg in [30.0, 20.5, 20.0, 10.0] {
+            let moved = tip_shift(deg, 1.0);
+            assert!(moved > 0.0 && moved <= 2.0 + 1e-9, "{deg}° tip moved {moved}");
+        }
+        // Blunt corners keep their exact miter: a square corner √2, a 90° tip too.
+        assert!((tip_shift(90.0, 1.0) - std::f64::consts::SQRT_2).abs() < 1e-3);
+    }
+
+    #[test]
+    fn inner_corners_keep_their_exact_miter() {
+        // A 40° notch (the crotch of a V) between long edges: its corner moves r / sin(20°), so the
+        // edges meeting there grow by r like the rest of the outline. The tip cap must not clip it.
+        let half = 20f64.to_radians();
+        let (a, b) = ((1000.0 * half.sin()) as f32, (1000.0 * half.cos()) as f32);
+        let mut o = Outline::default();
+        o.move_to(0.0, 0.0);
+        o.line_to(-a, b);
+        o.line_to(-a - 1000.0, b);
+        o.line_to(-a - 1000.0, -1000.0);
+        o.line_to(a + 1000.0, -1000.0);
+        o.line_to(a + 1000.0, b);
+        o.line_to(a, b);
+        o.line_to(0.0, 0.0);
+        o.embolden(1.0);
+        let corner = o.contours[0].pts[0];
+        let want = 1.0 / half.sin();
+        assert!((corner.0.hypot(corner.1) - want).abs() < 1e-2, "{corner:?}, want {want}");
+    }
+
+    #[test]
+    fn many_repeated_points_are_thickened_in_linear_time() {
+        // A hostile glyph: a contour of 50 000 copies of one point, then a square. Finding each
+        // point's neighbours by scanning past the copies cost ~10⁹ steps.
+        let mut o = Outline::default();
+        o.move_to(0.0, 0.0);
+        for _ in 0..50_000 {
+            o.line_to(0.0, 0.0);
+        }
+        for (x, y) in [(10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)] {
+            o.line_to(x, y);
+        }
+        let start = std::time::Instant::now();
+        o.embolden(1.0);
+        let took = start.elapsed();
+        assert!(took < std::time::Duration::from_secs(2), "took {took:?}");
+        assert!(close(bounds(&o), [-1.0, -1.0, 11.0, 11.0]), "{:?}", bounds(&o));
     }
 }

@@ -2923,7 +2923,17 @@ pub(crate) fn family_picker_in(
         let open_recents: Vec<String> = ui.data_mut(|d| d.get_temp_mut_or_insert_with(recents_id, || library.recent.clone()).clone());
         // No recent group while a filter is on: the filters narrow the alphabetical list alone.
         let (mut rows, n_recent) = font_menu_rows(families, labels, &ql, if filters.any() { &[] } else { &open_recents });
-        let comparable = crate::font_filters::apply(&mut rows, &filters, &library.favorites, current, &lookup);
+        // Show Similar Fonts compares with the font current when it was turned on (or the menu
+        // opened), as the recent group stays put: each arrow step applies a font, and sorting
+        // around that one sent the next step back to the font before.
+        let similar_id = search_id.with("similar-to");
+        let reference: String = if filters.similar {
+            ui.data_mut(|d| d.get_temp_mut_or_insert_with(similar_id, || current.clone()).clone())
+        } else {
+            ui.data_mut(|d| d.remove::<String>(similar_id));
+            current.clone()
+        };
+        let comparable = crate::font_filters::apply(&mut rows, &filters, &library.favorites, &reference, &lookup);
         // A recent family is listed twice. The current family's row is the one the last arrow
         // selected while it still shows that family, else its first copy: as in Photoshop, the
         // one in the recent group when it has one (#9160), and the arrows walk on from there.
@@ -3012,11 +3022,12 @@ pub(crate) fn family_picker_in(
                         if i == n_recent && n_recent > 0 {
                             ui.separator();
                         }
-                        // Only rows on screen read their font's format and styles.
+                        // Only rows on screen read their font's format and styles, and an expanded
+                        // family: its style rows stay listed when its own row scrolls out of view.
                         let visible = ui.is_rect_visible(egui::Rect::from_min_size(ui.cursor().min, egui::vec2(FONT_LIST_WIDTH, row_h)));
                         let format = if visible { lookup(f).map(|t| t.format) } else { None };
-                        let styles = if visible { library.styles_of(f) } else { Vec::new() };
                         let open = !recent_row && expanded.contains(f);
+                        let styles = if visible || open { library.styles_of(f) } else { Vec::new() };
                         let favorite = library.favorites.contains(f);
                         // Highlighted by its fill alone, as Photoshop's font menu is: a hovered or selected
                         // row's stroke grew it and pushed the rows below down (#7406).
@@ -3149,6 +3160,7 @@ pub(crate) fn family_picker_in(
             d.remove::<Vec<String>>(recents_id);
             d.remove::<usize>(row_id);
             d.remove::<bool>(search_id.with("reveal"));
+            d.remove::<String>(search_id.with("similar-to"));
         });
     }
     let hovered_font = response.inner.unwrap_or_default();
@@ -4045,7 +4057,11 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
             if ready && let Some(picked) = font_picker(app, ui, &mut fam, full) {
                 app.ui.tool_options.type_font = fam.clone();
                 match picked {
-                    Some(style) => apply(app, ui.ctx(), json!({"font": fam, "fontStyle": style})),
+                    Some(style) => {
+                        // New type takes the style too, as from the options bar's menu.
+                        app.ui.tool_options.type_style = style.clone();
+                        apply(app, ui.ctx(), json!({"font": fam, "fontStyle": style}));
+                    }
                     None => apply(app, ui.ctx(), json!({"font": fam})),
                 }
             }

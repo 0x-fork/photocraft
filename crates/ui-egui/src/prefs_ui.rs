@@ -1472,8 +1472,16 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>, system: Option<egui
                 if search.trim().is_empty()
                     && has_visible_fields(&values, &section)
                     && crate::widgets::secondary_button(ui, tl!("Reset Section"), 110.0).clicked()
-                    && let Some(def) = prefs::Preferences::default().get(&section)
+                    && let Some(mut def) = prefs::Preferences::default().get(&section)
                 {
+                    // The favourite fonts are the user's library, not a Type setting: kept, as
+                    // `prefs.reset {"path": "type"}` keeps them.
+                    if section == "type"
+                        && let Some(favorites) = values.get(&section).and_then(|v| v.get("favoriteFonts")).cloned()
+                        && let Some(def) = def.as_object_mut()
+                    {
+                        def.insert("favoriteFonts".into(), favorites);
+                    }
                     values[&section] = def;
                 }
             });
@@ -3282,6 +3290,29 @@ mod tests {
             assert!(h.query_by_label(&label).is_some(), "missing theme swatch {label}");
         }
         assert!(h.query_by_label("Breeze light").is_some() && h.query_by_label("Breeze dark").is_some());
+    }
+
+    #[test]
+    fn reset_section_on_type_keeps_the_favourite_fonts() {
+        // The favourites are the font menu's library, not a Type setting.
+        use egui_kittest::{Harness, kittest::Queryable};
+        let (mut app, store) = app_with_store();
+        app.run("prefs.set", json!({"values": {"interface.language": "en", "type.smartQuotes": false}})).unwrap();
+        app.run("type.font.favorite", json!({"family": "Bebas Neue"})).unwrap();
+        open_preferences(&mut app, "type");
+        let mut h = Harness::builder().with_size(vec2(1280.0, 800.0)).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            app
+        });
+        h.run_steps(4);
+        h.get_by_label("Reset Section").click();
+        h.run_steps(2);
+        h.get_by_label("OK").click();
+        h.run_steps(4);
+        let prefs = h.state().session.prefs().type_.clone();
+        assert!(prefs.smart_quotes, "the Type settings are reset");
+        assert_eq!(prefs.favorite_fonts, ["Bebas Neue"], "the favourites are kept");
+        assert_eq!(stored(&store)["type"]["favoriteFonts"], json!(["Bebas Neue"]));
     }
 
     #[test]
