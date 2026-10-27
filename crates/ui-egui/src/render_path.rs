@@ -189,6 +189,10 @@ pub fn note_app(app: &mut PhotocraftApp, reason: Option<CpuReason>) {
     let rp = &mut app.render_path;
     let changed = rp.app_wide.as_ref().map(CpuReason::kind) != reason.as_ref().map(CpuReason::kind);
     rp.app_wide = reason.clone();
+    if reason.is_none() {
+        // A rebuilt GPU canvas (Retry GPU) on a software adapter still has that reason.
+        rp.startup_checked = false;
+    }
     sync_perf(app);
     if changed {
         log_change("all documents", reason.as_ref());
@@ -203,13 +207,17 @@ pub fn view_ok(app: &mut PhotocraftApp, doc: u64) {
     }
 }
 
+/// Whether the window has a GPU canvas.
+fn has_gpu_canvas(app: &PhotocraftApp) -> bool {
+    #[cfg(test)]
+    return app.gpu.is_some() || app.render_path.assume_gpu;
+    #[cfg(not(test))]
+    app.gpu.is_some()
+}
+
 /// Whether the window composites on the GPU at all: no reason for every document, and a GPU canvas.
 fn window_on_gpu(app: &PhotocraftApp) -> bool {
-    #[cfg(test)]
-    let gpu = app.gpu.is_some() || app.render_path.assume_gpu;
-    #[cfg(not(test))]
-    let gpu = app.gpu.is_some();
-    gpu && app.render_path.app_wide.is_none()
+    has_gpu_canvas(app) && app.render_path.app_wide.is_none()
 }
 
 /// An adjustment dialog on document `doc` previews through the CPU proxy for `why`. It has its
@@ -252,15 +260,17 @@ pub fn frame(app: &mut PhotocraftApp) {
     sync_perf(app);
 }
 
-/// Once, when the window has no GPU canvas: a software adapter or CPU mode chosen at startup.
+/// Once: a software adapter (`set_wgpu` builds the GPU canvas on one, so it is checked with or
+/// without a GPU canvas) or, without a GPU canvas, CPU mode chosen at startup.
 fn startup(app: &mut PhotocraftApp) {
-    if app.render_path.startup_checked || app.gpu.is_some() || app.gpu_fault.is_some() {
+    if app.render_path.startup_checked || app.gpu_fault.is_some() {
         return;
     }
+    let gpu = has_gpu_canvas(app);
     let info = &app.perf.gpu_info;
     let reason = if info.device_type == "cpu" {
         CpuReason::SoftwareAdapter
-    } else if info.canvas == "cpu" {
+    } else if !gpu && info.canvas == "cpu" {
         CpuReason::CpuMode(info.fallback.clone().unwrap_or_else(|| format!("performance.gpuBackend is {}", info.preference)))
     } else {
         // The adapter isn't known yet (or this host has none to report).
@@ -417,5 +427,33 @@ mod tests {
         frame(&mut app);
         assert_eq!(app.render_path.current(7), Some(&CpuReason::CpuMode("--safe-gpu".into())));
         assert_eq!(inspect(&app)["history"][0]["kind"], "cpuMode");
+    }
+
+    /// `set_wgpu` builds the GPU canvas on a software adapter: it is still the window's reason,
+    /// and still after Retry GPU rebuilds the canvas. A hardware adapter records none.
+    #[test]
+    fn a_software_adapter_records_its_startup_reason() {
+        let mut app = app();
+        app.render_path.assume_gpu = true;
+        app.perf.gpu_info.device_type = "discreteGpu".into();
+        app.perf.gpu_info.canvas = "gpu".into();
+        frame(&mut app);
+        assert!(app.render_path.current(1).is_none(), "a hardware GPU");
+        assert_eq!(app.render_path.history().count(), 0);
+
+        let mut app = self::app();
+        app.render_path.assume_gpu = true;
+        app.perf.gpu_info.adapter = "Microsoft Basic Render Driver".into();
+        app.perf.gpu_info.device_type = "cpu".into();
+        app.perf.gpu_info.canvas = "gpu".into();
+        frame(&mut app);
+        assert_eq!(app.render_path.current(1), Some(&CpuReason::SoftwareAdapter));
+        frame(&mut app);
+        assert_eq!(app.render_path.history().count(), 1, "once");
+        // The canvas dropped after an error, then rebuilt by Retry GPU on the same adapter.
+        note_app(&mut app, Some(CpuReason::Unsupported("out of memory".into())));
+        note_app(&mut app, None);
+        frame(&mut app);
+        assert_eq!(app.render_path.current(1), Some(&CpuReason::SoftwareAdapter), "after Retry GPU");
     }
 }
