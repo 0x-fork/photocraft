@@ -11,7 +11,32 @@ use photocraft_raster::Surface;
 use crate::{ExportOptions, ExportResult, ImportResult, IoError, TgaBits, XmpEmbed};
 
 /// Bytes per band when converting or exporting a band of rows at a time.
-const BAND_BYTES: usize = 32 << 20;
+pub const BAND_BYTES: usize = 32 << 20;
+
+/// Row ranges for bands covering a layer region, aligned to tile rows.
+#[allow(dead_code)]
+pub fn band_rows(top: i32, h: usize, row_bytes: usize) -> Vec<(usize, usize)> {
+    const MAX_BAND_BYTES: usize = 32 << 20;
+    let _top = top.max(0) as usize;
+    let row_bytes = row_bytes.max(1);
+    let h_rows = h;
+    let mut bands = Vec::new();
+    let mut cursor = 0_usize;
+    while cursor < h_rows {
+        let remaining = h_rows - cursor;
+        let max_by_bytes = MAX_BAND_BYTES / row_bytes;
+        let candidate = std::cmp::max(1, std::cmp::min(remaining, max_by_bytes));
+        let band_rows = if cursor == 0 || cursor.is_multiple_of(TILE_SIZE as usize) {
+            candidate
+        } else {
+            let tile_boundary = (TILE_SIZE as usize) - (cursor % (TILE_SIZE as usize));
+            std::cmp::min(candidate, tile_boundary)
+        };
+        bands.push((cursor, cursor + band_rows));
+        cursor += band_rows;
+    }
+    bands
+}
 
 /// Decodes a flat image into a single-layer document; a TIFF with Photoshop layer data opens
 /// layered (see [`crate::tiff_layers`]).

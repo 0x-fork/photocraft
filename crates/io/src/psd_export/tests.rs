@@ -486,7 +486,7 @@ fn every_mode_promoted_by_size_signs_long_blocks_8b64() {
         assert_eq!(big.decode_merged().unwrap(), small.decode_merged().unwrap(), "{psd_mode:?}");
         // Without `size_limit_psb` no mode is promoted by its size, the layerless ones included.
         let opts = PsdExportOptions { size_limit_psb: false, ..PsdExportOptions::default() };
-        let (kept, warnings) = document_to_psd_sized(&doc, &opts, 0, &Interrupt::NONE, len + PSD_SAVE_HEADROOM - 1);
+        let (kept, warnings) = document_to_psd_sized(&doc, &opts, 0, &Interrupt::NONE, PSD_MAX_FILE_SIZE);
         assert_eq!((kept.written_version(), kept.header.color_mode), (Version::Psd, psd_mode), "{psd_mode:?}: {warnings:?}");
         assert!(!warnings.iter().any(|w| w.contains("written as PSB")), "{psd_mode:?}: {warnings:?}");
     }
