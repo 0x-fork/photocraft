@@ -249,8 +249,16 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>, system: Option<egui
                 if search.trim().is_empty()
                     && has_visible_fields(&values, &section)
                     && crate::widgets::secondary_button(ui, tl!("Reset Section"), 110.0).clicked()
-                    && let Some(def) = prefs::Preferences::default().get(&section)
+                    && let Some(mut def) = prefs::Preferences::default().get(&section)
                 {
+                    // The favourite fonts are the user's library, not a Type setting: kept, as
+                    // `prefs.reset {"path": "type"}` keeps them.
+                    if section == "type"
+                        && let Some(favorites) = values.get(&section).and_then(|v| v.get("favoriteFonts")).cloned()
+                        && let Some(def) = def.as_object_mut()
+                    {
+                        def.insert("favoriteFonts".into(), favorites);
+                    }
                     values[&section] = def;
                 }
             });

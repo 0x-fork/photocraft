@@ -40,7 +40,8 @@ pub(crate) use overlay::{draw_anchor, draw_handle, draw_outline};
 use path_ops::target_path;
 pub use path_ops::{active_path_name, path_selection_finish, path_to_selection, pick_shape_at, selected_document_path, takes_path_mask, with_active_path};
 pub(crate) use path_ops::{
-    active_shape_path, delete_key_deletes_work_path, deselect_loaded_path, free_transform_path, targeted_vector_mask, work_path_shown, work_path_shown_in,
+    active_shape_path, active_type_path, delete_key_deletes_work_path, deselect_loaded_path, free_transform_path, targeted_vector_mask, work_path_shown,
+    work_path_shown_in,
 };
 #[cfg(test)]
 use paths_panel::path_context_actions;

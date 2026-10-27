@@ -1,4 +1,4 @@
-use super::export::{CELL_SIZE, blend_options, is_meta, pi, rgbc};
+use super::export::{CELL_SIZE, blend_options, is_meta, pi, rgbc, whole};
 use super::placed::enumv;
 use super::*;
 
@@ -596,7 +596,7 @@ pub(super) fn known_params(class: &str, f: Option<&Descriptor>, item: &Descripto
 // `FrgC`/`BckC` are the colours the Sketch effects read. Only effects whose settings we know are
 // mapped; a stack with any other effect (or setting) stays an [`UNSUPPORTED_FILTER`].
 
-const GALLERY_CLASS: &str = "GEfc";
+pub(super) const GALLERY_CLASS: &str = "GEfc";
 
 pub(super) const GALLERY_COMMAND: &str = "filter.filterGallery";
 
@@ -609,7 +609,13 @@ pub(super) struct GalleryCode {
     pub(super) settings: &'static [(&'static str, &'static str)],
 }
 
-pub(super) const GALLERY_EFFECTS: [GalleryCode; 1] = [GalleryCode { key: "chrome", code: "Chrm", settings: &[("Dtl ", "detail"), ("Smth", "smoothness")] }];
+pub(super) const GALLERY_EFFECTS: [GalleryCode; 2] = [
+    GalleryCode { key: "chrome", code: "Chrm", settings: &[("Dtl ", "detail"), ("Smth", "smoothness")] },
+    GalleryCode { key: "halftonePattern", code: "HlfS", settings: &[("HlSz", "size"), ("Cntr", "contrast")] },
+];
+
+// Halftone Pattern's shape is a `ScrT` enum (Filter Gallery terminology: Dot, Circle, Line).
+const HALFTONE_PATTERNS: [(&[u8; 4], &str); 3] = [(b"ScrD", "dot"), (b"ScrC", "circle"), (b"ScrL", "line")];
 
 /// An `RGBC` descriptor (0–255 channels) as straight `[r, g, b, a]`, 0–1.
 fn rgbc_colour(d: &Descriptor) -> Option<J> {
@@ -669,8 +675,22 @@ fn gallery_params(item: &Descriptor, f: &Descriptor) -> Option<J> {
         let code = enum_of(e, "GEfk")?;
         let g = GALLERY_EFFECTS.iter().find(|g| g.code.as_bytes() == code)?;
         let mut params = Map::new();
+        if g.key == "halftonePattern" {
+            // Do not turn an unfamiliar shape or malformed setting into the engine's defaults:
+            // keeping the whole item opaque preserves it through a subsequent save.
+            if !e.class_id.is(GALLERY_CLASS)
+                || !only_keys(e, &["GEfk", "HlSz", "Cntr", "ScrT", "GELv"])
+                || !matches!(e.get("GEfk"), Some(Value::Enumerated { type_id, .. }) if type_id.is("GEft"))
+                || e.get("GELv").is_some_and(|v| !matches!(v, Value::Boolean(_)))
+            {
+                return None;
+            }
+            int_in(e, "HlSz", 1, 12)?;
+            int_in(e, "Cntr", 0, 50)?;
+            params.insert("patternType".into(), json!(enum_name(e, "ScrT", "ScrT", &HALFTONE_PATTERNS)?));
+        }
         for (k, v) in &e.items {
-            if k.is("GEfk") || k.is("GELv") {
+            if k.is("GEfk") || k.is("GELv") || g.key == "halftonePattern" && k.is("ScrT") {
                 continue;
             }
             let (_, ours) = g.settings.iter().find(|(psd, _)| k.is(psd))?;
@@ -723,13 +743,25 @@ pub(super) fn gallery_item(f: &SmartFilter) -> Result<Descriptor, String> {
         let g = GALLERY_EFFECTS.iter().find(|g| g.key == key).ok_or_else(|| format!("gallery effect `{key}` has no PSD equivalent"))?;
         let params = e.get("params").filter(|v| v.is_object()).unwrap_or(e);
         if let Some(k) = params.as_object().and_then(|o| {
-            o.keys().find(|k| !is_meta(k) && !["filter", "params", "visible"].contains(&k.as_str()) && !g.settings.iter().any(|(_, ours)| ours == k))
+            o.keys().find(|k| {
+                !is_meta(k)
+                    && !["filter", "params", "visible"].contains(&k.as_str())
+                    && !g.settings.iter().any(|(_, ours)| ours == k)
+                    && !(key == "halftonePattern" && *k == "patternType")
+            })
         }) {
             return Err(format!("gallery setting `{key}.{k}` has no PSD equivalent"));
         }
         let defaults = photocraft_algo::GalleryFilter::from_key(key).map(photocraft_algo::GalleryEffect::new);
-        let settings: Vec<(&str, Value)> =
-            g.settings.iter().map(|(psd, ours)| (*psd, pi(params, ours, defaults.as_ref().map_or(0.0, |x| f64::from(x.get(ours)))))).collect();
+        let settings: Vec<(&str, Value)> = if key == "halftonePattern" {
+            vec![
+                ("HlSz", whole(pf_range(params, "size", 1.0, 1.0, 12.0)?, (1, 12), "size")?),
+                ("Cntr", whole(pf_range(params, "contrast", 5.0, 0.0, 50.0)?, (0, 50), "contrast")?),
+                ("ScrT", enum_param(params, "patternType", "dot", "ScrT", &HALFTONE_PATTERNS)?),
+            ]
+        } else {
+            g.settings.iter().map(|(psd, ours)| (*psd, pi(params, ours, defaults.as_ref().map_or(0.0, |x| f64::from(x.get(ours)))))).collect()
+        };
         out.push((g.code, settings, e.get("visible").and_then(J::as_bool).unwrap_or(true)));
     }
     let gallery = || {

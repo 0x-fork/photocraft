@@ -528,11 +528,16 @@ pub(super) fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter
             let size = [st.doc.size.width, st.doc.size.height];
             let doc_rect = xf.doc_rect(st.doc.bounds());
             let trail = app.trail.get_or_insert_with(|| crate::stroke_trail::Trail::new(size));
-            if t == Tool::SpotHealing {
-                // What the heal covers, dab by dab: soft edges, pressure and shape dynamics (#2364).
-                trail.feed_dabs(&d.points, || photocraft_engine::retouch_cmds::stroke_brush(&app.session.tools.brush, &json!({})));
-            } else {
-                trail.feed(&d.points, app.session.tools.brush.size);
+            let brush = || photocraft_engine::retouch_cmds::stroke_brush(&app.session.tools.brush, &json!({}));
+            match t {
+                // Quick Selection reads the brush's size alone (`select.quick`).
+                Tool::QuickSelection => trail.feed(&d.points, app.session.tools.brush.size),
+                // Remove removes every pixel a dab touches, so its whole reach is tinted: a soft
+                // tip's reaches well past the nominal radius.
+                Tool::Remove => trail.feed_reach(&d.points, brush),
+                // What the stroke covers, dab by dab: soft edges, pressure and shape dynamics
+                // (Spot Healing #2364; the Mixer Brush, and a tool whose live stroke didn't start).
+                _ => trail.feed_dabs(&d.points, brush),
             }
             trail.draw(painter, doc_rect, xf.flip, col);
         }

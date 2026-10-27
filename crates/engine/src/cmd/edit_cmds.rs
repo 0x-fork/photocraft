@@ -403,7 +403,7 @@ fn paste(s: &mut Session, p: &Value, in_place: bool) -> Result<Value> {
     let id = s.edit("Paste", |doc, active| {
         let mut l = Layer::raster(doc.next_layer_name("Layer"), target);
         *crate::pixels_mut(&mut l)? = surf;
-        let id = doc.insert_above(*active, l);
+        let id = crate::layer_place::insert_new(doc, *active, l, crate::layer_place::Place::AutoEditable);
         *active = Some(id);
         doc.selection = None;
         Ok(id)
@@ -445,9 +445,13 @@ fn paste_layers(s: &mut Session, layers: &Document, dx: i32, dy: i32) -> Result<
     let id = s.edit("Paste", |doc, active| {
         doc.patterns.extend(patterns);
         doc.metadata.psd_global_blocks.extend(linked);
+        // The first pasted layer goes where a new layer would; the rest stack above it.
+        let mut place = crate::layer_place::Place::AutoEditable;
         for l in copies.layers {
-            *active = Some(doc.insert_above(*active, l));
+            *active = Some(crate::layer_place::insert_new(doc, *active, l, place));
+            place = crate::layer_place::Place::Above;
         }
+        crate::cmd::layer_multi_cmds::check_group_depth(doc, "Paste")?;
         doc.selection = None;
         active.ok_or(EngineError::Other("nothing to paste".into()))
     })?;
@@ -587,7 +591,7 @@ fn layer_via(s: &mut Session, cut: bool) -> Result<Value> {
         }
         let mut l = Layer::raster(doc.next_layer_name("Layer"), clip.surface.format());
         *crate::pixels_mut(&mut l)? = clip.surface;
-        let nid = doc.insert_above(Some(id), l);
+        let nid = crate::layer_place::insert_new(doc, Some(id), l, crate::layer_place::Place::Above);
         *active = Some(nid);
         // Photoshop deselects: a following Free Transform moves the whole new layer (#1096).
         doc.selection = None;

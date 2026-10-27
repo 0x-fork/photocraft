@@ -1038,14 +1038,14 @@ fn reset_harness(app: PhotocraftApp) -> egui_kittest::Harness<'static, ResetHarn
                             170.0,
                             &["Family 00".into(), "Family 01".into()],
                             photocraft_engine::prefs::FontPreview::Medium,
-                            &[],
+                            &mut FontLibrary::default(),
                         );
                         let search = ui.scope_id().with(("font-search", "reset-font"));
                         state.search = ui.data(|d| d.get_temp::<String>(search)).unwrap_or_default();
                         let input = search.with("input");
                         state.search_input = Some(input);
                         state.search_focused = ui.memory(|m| m.has_focus(input));
-                        state.search_height = ui.memory(|m| m.area_rect(button.with("popup"))).map(|r| r.height());
+                        state.search_height = ui.data(|d| d.get_temp::<egui::Rect>(search.with("body"))).map(|r| r.height());
                     });
                 }
                 if state.picker_button {

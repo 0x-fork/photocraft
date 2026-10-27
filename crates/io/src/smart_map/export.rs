@@ -37,7 +37,7 @@ pub(super) fn pi(p: &J, key: &str, default: f64) -> Value {
 
 /// A whole-number setting as a long, clamped to `range` like the engine clamps it; a fraction
 /// has no PSD equivalent (Photoshop stores these as integers).
-fn whole(v: f64, (lo, hi): (i32, i32), what: &str) -> Result<Value, String> {
+pub(super) fn whole(v: f64, (lo, hi): (i32, i32), what: &str) -> Result<Value, String> {
     if v.fract() != 0.0 {
         return Err(format!("{what} ({v}) is not a whole number"));
     }

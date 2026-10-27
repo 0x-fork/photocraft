@@ -906,7 +906,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| layer_name(&t.text));
                 let id = s.edit("New Type Layer", |doc, active| {
                     refresh(doc, &mut t);
-                    let id = doc.insert_above(*active, Layer::new(name, LayerContent::Text(t)));
+                    let id = crate::layer_place::insert_new(doc, *active, Layer::new(name, LayerContent::Text(t)), crate::layer_place::Place::AutoEditable);
                     *active = Some(id);
                     Ok(id)
                 })?;

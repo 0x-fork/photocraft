@@ -127,6 +127,16 @@ pub(crate) fn targeted_vector_mask(app: &PhotocraftApp) -> Option<(u64, Path)> {
     l.vector_mask.as_ref().map(|m| (l.id.0, m.path.clone()))
 }
 
+/// The active type layer's path in document space, if it is type on a path (#9114).
+pub(crate) fn active_type_path(app: &PhotocraftApp) -> Option<(u64, Path)> {
+    let st = app.session.active()?;
+    let l = st.active_layer.and_then(|id| st.doc.layer(id))?;
+    match &l.content {
+        LayerContent::Text(t) => photocraft_engine::type_extra_cmds::type_path(t).map(|p| (l.id.0, p)),
+        _ => None,
+    }
+}
+
 /// The active shape layer's path, if the active layer is a shape layer.
 pub(crate) fn active_shape_path(app: &PhotocraftApp) -> Option<(u64, Path)> {
     let st = app.session.active()?;
