@@ -44,7 +44,7 @@ pub(crate) fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::
                 format!("{:?}", c.blend).hash(h);
                 layer_identity(c, h, pin);
             }
-            format!("{:?}", g.artboard).hash(h);
+            format!("{:?}{:?}", g.artboard, g.frame_stroke).hash(h);
         }
         LayerContent::Fill(f) => {
             format!("{f:?}").hash(h);

@@ -147,7 +147,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         // a path tool is active, as in Photoshop: a Work Path left unselected (one a PSD arrived
         // with, or after Ctrl-click Load as Selection) would otherwise cover the marching ants (#6551).
         let anchors = shows_anchors(tool);
-        if let Some(wp) = &doc.work_path
+        if let Some(wp) = doc.work_path.as_ref().filter(|_| work_path_shown_in(app, doc))
             && (anchors || app.ui.selected_path.as_deref() == Some("work"))
         {
             draw_path(wp, anchors);

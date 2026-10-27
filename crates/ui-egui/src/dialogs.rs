@@ -907,6 +907,13 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
                 Some(p) if result.is_ok() && running => p.committing = true,
                 _ => app.filter_preview = None,
             }
+            if result.is_ok()
+                && cmd == "path.toSelection"
+                && d.fields.contains_key("__deselectPath")
+                && let Some(name) = params.get("name").and_then(Value::as_str)
+            {
+                crate::vector_ui::deselect_loaded_path(app, name);
+            }
             if result.is_ok() && cmd == "view.newGuideLayout" {
                 app.ui.view.guide_layout = params;
             }
@@ -1014,6 +1021,7 @@ pub(super) mod filter_preview_ui;
 pub(super) mod filter_preview_worker;
 pub mod gallery_ui;
 pub mod guide_layout_ui;
+pub mod history_options_ui;
 pub mod jpeg_options_ui;
 pub mod layer_picker;
 pub mod layer_style;
