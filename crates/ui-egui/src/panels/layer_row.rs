@@ -1,6 +1,8 @@
 use super::layer_drag::{MaskDrag, fx_drop, layer_drag_and_drop, mask_drag_key, start_fx_drag, starts_mask_drag};
 use super::layers::simple_lock_toggle;
-use super::*;
+use super::{
+    Color32, CornerRadius, Layer, LayerContent, PhotocraftApp, Pos2, Rect, Sense, Stroke, StrokeKind, Tokens, Value, icons, json, pos2, theme, vec2, widgets,
+};
 
 /// How a Layers panel row is selected: in the (multi-)selection, the primary/active layer, and
 /// whether several layers are selected.
@@ -55,28 +57,51 @@ fn eye_sweep(ctx: &egui::Context, l: &Layer, row: Rect, eye: &egui::Response, ac
     let set =
         |visible: bool, key: u64| ("layer.setProps".to_string(), json!({"layer": l.id.0, "visible": visible, "coalesce": format!("layer-eye-sweep:{key}")}));
     if eye.drag_started() {
-        let sweep = EyeSweep { visible: !l.visible, key: ctx.cumulative_pass_nr(), swept: vec![l.id.0] };
+        start_eye_sweep(ctx, l, id, actions, &set);
+    } else {
+        continue_eye_sweep(ctx, l, row, id, actions, &set);
+    }
+}
+
+fn start_eye_sweep(ctx: &egui::Context, layer: &Layer, id: egui::Id, actions: &mut Vec<(String, Value)>, set: &impl Fn(bool, u64) -> (String, Value)) {
+    let sweep = EyeSweep { visible: !layer.visible, key: ctx.cumulative_pass_nr(), swept: vec![layer.id.0] };
+    actions.push(set(sweep.visible, sweep.key));
+    ctx.data_mut(|data| data.insert_temp(id, sweep));
+}
+
+fn continue_eye_sweep(
+    ctx: &egui::Context,
+    layer: &Layer,
+    row: Rect,
+    id: egui::Id,
+    actions: &mut Vec<(String, Value)>,
+    set: &impl Fn(bool, u64) -> (String, Value),
+) {
+    let Some(mut sweep) = ctx.data(|data| data.get_temp::<EyeSweep>(id)) else { return };
+    if !sweep_pointer_down(ctx) {
+        ctx.data_mut(|data| data.remove::<EyeSweep>(id));
+        return;
+    }
+    let Some((y0, y1)) = swept_pointer_range(ctx) else { return };
+    if y1 < row.top() || y0 >= row.bottom() || sweep.swept.contains(&layer.id.0) {
+        return;
+    }
+    if layer.visible != sweep.visible {
         actions.push(set(sweep.visible, sweep.key));
-        ctx.data_mut(|d| d.insert_temp(id, sweep));
-        return;
     }
-    let Some(mut sweep) = ctx.data(|d| d.get_temp::<EyeSweep>(id)) else { return };
-    let (down, pos, delta) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.interact_pos(), i.pointer.delta()));
-    if !down {
-        ctx.data_mut(|d| d.remove::<EyeSweep>(id));
-        return;
-    }
-    // Everything the pointer passed since the last frame, so a fast drag skips no row.
-    let Some(p) = pos else { return };
-    let (y0, y1) = ((p.y - delta.y).min(p.y), (p.y - delta.y).max(p.y));
-    if y1 < row.top() || y0 >= row.bottom() || sweep.swept.contains(&l.id.0) {
-        return;
-    }
-    if l.visible != sweep.visible {
-        actions.push(set(sweep.visible, sweep.key));
-    }
-    sweep.swept.push(l.id.0);
-    ctx.data_mut(|d| d.insert_temp(id, sweep));
+    sweep.swept.push(layer.id.0);
+    ctx.data_mut(|data| data.insert_temp(id, sweep));
+}
+
+fn sweep_pointer_down(ctx: &egui::Context) -> bool {
+    ctx.input(|input| input.pointer.primary_down())
+}
+
+/// The pointer segment between frames catches rows even when a fast drag skips them visually.
+fn swept_pointer_range(ctx: &egui::Context) -> Option<(f32, f32)> {
+    let (position, delta) = ctx.input(|input| (input.pointer.interact_pos(), input.pointer.delta()));
+    let p = position?;
+    Some(((p.y - delta.y).min(p.y), (p.y - delta.y).max(p.y)))
 }
 
 /// Marker in the clipped row's existing 12-point slot, beside its thumbnail.

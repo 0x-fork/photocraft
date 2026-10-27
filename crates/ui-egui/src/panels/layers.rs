@@ -4,7 +4,7 @@ use super::layer_drag::{
 };
 use super::layer_row::{RowSel, layer_row};
 use super::options_bar::{LAYER_PCT_W, body_text_width, pct_action, scrub_pct_label};
-use super::*;
+use super::{BlendMode, Layer, LayerId, MaskKind, PhotocraftApp, Rect, Sense, Tokens, Value, empty, icons, json, label, pos2, theme, vec2, widgets};
 
 // ----------------------------------------------------------------------------- layers
 
