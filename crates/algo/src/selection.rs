@@ -806,6 +806,13 @@ pub fn feather(m: &[f32], w: usize, h: usize, radius: f32) -> Vec<f32> {
     crate::selection_blur::feather(m, w, h, radius)
 }
 
+/// How far [`feather`] spreads, in pixels (`⌈3σ⌉` with σ = `radius`, 0 when it changes nothing).
+/// Samples farther than this from every nonzero sample stay 0, so a working window grown by this
+/// much gives the same result as the whole canvas.
+pub fn feather_reach(radius: f32) -> usize {
+    crate::selection_blur::feather_reach(radius)
+}
+
 /// Anti-aliased polygon (even-odd) coverage over `area`: exact horizontal
 /// coverage, 4 sub-rows per pixel row (or 1 when not anti-aliased). Bands of
 /// rows are filled in parallel, and each sub-row tests only the edges that

@@ -674,3 +674,16 @@ fn polygon_window_keeps_full_canvas_fractional_coverage() {
         }
     }
 }
+
+#[test]
+fn feather_leaves_everything_beyond_its_reach_at_zero() {
+    for radius in [0.05, 0.5, 2.5, 7.0, 40.0] {
+        let reach = feather_reach(radius);
+        let w = 3 * reach + 20;
+        let mut m = vec![0.0; w];
+        m[0] = 1.0;
+        let out = feather(&m, w, 1, radius);
+        assert!(out[0] > 0.0, "radius {radius}");
+        assert!(out[reach + 1..].iter().all(|v| *v == 0.0), "radius {radius}: nonzero past reach {reach}");
+    }
+}
