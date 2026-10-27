@@ -232,7 +232,7 @@ pub(crate) fn demosaic_fused(
     phase: [u8; 4],
     method: Demosaic,
     to_xyz: &Mat3,
-    ahd_jobs: usize,
+    jobs: usize,
     fill: &(impl Fn(usize, &mut [f32]) + Sync),
     out: &mut [u16],
     emit: &(impl Fn(&[f32], &mut [u16]) + Sync),
@@ -257,7 +257,7 @@ pub(crate) fn demosaic_fused(
         // The rows of the tallest band, as `develop`'s memory check counts them.
         let rows = h.min(AHD_BAND);
         let init = || (AhdScratch::for_image(h, s), vec![0.0f32; rows * w * 3], vec![0.0f32; (rows + 2 * PAD) * s]);
-        for_bands_grouped(out, AHD_BAND * w * 3, ahd_bands(h), ahd_jobs, 1, init, |band, chunk, (sc, buf, win)| {
+        for_bands_grouped(out, AHD_BAND * w * 3, ahd_bands(h), jobs, 1, init, |band, chunk, (sc, buf, win)| {
             load(win, band * AHD_BAND, chunk.len() / (w * 3));
             let buf = &mut buf[..chunk.len()];
             // The window starts at a multiple of AHD_BAND (even), so it is band 0 of its own rows.
@@ -269,7 +269,7 @@ pub(crate) fn demosaic_fused(
     let ks = kernels(phase, method, s);
     let rows = h.min(FUSED_ROWS);
     let init = || (vec![0.0f32; rows * w * 3], vec![0.0f32; (rows + 2 * PAD) * s]);
-    for_bands(out, FUSED_ROWS * w * 3, h.div_ceil(FUSED_ROWS), usize::MAX, init, |band, chunk, (buf, win)| {
+    for_bands(out, FUSED_ROWS * w * 3, h.div_ceil(FUSED_ROWS), jobs, init, |band, chunk, (buf, win)| {
         load(win, band * FUSED_ROWS, chunk.len() / (w * 3));
         let buf = &mut buf[..chunk.len()];
         linear_band(win, w, s, phase, method, &ks, band * FUSED_ROWS, band * FUSED_ROWS, buf);
@@ -318,15 +318,16 @@ fn linear_band(d: &[f32], w: usize, s: usize, phase: [u8; 4], method: Demosaic, 
 }
 
 /// Runs `f(band, chunk, scratch)` over the `unit`-sized chunks of `out` (`bands` of them), with
-/// at most `jobs` scratch values alive: a few groups of consecutive bands per worker (for
-/// balance), each group building its scratch once. For a scratch that is cheap to build.
-pub(crate) fn for_bands<T: Send, S>(
+/// at most `jobs` scratch values alive. When every worker may hold one, each band is its own
+/// rayon task and borrows a scratch from a pool (one per worker at most); otherwise a few groups
+/// of consecutive bands per job run, `jobs` at a time, each building its scratch once.
+pub(crate) fn for_bands<T: Send, S: Send>(
     out: &mut [T],
     unit: usize,
     bands: usize,
     jobs: usize,
-    init: impl Fn() -> S + Sync,
-    f: impl Fn(usize, &mut [T], &mut S) + Sync,
+    init: impl Fn() -> S + Sync + Send,
+    f: impl Fn(usize, &mut [T], &mut S) + Sync + Send,
 ) {
     for_bands_grouped(out, unit, bands, jobs, 4, init, f);
 }
@@ -337,18 +338,24 @@ fn bands_per_group(bands: usize, jobs: usize, per_worker: usize) -> usize {
     bands.div_ceil(groups).max(1)
 }
 
-/// [`for_bands`] with `per_worker` groups of consecutive bands for each worker. A large scratch
-/// (AHD: 16 planes) wants one group per worker: with more groups than workers on a many-core
-/// machine every group is a single band and each band would build and zero its own scratch.
-fn for_bands_grouped<T: Send, S>(
+/// [`for_bands`] with `per_worker` groups of consecutive bands for each of the `jobs` workers when
+/// fewer than all may hold a scratch. A large scratch (AHD: 16 planes) wants one group per job:
+/// with more groups each would build and zero its own scratch for a band or two.
+fn for_bands_grouped<T: Send, S: Send>(
     out: &mut [T],
     unit: usize,
     bands: usize,
     jobs: usize,
     per_worker: usize,
-    init: impl Fn() -> S + Sync,
-    f: impl Fn(usize, &mut [T], &mut S) + Sync,
+    init: impl Fn() -> S + Sync + Send,
+    f: impl Fn(usize, &mut [T], &mut S) + Sync + Send,
 ) {
+    // One task per band keeps rayon's stealing, so a busy or slow worker doesn't hold up a
+    // static share of the bands (as `par::chunks_mut_limited` does for the same reason).
+    if jobs >= par::workers() {
+        par::chunks_mut_pooled(out, unit, init, |sc, band, chunk| f(band, chunk, sc));
+        return;
+    }
     let per_group = bands_per_group(bands, jobs, per_worker);
     par::chunks_mut_limited(out, per_group * unit, jobs, |group, gchunk| {
         let mut sc = init();
@@ -447,15 +454,15 @@ pub(crate) fn demosaic_cfa(p: &Padded, pat: &Pattern) -> Vec<f32> {
 }
 
 /// [`demosaic_cfa`] without the full RGB frame (the green plane stays): see [`demosaic_fused`].
-pub(crate) fn demosaic_cfa_fused(p: &Padded, pat: &Pattern, out: &mut [u16], emit: &(impl Fn(&[f32], &mut [u16]) + Sync)) {
+pub(crate) fn demosaic_cfa_fused(p: &Padded, pat: &Pattern, jobs: usize, out: &mut [u16], emit: &(impl Fn(&[f32], &mut [u16]) + Sync)) {
     let (w, h) = (p.w, p.h);
     if out.len() < w * h * 3 {
         return;
     }
     let band = par::band_rows(w);
-    let init = || vec![0.0f32; band * w * 3];
+    let init = || vec![0.0f32; band.min(h) * w * 3];
     cfa_with(p, pat, |rows| {
-        for_bands(&mut out[..w * h * 3], band * w * 3, h.div_ceil(band), usize::MAX, init, |b, chunk, buf| {
+        for_bands(&mut out[..w * h * 3], band * w * 3, h.div_ceil(band), jobs, init, |b, chunk, buf| {
             let buf = &mut buf[..chunk.len()];
             rows(b * band, buf);
             emit(buf, chunk);
@@ -944,6 +951,8 @@ fn ahd_ref(p: &Padded, phase: [u8; 4], to_xyz: &Mat3, out: &mut [f32], jobs: usi
 mod tests {
     use super::*;
     use crate::color::IDENTITY;
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn ahd_band_concurrency_does_not_change_pixels() {
@@ -1037,8 +1046,9 @@ mod tests {
         }
     }
 
-    /// One scratch serves many bands (1100 rows are 35 bands, the last one short, over 4 scratches
-    /// with jobs 1 and at most 8 with jobs 2), so a stage reading a cell left over from an earlier band would show.
+    /// One scratch serves many bands (1100 rows are 35 bands, the last one short, over one scratch
+    /// with jobs 1 and two with jobs 2 on a bigger pool), so a stage reading a cell left over from
+    /// an earlier band would show.
     #[test]
     fn ahd_matches_reference_with_reused_scratch() {
         let m = [[0.41, 0.36, 0.18], [0.21, 0.72, 0.07], [0.02, 0.12, 0.95]];
@@ -1057,9 +1067,10 @@ mod tests {
         }
     }
 
-    /// A 4-worker pool splits 35 bands into groups of 9 (the last of 8), so groups after the first
-    /// start at band `group * 9` and every scratch is reused for several bands: a wrong band index
-    /// or a stale scratch cell would change pixels. The group size does not depend on the machine.
+    /// On a 4-worker pool with room for 3 scratches, 35 bands go in groups of 12 (the last of 11),
+    /// so groups after the first start at band `group * 12` and every scratch is reused for several
+    /// bands; with room for 4, every band is its own task and most borrow a used scratch. A wrong band
+    /// index or a stale scratch cell would change pixels. The split does not depend on the machine.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn ahd_groups_of_several_bands_match_reference() {
@@ -1070,15 +1081,100 @@ mod tests {
         let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
         pool.install(|| {
             assert_eq!(par::workers(), 4);
-            assert_eq!(bands_per_group(ahd_bands(h), 4, 1), 9);
-            // One worker per group, never more groups than workers, however many bands there are.
-            assert_eq!(bands_per_group(126, 1000, 1), 32);
-            for phase in [[0, 1, 1, 2], [1, 2, 0, 1]] {
-                let mut want = vec![0.0f32; w * h * 3];
-                ahd_ref(&p, phase, &m, &mut want, 4);
-                let got = demosaic(&p, phase, Demosaic::Ahd, &m, 4);
-                assert!(want.iter().zip(&got).all(|(a, b)| a.to_bits() == b.to_bits()), "{phase:?}");
+            assert_eq!(bands_per_group(ahd_bands(h), 3, 1), 12);
+            // One group per job, never more groups than jobs, however many bands there are.
+            assert_eq!(bands_per_group(126, 3, 1), 42);
+            for jobs in [3, 4] {
+                for phase in [[0, 1, 1, 2], [1, 2, 0, 1]] {
+                    let mut want = vec![0.0f32; w * h * 3];
+                    ahd_ref(&p, phase, &m, &mut want, jobs);
+                    let got = demosaic(&p, phase, Demosaic::Ahd, &m, jobs);
+                    assert!(want.iter().zip(&got).all(|(a, b)| a.to_bits() == b.to_bits()), "{phase:?} jobs {jobs}");
+                }
             }
+        });
+    }
+
+    /// A scratch that counts how many are alive at once.
+    struct Live<'a>(&'a AtomicUsize);
+
+    impl<'a> Live<'a> {
+        fn new(now: &'a AtomicUsize, peak: &AtomicUsize) -> Self {
+            peak.fetch_max(now.fetch_add(1, SeqCst) + 1, SeqCst);
+            Live(now)
+        }
+    }
+
+    impl Drop for Live<'_> {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, SeqCst);
+        }
+    }
+
+    /// Every band runs once with its own index, and no more than `jobs` scratches (what `develop`'s
+    /// memory check admits) or one per worker are alive at once, on either side of `jobs == workers`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn for_bands_keeps_at_most_jobs_scratches_alive() {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap();
+        pool.install(|| {
+            for jobs in [1, 2, 3, 7, 8, 9, usize::MAX] {
+                for per_worker in [1, 4] {
+                    let (now, peak) = (AtomicUsize::new(0), AtomicUsize::new(0));
+                    let mut out = vec![0usize; 37 * 10 - 4];
+                    for_bands_grouped(
+                        &mut out,
+                        10,
+                        37,
+                        jobs,
+                        per_worker,
+                        || Live::new(&now, &peak),
+                        |band, chunk, _| {
+                            std::thread::sleep(Duration::from_millis(1));
+                            chunk.iter_mut().for_each(|v| *v += band + 1);
+                        },
+                    );
+                    assert!(out.iter().enumerate().all(|(i, &v)| v == i / 10 + 1), "jobs {jobs}");
+                    let peak = peak.load(SeqCst);
+                    assert!((1..=jobs.min(8)).contains(&peak), "jobs {jobs} per_worker {per_worker}: {peak} scratches alive");
+                    assert_eq!(now.load(SeqCst), 0);
+                }
+            }
+        });
+    }
+
+    /// With room for a scratch on every worker, the bands are separate rayon tasks: a worker held up
+    /// on band 0 (by other work on the shared pool, or a slow core) leaves the bands after it to
+    /// the others. With a fixed share of 9 bands per worker, 8 of them would wait for band 0, so at
+    /// most 26 of the other 34 could finish meanwhile.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_slow_band_does_not_hold_up_the_bands_after_it() {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        pool.install(|| {
+            let (done, seen) = (AtomicUsize::new(0), AtomicUsize::new(0));
+            let mut out = vec![0u8; 35];
+            for_bands_grouped(
+                &mut out,
+                1,
+                35,
+                4,
+                1,
+                || (),
+                |band, _, _| {
+                    if band > 0 {
+                        done.fetch_add(1, SeqCst);
+                        return;
+                    }
+                    let start = Instant::now();
+                    while done.load(SeqCst) <= 26 && start.elapsed() < Duration::from_secs(10) {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    seen.store(done.load(SeqCst), SeqCst);
+                },
+            );
+            assert_eq!(done.load(SeqCst), 34);
+            assert!(seen.load(SeqCst) > 26, "only {} bands ran while band 0 was held up", seen.load(SeqCst));
         });
     }
 
