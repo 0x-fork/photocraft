@@ -4154,3 +4154,6 @@ curves	Smooth	Εξομάλυνση
 
 # Egui 0.37 migration controls (Aspect Ratio, Category, Color Table, Gamma, Interpolation, Profile, Target, Units, Demosaic)
 	Target	Στόχος
+	Font size presets	Προεπιλογές μεγέθους γραμματοσειράς
+	Leading presets	Προεπιλογές διάστιχου
+	Tracking presets	Προεπιλογές διαστήματος χαρακτήρων

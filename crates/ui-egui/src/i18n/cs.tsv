@@ -4201,3 +4201,6 @@ cameraRaw	Dehaze	Odstranění oparu
 
 # Egui 0.37 migration controls (Aspect Ratio, Category, Color Table, Gamma, Interpolation, Profile, Target, Units, Demosaic)
 	Aspect Ratio	Poměr stran
+	Font size presets	Předvolby velikosti písma
+	Leading presets	Předvolby prokladu
+	Tracking presets	Předvolby prostrkání
