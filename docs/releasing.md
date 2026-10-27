@@ -174,7 +174,9 @@ goes in `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`, so host build scripts aren't affected
   Ready, a progress page, and a Finish page that says where to find the app, with a ticked "Launch
   PhotoCraft" box. The pages name the full version (`photocraft.en-us.wxl`). `package.ps1` draws
   the wizard's banner and side bitmaps from the app icon, so no WiX stock art ships. `msiexec /qn`
-  still installs silently (per-user, unless `ALLUSERS=1` is passed). Building needs the WiX UI
+  installs a new product silently per-user unless `ALLUSERS=1` is passed. Maintenance keeps the
+  existing installation context, and a major upgrade of an existing per-machine installation without
+  `ALLUSERS=1` is rejected rather than installed per-user. Building needs the WiX UI
   and Util extensions: `wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2`.
 - Shortcut icon identifiers keep the executable's `.exe` extension: MSI uses the identifier
   as the cached icon filename, and an extensionless filename can render as a blank document
