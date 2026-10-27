@@ -679,5 +679,25 @@ fn artboard_from_layers_takes_a_custom_size() {
     let mut s = session(8);
     add_square(&mut s, Rect::new(10, 10, 30, 30), [1.0, 0.0, 0.0, 1.0]);
     assert!(s.execute("layer.new.artboardFromLayers", json!({"width": -5})).is_err());
+    // `int` rounds -0.4 to 0, which would otherwise keep the bounds.
+    assert!(s.execute("layer.new.artboardFromLayers", json!({"height": -0.4})).is_err());
     assert!(doc(&s).artboards().is_empty(), "a refused size changes nothing");
+    assert_eq!(s.execute("layer.new.artboardFromLayers", json!({"name": ""})).unwrap()["rect"], json!([10, 10, 20, 20]));
+    assert_eq!(doc(&s).artboards()[0].1, "Artboard 1", "an empty name gives Artboard N");
+}
+
+/// The dialog's defaults (#9087): the selected layers' size and the board's name, as the command
+/// makes it with no size; the canvas when the layers have no pixels.
+#[test]
+fn from_layers_defaults_are_the_selected_layers_size() {
+    let mut s = session(8);
+    add_square(&mut s, Rect::new(10, 10, 30, 40), [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(from_layers_defaults(&s), Some(("Artboard 1".to_string(), [20, 30])));
+    s.execute("layer.new.artboardFromLayers", json!({})).unwrap();
+    add_square(&mut s, Rect::new(50, 5, 60, 10), [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(from_layers_defaults(&s), Some(("Artboard 2".to_string(), [10, 5])));
+    let mut s = session(8);
+    s.execute("layer.new.layer", json!({})).unwrap();
+    assert_eq!(from_layers_defaults(&s), Some(("Artboard 1".to_string(), [100, 80])), "an empty layer: the canvas");
+    assert_eq!(from_layers_defaults(&Session::new()), None);
 }
