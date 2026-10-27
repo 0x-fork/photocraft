@@ -761,11 +761,8 @@ fn transform_again_copy(s: &mut Session) -> Result<Value> {
         Err(e) => {
             // The copy (e.g. of a layer whose position is locked) couldn't be transformed: take
             // it back, leaving nothing to redo and no Duplicate step to record.
-            s.undo();
+            s.rollback();
             s.journal.truncate(journal);
-            if let Some(st) = s.active_mut() {
-                st.history.clear_redo();
-            }
             Err(e)
         }
     }

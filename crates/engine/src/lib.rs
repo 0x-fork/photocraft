@@ -96,6 +96,7 @@ pub use cmd::gradient_fill_cmds;
 pub use cmd::group_view_cmds;
 pub use cmd::history_cmds;
 pub use cmd::history_menu_cmds;
+pub use cmd::history_options_cmds;
 pub use cmd::history_select_cmds;
 pub use cmd::history_source_cmds;
 pub use cmd::image_cmds;
@@ -160,9 +161,9 @@ pub use cmd::web_cmds;
 use cmd::wia_cmds;
 pub use doc_state::{CopiedStyle, DocState, PRECHECKED, ToolState};
 pub use error::{EngineError, Result};
-pub(crate) use session::fix_selection;
 pub use session::move_item;
 use session::restore_target;
+pub(crate) use session::{carry_visibility, fix_selection, visibility_changes};
 
 /// The pixels of a raster layer (typically one a command just created), as an error instead
 /// of a panic if the layer has none.

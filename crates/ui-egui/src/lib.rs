@@ -132,6 +132,7 @@ use dialogs::filter_preview_ui;
 use dialogs::filter_preview_worker;
 pub use dialogs::gallery_ui;
 pub use dialogs::guide_layout_ui;
+pub use dialogs::history_options_ui;
 pub use dialogs::jpeg_options_ui;
 pub use dialogs::layer_picker;
 pub use dialogs::layer_style;

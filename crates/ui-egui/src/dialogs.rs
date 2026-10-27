@@ -1014,6 +1014,7 @@ pub(super) mod filter_preview_ui;
 pub(super) mod filter_preview_worker;
 pub mod gallery_ui;
 pub mod guide_layout_ui;
+pub mod history_options_ui;
 pub mod jpeg_options_ui;
 pub mod layer_picker;
 pub mod layer_style;
