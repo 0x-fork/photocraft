@@ -122,6 +122,46 @@ fn write_replaces_atomically_and_leaves_no_temp_file() {
     assert!(temp_files(&inside).is_empty());
 }
 
+/// A directory at the target is refused before anything is opened, even under an image name.
+#[test]
+fn write_refuses_a_directory_target_before_opening_it() {
+    let (inside, _, workspace) = roots("dir-target");
+    for name in ["adir", "adir.png"] {
+        std::fs::create_dir_all(inside.join(name)).unwrap();
+        let error = workspace.write(name, b"x").unwrap_err().to_string();
+        assert!(error.contains("is not a regular file"), "{name}: {error}");
+        assert!(inside.join(name).is_dir());
+    }
+    assert!(temp_files(&inside).is_empty());
+}
+
+/// A FIFO at the target is refused at once: opening it to sniff its head or copy its
+/// attributes would block until a writer appears, stalling every other request.
+#[cfg(unix)]
+#[test]
+fn write_refuses_a_fifo_target_without_blocking() {
+    let (inside, _, workspace) = roots("fifo-target");
+    for name in ["pipe", "out.png"] {
+        let made = std::process::Command::new("mkfifo").arg(inside.join(name)).status();
+        if !made.is_ok_and(|s| s.success()) {
+            return; // no mkfifo on this system: nothing to assert
+        }
+    }
+    std::os::unix::fs::symlink("pipe", inside.join("link")).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for name in ["pipe", "out.png", "link"] {
+            let _ = tx.send((name, workspace.write(name, b"x").map_err(|e| e.to_string())));
+        }
+    });
+    for _ in 0..3 {
+        let (name, result) = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("write blocked on a FIFO");
+        let error = result.unwrap_err();
+        assert!(error.contains("is not a regular file"), "{name}: {error}");
+    }
+    assert!(temp_files(&inside).is_empty());
+}
+
 /// #7095: replacing a file through the automation path keeps the old file's extended
 /// attributes, the same as a save through `atomic_write` does.
 #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
