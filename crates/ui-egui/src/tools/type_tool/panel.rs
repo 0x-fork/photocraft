@@ -166,29 +166,31 @@ fn metric_field(
         }
         let near = |p: f32| (p * u - value).abs() <= 1e-4 * value.abs().max(1.0);
         let (press, close) = crate::press_menu::PressCombo::before(ui, menu);
-        let combo =
-            craft_ui::ComboBox::from_id_salt(menu).selected_text("").width(combo_w).height(420.0).icon(crate::widgets::chevron_icon).close_behavior(close).show_ui(
-                ui,
-                |ui| {
-                    if let Some(on) = auto {
-                        let item = ui.selectable_label(on, tl!("Auto"));
+        let combo = craft_ui::ComboBox::from_id_salt(menu)
+            .selected_text("")
+            .width(combo_w)
+            .height(420.0)
+            .icon(crate::widgets::chevron_icon)
+            .close_behavior(close)
+            .show_ui(ui, |ui| {
+                if let Some(on) = auto {
+                    let item = ui.selectable_label(on, tl!("Auto"));
+                    if press.chosen(ui, &item) {
+                        chosen = Some(MetricChoice::Auto);
+                    }
+                }
+                for (i, group) in presets.iter().enumerate() {
+                    if i > 0 {
+                        ui.separator();
+                    }
+                    for &p in *group {
+                        let item = ui.selectable_label(auto != Some(true) && near(p), preset_label(p * u, unit));
                         if press.chosen(ui, &item) {
-                            chosen = Some(MetricChoice::Auto);
+                            chosen = Some(MetricChoice::Preset(p));
                         }
                     }
-                    for (i, group) in presets.iter().enumerate() {
-                        if i > 0 {
-                            ui.separator();
-                        }
-                        for &p in *group {
-                            let item = ui.selectable_label(auto != Some(true) && near(p), preset_label(p * u, unit));
-                            if press.chosen(ui, &item) {
-                                chosen = Some(MetricChoice::Preset(p));
-                            }
-                        }
-                    }
-                },
-            );
+                }
+            });
         press.after(&combo.response);
         combo.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, ui.is_enabled(), tl!(menu)));
     });
