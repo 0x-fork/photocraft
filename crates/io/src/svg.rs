@@ -498,14 +498,47 @@ fn import_parsed_with_budget(name: &str, parsed: Parsed, max_group_depth: usize,
 pub fn rasterize(bytes: &[u8], scale: f32) -> Result<photocraft_compose::Buffer, IoError> {
     let tree = parse(bytes)?.tree;
     let cv = canvas(&tree, &mut Vec::new());
-    let k = cv.scale * scale.clamp(1.0 / 64.0, 64.0);
+    let pixmap = render(&tree, cv.scale * scale.clamp(1.0 / 64.0, 64.0))?;
+    let rect = Rect::new(0, 0, pixmap.width() as i32, pixmap.height() as i32);
+    let px = pixmap.pixels().iter().map(|p| rgba(p.demultiply())).collect();
+    Ok(photocraft_compose::Buffer { rect, px })
+}
+
+/// The whole drawing at one pixel per SVG unit, scaled down to fit [`MAX_SIDE`] a side and
+/// [`MAX_RASTER_PIXELS`] in all: its width, height and straight-alpha RGBA8 pixels. Paste uses it
+/// for a drawing copied as SVG markup.
+pub fn rasterize_rgba8(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), IoError> {
+    let tree = parse(bytes)?.tree;
+    let cv = canvas(&tree, &mut Vec::new());
+    let (w, h) = (f64::from(tree.size().width() * cv.scale), f64::from(tree.size().height() * cv.scale));
+    // The largest k ≤ 1 with (w·k + 2)(h·k + 2) ≤ the limit: `render` rounds each side up, and
+    // f32 rounding can add one more pixel.
+    let max = MAX_RASTER_PIXELS as f64;
+    let fit = if (w + 2.0) * (h + 2.0) <= max {
+        1.0
+    } else {
+        let (a, b) = (w * h, 2.0 * (w + h));
+        (-b + (b * b - 4.0 * a * (4.0 - max)).sqrt()) / (2.0 * a)
+    };
+    let pixmap = render(&tree, cv.scale * fit as f32)?;
+    let px = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    Ok((pixmap.width(), pixmap.height(), px))
+}
+
+/// `tree` drawn at `k` pixels per SVG unit on a transparent pixmap whose sides round up.
+fn render(tree: &usvg::Tree, k: f32) -> Result<tiny_skia::Pixmap, IoError> {
     let side = |v: f32| ((v * k).ceil() as u32).max(1);
     let (w, h) = (side(tree.size().width()), side(tree.size().height()));
     let mut pixmap = pixmap(w, h).ok_or_else(|| IoError::Svg(format!("{w} × {h} px is too large to rasterise")))?;
-    resvg::render(&tree, tiny_skia::Transform::from_scale(k, k), &mut pixmap.as_mut());
-    let rect = Rect::new(0, 0, w as i32, h as i32);
-    let px = pixmap.pixels().iter().map(|p| rgba(p.demultiply())).collect();
-    Ok(photocraft_compose::Buffer { rect, px })
+    resvg::render(tree, tiny_skia::Transform::from_scale(k, k), &mut pixmap.as_mut());
+    Ok(pixmap)
 }
 
 /// A transparent pixmap, or `None` past [`MAX_RASTER_PIXELS`].

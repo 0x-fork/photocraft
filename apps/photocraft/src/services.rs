@@ -543,6 +543,61 @@ fn image_from_offers(offers: &[String], mut fetch: impl FnMut(&str) -> Option<Ve
     })
 }
 
+/// Largest SVG markup a paste reads from clipboard text (128 MiB, the size an `.svgz` may inflate
+/// to).
+const MAX_CLIPBOARD_SVG_BYTES: u64 = photocraft_io::svg::MAX_INFLATED_BYTES;
+
+/// The pixels of a drawing copied as SVG markup (on macOS and Linux, VectorCraft's Copy leaves
+/// only the markup, as text): one pixel per SVG unit, scaled down to the SVG import's pixel limit,
+/// as RGBA8. `None` for text that isn't SVG, markup longer than [`MAX_CLIPBOARD_SVG_BYTES`], and
+/// markup that doesn't parse.
+fn image_from_svg_text(text: &str) -> Option<(u32, u32, Vec<u8>)> {
+    if u64::try_from(text.len()).ok()? > MAX_CLIPBOARD_SVG_BYTES || !text.trim_start_matches('\u{feff}').trim_start().starts_with('<') {
+        return None;
+    }
+    crate::crash_guard::guard("Paste", || photocraft_io::svg::rasterize_rgba8(text.as_bytes()).map_err(|e| e.to_string())).ok()
+}
+
+/// What a paste reads from the OS clipboard, in this order: the first copied file that is an
+/// image (Finder also puts the file's icon on the clipboard as an image, which would otherwise
+/// paste instead of the file), the clipboard's image, then a drawing copied as SVG markup. Each
+/// read runs only when the ones before it found nothing. A read that fails, such as one of a busy
+/// clipboard, returns its error, and the reads after it don't run.
+fn clipboard_image<C>(
+    clipboard: &mut C,
+    files: impl FnOnce(&mut C) -> Result<Option<Vec<PathBuf>>, String>,
+    image: impl FnOnce(&mut C) -> Result<Option<(u32, u32, Vec<u8>)>, String>,
+    text: impl FnOnce(&mut C) -> Result<Option<String>, String>,
+) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+    if let Some(img) = files(clipboard)?.and_then(|paths| image_from_files(&paths)) {
+        return Ok(Some(img));
+    }
+    if let Some(img) = image(clipboard)? {
+        return Ok(Some(img));
+    }
+    Ok(text(clipboard)?.and_then(|text| image_from_svg_text(&text)))
+}
+
+/// One OS clipboard read as [`clipboard_image`] takes it: no content in the format asked for is
+/// `None`, and any other failure, such as a busy clipboard or a broken pipe on Wayland, is the
+/// read's error.
+fn clipboard_read<T>(read: Result<T, arboard::Error>) -> Result<Option<T>, String> {
+    match read {
+        Ok(value) => Ok(Some(value)),
+        Err(arboard::Error::ContentNotAvailable) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Clipboard text as [`clipboard_image`] takes it: like [`clipboard_read`], except that text that
+/// isn't UTF-8 is `None`, like other text that isn't SVG markup.
+fn clipboard_text(read: Result<String, arboard::Error>) -> Result<Option<String>, String> {
+    match read {
+        Err(arboard::Error::ConversionFailure) => Ok(None),
+        read => clipboard_read(read),
+    }
+}
+
 /// The shell command that starts this install under XWayland, where winit delivers file drops
 /// (winit 0.30 has none on Wayland, #386). A Flatpak gets the X11 socket only without the Wayland
 /// one, an AppImage relaunches by its own path, and anything else is `photocraft` on the PATH.
@@ -660,30 +715,24 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                         slot.insert(opened.map_err(|e| e.to_string())?)
                     }
                 };
-                // Copied files first: Finder also puts the file's icon on the clipboard as an
-                // image, which would otherwise paste instead of the file.
-                match cb.get().file_list() {
-                    Ok(paths) => {
-                        if let Some(img) = image_from_files(&paths) {
-                            return Ok(Some(img));
+                clipboard_image(
+                    cb,
+                    |cb| clipboard_read(cb.get().file_list()),
+                    |cb| match cb.get_image() {
+                        Ok(img) => Ok(Some((img.width as u32, img.height as u32, img.bytes.into_owned()))),
+                        Err(error) => {
+                            #[cfg(target_os = "linux")]
+                            if let Some(image) = wayland_clipboard_image() {
+                                return Ok(Some(image));
+                            }
+                            match error {
+                                arboard::Error::ContentNotAvailable => Ok(None),
+                                _ => Err(error.to_string()),
+                            }
                         }
-                    }
-                    Err(error @ arboard::Error::ClipboardOccupied) => return Err(error.to_string()),
-                    Err(_) => {}
-                }
-                match cb.get_image() {
-                    Ok(img) => Ok(Some((img.width as u32, img.height as u32, img.bytes.into_owned()))),
-                    Err(error) => {
-                        #[cfg(target_os = "linux")]
-                        if let Some(image) = wayland_clipboard_image() {
-                            return Ok(Some(image));
-                        }
-                        match error {
-                            arboard::Error::ContentNotAvailable => Ok(None),
-                            _ => Err(error.to_string()),
-                        }
-                    }
-                }
+                    },
+                    |cb| clipboard_text(cb.get_text()),
+                )
             })
         }),
         clipboard_unreadable: Some(Box::new(move || clip_unreadable.get())),
