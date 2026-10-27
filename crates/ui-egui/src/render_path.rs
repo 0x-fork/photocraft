@@ -7,7 +7,8 @@
 //! Three slots, each written only by its own events: the canvas's reason per document ([`note`]),
 //! a reason for the whole window ([`note_app`]) and an adjustment dialog's CPU proxy preview
 //! ([`adjust_preview_cpu`] / [`adjust_preview_ok`]). [`RenderPath::current`] reads them in that
-//! order of precedence: the window, then the canvas, then the preview.
+//! order of precedence: the window, then the canvas, then the preview. A software adapter is the
+//! exception: it still runs the GPU canvas, so the canvas's and the preview's reasons come first.
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -221,9 +222,10 @@ fn has_gpu_canvas(app: &PhotocraftApp) -> bool {
     app.gpu.is_some()
 }
 
-/// Whether the window composites on the GPU at all: no reason for every document, and a GPU canvas.
+/// Whether the window composites on the GPU at all: a GPU canvas, and no reason for every
+/// document other than a software adapter (which runs the GPU canvas).
 fn window_on_gpu(app: &PhotocraftApp) -> bool {
-    has_gpu_canvas(app) && app.render_path.app_wide.is_none()
+    has_gpu_canvas(app) && matches!(app.render_path.app_wide, None | Some(CpuReason::SoftwareAdapter))
 }
 
 /// An adjustment dialog on document `doc` previews through the CPU proxy for `why`. It has its
@@ -478,6 +480,12 @@ mod tests {
         assert_eq!(app.render_path.current(8), Some(&CpuReason::SoftwareAdapter));
         note(&mut app, 7, Path::Gpu { full: true });
         assert_eq!(app.render_path.current(7), Some(&CpuReason::SoftwareAdapter), "back on the GPU canvas");
+
+        // An adjustment preview through the CPU proxy names its own reason too, until it ends.
+        adjust_preview_cpu(&mut app, 8, "a filter with no GPU kernel");
+        assert_eq!(app.render_path.current(8), Some(&CpuReason::AdjustPreview("a filter with no GPU kernel")));
+        adjust_preview_ok(&mut app);
+        assert_eq!(app.render_path.current(8), Some(&CpuReason::SoftwareAdapter), "the preview ended");
 
         // No GPU canvas at all: the app-wide reason is the cause for every document.
         note_app(&mut app, Some(CpuReason::Unsupported("out of memory".into())));
