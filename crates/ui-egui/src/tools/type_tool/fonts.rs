@@ -315,6 +315,7 @@ impl FontLibrary {
             && let Err(e) = app.run("type.font.favorite", json!({"family": family}))
         {
             app.ui.status = e;
+            app.ui.status_error = true;
         }
     }
 }
