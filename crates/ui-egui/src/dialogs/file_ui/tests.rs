@@ -1,5 +1,38 @@
 use super::*;
 
+#[test]
+fn busy_driver_page_requests_a_retry_without_input() {
+    let (mut app, ctx) = app();
+    let mut fields = json!({"printer": "Test printer", "__printers": ["Test printer"], "paper": "letter"}).as_object().unwrap().clone();
+    let (held_tx, held) = std::sync::mpsc::channel();
+    let (release, released_rx) = std::sync::mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        photocraft_engine::print_cmds::with_spooler(|| {
+            held_tx.send(()).unwrap();
+            let _ = released_rx.recv_timeout(std::time::Duration::from_secs(5));
+        });
+    });
+    held.recv().unwrap();
+    let mut delay = std::time::Duration::MAX;
+    for _ in 0..6 {
+        let mut output = ctx.run_ui(Default::default(), |ui| print_body(&mut app, ui, &mut fields, 1));
+        delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+        output.textures_delta.clear();
+    }
+    let busy = fields.get("__pageError").cloned();
+    let initialized = fields.get("__driverPageInitialized").cloned();
+    let _ = release.send(());
+    holder.join().unwrap();
+    assert_eq!(busy, Some(json!(photocraft_engine::print_cmds::SPOOLER_BUSY)));
+    assert_ne!(initialized, Some(json!(true)));
+    assert!(delay <= std::time::Duration::from_millis(100), "busy driver repaint delay: {delay:?}");
+    photocraft_engine::print_cmds::with_spooler(|| {
+        ctx.run_ui(Default::default(), |ui| print_body(&mut app, ui, &mut fields, 1)).textures_delta.clear();
+        assert_eq!(fields.get("__driverPageInitialized"), Some(&json!(true)));
+        assert_ne!(fields.get("__pageError"), Some(&json!(photocraft_engine::print_cmds::SPOOLER_BUSY)));
+    });
+}
+
 #[cfg(windows)]
 #[test]
 fn print_dialog_keeps_saved_settings_when_the_cached_printer_list_is_empty() {

@@ -317,8 +317,12 @@ pub(super) fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map
         None
     };
     if printers.is_some() {
-        if !b(f, "__driverPageInitialized", false) && driver_page(f) {
-            f.insert("__driverPageInitialized".into(), json!(true));
+        if !b(f, "__driverPageInitialized", false) {
+            if driver_page(f) {
+                f.insert("__driverPageInitialized".into(), json!(true));
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+            }
         }
     } else {
         // PDF output and previews have no driver page: Scale to Fit Media uses the paper.
