@@ -285,7 +285,7 @@ fn every_filter_previews_off_the_ui_thread_and_a_newer_value_cancels_the_old() {
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
             let _ = told.send(job.cancelled());
-            crate::filter_preview_worker::Computed { result: None, ms: 0.0 }
+            crate::dialogs::filter_preview_worker::Computed { result: None, ms: 0.0 }
         })
         .unwrap();
     // The slider moves on and stops: once the value settles, the stale preview is cancelled
@@ -352,7 +352,7 @@ fn gated_blur_preview(app: &mut PhotocraftApp, ctx: &egui::Context) -> (std::syn
                 let buffer = photocraft_compose::flatten(&d);
                 (std::sync::Arc::new(d), buffer)
             });
-            crate::filter_preview_worker::Computed { result, ms: 0.0 }
+            crate::dialogs::filter_preview_worker::Computed { result, ms: 0.0 }
         })
         .expect("the worker starts");
     (release, radius)
@@ -482,7 +482,7 @@ fn a_mid_drag_empty_result_leaves_the_preview_alone() {
     app.filter_preview_worker
         .start(key, ctx.clone(), move |_| {
             wait.recv_timeout(std::time::Duration::from_secs(60)).expect("released");
-            crate::filter_preview_worker::Computed { result: None, ms: 0.0 }
+            crate::dialogs::filter_preview_worker::Computed { result: None, ms: 0.0 }
         })
         .expect("the worker starts");
     app.ui.dialogs[0].fields.insert("radius".into(), json!(moved + 4.0));
