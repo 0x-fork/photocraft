@@ -1,7 +1,10 @@
 use super::controls::{pointer, tool_icon, tool_tip};
 use super::lifecycle::{apply, bounds, cancel, commit, fill_edit, report, reset, set_sampling};
 use super::preview::{drive_preview, rebase, refresh};
-use super::*;
+use super::{
+    Align2, BAR_H, CafTool, CafWorkspace, Color32, ERect, FontId, LEFT_W, PANEL_W, PREVIEW_W, PhotocraftApp, Pos2, Rect, Sense, Stroke, Tokens, ToolEvent,
+    Value, json, pos2, vec2, widgets,
+};
 
 /// A view: screen px per document px and the document point at the centre of `area`.
 #[derive(Clone, Copy)]
@@ -26,6 +29,52 @@ impl View {
 }
 
 /// Upload what changed: the document proxy, the overlay, a finished preview.
+/// The options bar of the Content-Aware Fill workspace, for the active tool.
+fn caf_options_bar(bui: &mut egui::Ui, w: &mut CafWorkspace, fill_btn: &mut Option<Value>, reset_what: &mut Option<&str>) {
+    match w.tool {
+        CafTool::Brush => {
+            if crate::icons::button(bui, "plus", 26.0, w.brush_add, tl!("Add")).clicked() {
+                w.brush_add = true;
+            }
+            if crate::icons::button(bui, "minus", 26.0, !w.brush_add, tl!("Subtract")).clicked() {
+                w.brush_add = false;
+            }
+            bui.add_space(8.0);
+            bui.label(tl!("Size:"));
+            let mut size = w.brush_size as f32;
+            if widgets::value_field(bui, &mut size, 1.0..=5000.0, " px", 64.0).accessible_name(tl!("Size:")).changed() {
+                w.brush_size = f64::from(size);
+            }
+        }
+        CafTool::Lasso => {
+            // The selection tools' mode buttons (the lasso here edits the fill area).
+            let tips = [
+                tl!("New selection").to_string(),
+                crate::i18n::fmt(tl!("Add to selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift"))]),
+                crate::i18n::fmt(tl!("Subtract from selection  ({key})"), &[("key", &crate::shortcuts::pretty("Alt"))]),
+                crate::i18n::fmt(tl!("Intersect with selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift+Alt"))]),
+            ];
+            for (i, (icon, tip)) in ["square", "plus", "minus", "squares-subtract"].into_iter().zip(tips.iter()).enumerate() {
+                if crate::icons::button(bui, icon, 26.0, w.lasso_op == i, tip).clicked() {
+                    w.lasso_op = i;
+                }
+            }
+            bui.add_space(8.0);
+            if widgets::secondary_button(bui, tl!("Expand"), 70.0).clicked() {
+                *fill_btn = Some(json!({"op": "expand", "by": w.expand_by}));
+            }
+            if widgets::secondary_button(bui, tl!("Contract"), 70.0).clicked() {
+                *fill_btn = Some(json!({"op": "contract", "by": w.expand_by}));
+            }
+            widgets::value_field(bui, &mut w.expand_by, 1.0..=100.0, " px", 56.0).accessible_name(tl!("Expand"));
+            if crate::icons::button(bui, "undo-2", 26.0, false, tl!("Reset")).clicked() {
+                *reset_what = Some("lasso");
+            }
+        }
+        _ => {}
+    }
+}
+
 fn upload(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let need_image = app.distort.caf.as_ref().is_some_and(|w| w.image_tex.is_none());
     if need_image {
@@ -108,48 +157,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         painter.line_segment([bar.left_bottom(), bar.right_bottom()], Stroke::new(1.0, t.separator));
         let mut bui =
             ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(vec2(LEFT_W + 8.0, 4.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
-        match w.tool {
-            CafTool::Brush => {
-                if crate::icons::button(&mut bui, "plus", 26.0, w.brush_add, tl!("Add")).clicked() {
-                    w.brush_add = true;
-                }
-                if crate::icons::button(&mut bui, "minus", 26.0, !w.brush_add, tl!("Subtract")).clicked() {
-                    w.brush_add = false;
-                }
-                bui.add_space(8.0);
-                bui.label(tl!("Size:"));
-                let mut size = w.brush_size as f32;
-                if widgets::value_field(&mut bui, &mut size, 1.0..=5000.0, " px", 64.0).accessible_name(tl!("Size:")).changed() {
-                    w.brush_size = f64::from(size);
-                }
-            }
-            CafTool::Lasso => {
-                // The selection tools' mode buttons (the lasso here edits the fill area).
-                let tips = [
-                    tl!("New selection").to_string(),
-                    crate::i18n::fmt(tl!("Add to selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift"))]),
-                    crate::i18n::fmt(tl!("Subtract from selection  ({key})"), &[("key", &crate::shortcuts::pretty("Alt"))]),
-                    crate::i18n::fmt(tl!("Intersect with selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift+Alt"))]),
-                ];
-                for (i, (icon, tip)) in ["square", "plus", "minus", "squares-subtract"].into_iter().zip(tips.iter()).enumerate() {
-                    if crate::icons::button(&mut bui, icon, 26.0, w.lasso_op == i, tip).clicked() {
-                        w.lasso_op = i;
-                    }
-                }
-                bui.add_space(8.0);
-                if widgets::secondary_button(&mut bui, tl!("Expand"), 70.0).clicked() {
-                    fill_btn = Some(json!({"op": "expand", "by": w.expand_by}));
-                }
-                if widgets::secondary_button(&mut bui, tl!("Contract"), 70.0).clicked() {
-                    fill_btn = Some(json!({"op": "contract", "by": w.expand_by}));
-                }
-                widgets::value_field(&mut bui, &mut w.expand_by, 1.0..=100.0, " px", 56.0).accessible_name(tl!("Expand"));
-                if crate::icons::button(&mut bui, "undo-2", 26.0, false, tl!("Reset")).clicked() {
-                    reset_what = Some("lasso");
-                }
-            }
-            _ => {}
-        }
+        caf_options_bar(&mut bui, w, &mut fill_btn, &mut reset_what);
+
         let body = ERect::from_min_max(pos2(full.left(), bar.bottom()), full.max);
         // Left tool strip.
         let left = ERect::from_min_size(pos2(full.left(), title.bottom()), vec2(LEFT_W, full.height() - title.height()));
