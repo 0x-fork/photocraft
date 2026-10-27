@@ -5,7 +5,10 @@ Replace the workspace flate2 Rust backend with zlib-rs and runtime CPU detection
 Size, import-speed and dependency tradeoffs remain maintainer decisions.
 Some PSD ZIP files grow by up to 0.71%. The macOS 16-bit city PSD import is about 6% slower in confirmation.
 The small web-layout PNG grows by 598 bytes (+1.40%). One .pcraft preview adds 25 bytes.
-Real photo PNGs become smaller and encode faster. Compression levels are unchanged.
+Real photo PNGs become smaller and encode faster. The default and best levels are unchanged; callers that
+used level 1 (PDF export and print, brush tips, PNG Fast) now use level 3, because zlib-rs level 1 writes
+static Huffman blocks only (13-32% bigger on photos). Level 3 is never bigger than miniz's level 1 on the
+docs/images photos (0-16% smaller) and takes 1.2-3.4 times as long.
 There is no native-format tile speedup from deflate.
 
 The timings below measure only the backend switch. They exclude the later ZIP allocation, validation and slice decoder changes.

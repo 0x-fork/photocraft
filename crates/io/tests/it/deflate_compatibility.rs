@@ -1,5 +1,5 @@
 //! Backend compatibility, including native-format tile data rather than ZIP assembly alone.
-mod common;
+use crate::common;
 
 use std::io::Read;
 
@@ -101,4 +101,45 @@ fn png_psd_and_pcraft_decode_identically() {
         let image = Image::from_u8(7, 3, ChannelLayout::Rgba, thumbnail.pixels).unwrap();
         check_png(&read_thumbnail(&bytes).unwrap().unwrap(), &image);
     }
+}
+
+/// PDF export writes its image at the old backend's size or smaller: zlib-rs level 1
+/// (`Compression::fast()`) writes static Huffman blocks only, which made PDFs of photos
+/// 5-30% bigger than miniz's level 1 did.
+#[test]
+fn pdf_image_stream_is_no_bigger_than_miniz_fast() {
+    let (w, h) = (512u32, 384u32);
+    let mut doc = Document::new("photo", Size::new(w, h), ColorMode::Rgb, SampleType::U8);
+    // A noisy gradient: smooth like a photo, with sensor-like grain.
+    let mut x32 = 0x9E37_79B9u32;
+    let mut samples = Vec::with_capacity((w * h * 3) as usize);
+    let mut vals = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            for c in 0..3 {
+                x32 ^= x32 << 13;
+                x32 ^= x32 >> 17;
+                x32 ^= x32 << 5;
+                let base = (x * 160 / w + y * 80 / h + c * 20) as i32;
+                let v = (base + (x32 % 9) as i32 - 4).clamp(0, 255) as u8;
+                samples.push(v);
+                vals.push(common::g(v));
+            }
+            vals.push(1.0);
+        }
+    }
+    let mut surface = photocraft_raster::Surface::new(doc.pixel_format());
+    surface.write_region(doc.bounds(), &vals);
+    doc.layers.push(Layer::new("photo", LayerContent::Raster(surface)));
+    let pdf = photocraft_io::export(&doc, "photo.pdf", &Default::default()).unwrap().bytes;
+    let at = pdf.windows(15).position(|s| s == b"/Subtype /Image").unwrap();
+    let dict = &pdf[at..];
+    let len_at = dict.windows(8).position(|s| s == b"/Length ").unwrap() + 8;
+    let digits = dict[len_at..].iter().take_while(|b| b.is_ascii_digit()).count();
+    let len: usize = std::str::from_utf8(&dict[len_at..len_at + digits]).unwrap().parse().unwrap();
+    let start = dict.windows(7).position(|s| s == b"stream\n").unwrap() + 7;
+    let stream = &dict[start..start + len];
+    assert_eq!(miniz_oxide::inflate::decompress_to_vec_zlib(stream).unwrap(), samples);
+    let old = miniz_oxide::deflate::compress_to_vec_zlib(&samples, 1).len();
+    assert!(len <= old, "PDF image stream {len} bytes, miniz level 1 wrote {old}");
 }
