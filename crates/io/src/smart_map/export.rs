@@ -111,7 +111,8 @@ fn enum_out(p: &J, key: &str, default: &str, type_id: &str, table: &[(&str, &str
     Ok(enumv(type_id, psd))
 }
 
-/// `key` rounded to a `long` in `lo..=hi`.
+/// `key` rounded to a `long` in `lo..=hi` (clamped, and a non-number is the default, as the
+/// engine reads Extrude, Tiles, Trace Contour, Crystallize and Pointillize).
 fn pi_in(p: &J, key: &str, default: f64, lo: i32, hi: i32) -> Value {
     Value::Integer(pf(p, key, default).round().clamp(f64::from(lo), f64::from(hi)) as i32)
 }
