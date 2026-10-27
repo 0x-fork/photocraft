@@ -920,6 +920,16 @@ pub(crate) fn targeted_vector_mask(app: &PhotocraftApp) -> Option<(u64, Path)> {
     l.vector_mask.as_ref().map(|m| (l.id.0, m.path.clone()))
 }
 
+/// The active type layer's path in document space, if it is type on a path (#9114).
+pub(crate) fn active_type_path(app: &PhotocraftApp) -> Option<(u64, Path)> {
+    let st = app.session.active()?;
+    let l = st.active_layer.and_then(|id| st.doc.layer(id))?;
+    match &l.content {
+        LayerContent::Text(t) => photocraft_engine::type_extra_cmds::type_path(t).map(|p| (l.id.0, p)),
+        _ => None,
+    }
+}
+
 /// The active shape layer's path, if the active layer is a shape layer.
 pub(crate) fn active_shape_path(app: &PhotocraftApp) -> Option<(u64, Path)> {
     let st = app.session.active()?;
@@ -1236,6 +1246,10 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         }
         // A targeted vector mask shows its path with any tool (#196).
         if let Some((_, p)) = targeted_vector_mask(app) {
+            draw_path(&p, anchors);
+        }
+        // So does type on a path's Type Path, which the Pen's Auto Add/Delete edits (#9114).
+        if let Some((_, p)) = active_type_path(app) {
             draw_path(&p, anchors);
         }
         crate::corner_radius::draw(app, painter, &to_scr, accent);
@@ -2303,6 +2317,19 @@ mod tests {
             app.ui.tool = tool;
             assert!(overlay_shapes(&app, &ctx) > 0, "{tool:?}: path tools draw the Work Path");
         }
+    }
+
+    /// #9114: the active type layer's Type Path shows with the Pen, whose Auto Add/Delete edits it.
+    #[test]
+    fn the_type_path_of_type_on_a_path_is_drawn_with_the_pen() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        app.run("path.set", json!({"name": "work", "path": {"subpaths": [{"closed": false, "knots": [[100, 20], [100, 180]]}]}})).unwrap();
+        app.run("type.create", json!({"x": 20, "y": 70, "text": "On a path", "size": 24})).unwrap();
+        app.run("type.attachToPath", json!({})).unwrap();
+        app.run("path.delete", json!({"name": "work"})).unwrap();
+        app.ui.tool = Tool::Pen;
+        assert!(overlay_shapes(&app, &ctx) > 0, "the Type Path is drawn");
     }
 
     #[test]
