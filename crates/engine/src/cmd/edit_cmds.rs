@@ -403,7 +403,7 @@ fn paste(s: &mut Session, p: &Value, in_place: bool) -> Result<Value> {
     let id = s.edit("Paste", |doc, active| {
         let mut l = Layer::raster(doc.next_layer_name("Layer"), target);
         *crate::pixels_mut(&mut l)? = surf;
-        let id = crate::layer_place::insert_new(doc, *active, l, crate::layer_place::Place::Auto);
+        let id = crate::layer_place::insert_new(doc, *active, l, crate::layer_place::Place::AutoEditable);
         *active = Some(id);
         doc.selection = None;
         Ok(id)
@@ -446,7 +446,7 @@ fn paste_layers(s: &mut Session, layers: &Document, dx: i32, dy: i32) -> Result<
         doc.patterns.extend(patterns);
         doc.metadata.psd_global_blocks.extend(linked);
         // The first pasted layer goes where a new layer would; the rest stack above it.
-        let mut place = crate::layer_place::Place::Auto;
+        let mut place = crate::layer_place::Place::AutoEditable;
         for l in copies.layers {
             *active = Some(crate::layer_place::insert_new(doc, *active, l, place));
             place = crate::layer_place::Place::Above;

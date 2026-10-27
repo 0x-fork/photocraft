@@ -149,7 +149,7 @@ fn new_frame(s: &mut Session, p: &Value) -> Result<Value> {
                 crate::layer_multi_cmds::check_group_depth(doc, "New Frame")?;
                 gid
             }
-            None => crate::layer_place::insert_new(doc, *active, Layer::group(name, vec![]), crate::layer_place::Place::Auto),
+            None => crate::layer_place::insert_new(doc, *active, Layer::group(name, vec![]), crate::layer_place::Place::AutoEditable),
         };
         let frame = doc.layer_mut(gid).ok_or(EngineError::NoLayer(gid))?;
         frame.mask = Some(mask);

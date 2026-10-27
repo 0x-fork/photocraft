@@ -396,7 +396,7 @@ pub fn display_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Document>
         l.id = PREVIEW_LAYER;
         // Where the committed layer will go, so the preview doesn't jump on release.
         let active = app.session.active().and_then(|s| s.active_layer);
-        photocraft_engine::layer_place::insert_new(&mut shown, active, l, photocraft_engine::layer_place::Place::Auto);
+        photocraft_engine::layer_place::insert_new(&mut shown, active, l, photocraft_engine::layer_place::Place::AutoEditable);
     } else {
         let l = doc.layer(layer)?;
         let f = edited_fill(app, l, doc.bounds(), cmd, &p)?;

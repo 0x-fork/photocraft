@@ -9,9 +9,15 @@ use photocraft_doc::{Document, Layer, LayerContent, LayerId, LayerPath, MAX_GROU
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Place {
-    /// New Layer, New Group, new adjustment, fill, type and shape layers, Paste…: inside the anchor
-    /// when it is an open, unlocked group (or an artboard the content is on), else directly above it.
+    /// New Layer, New Group, new adjustment and fill layers: inside the anchor when it is an open
+    /// group (or an artboard the content is on), else directly above it. A locked group takes the
+    /// layer too, as in Photoshop (checked with Lock All): the layer is locked through it.
     Auto,
+    /// [`Place::Auto`] for a layer that is edited right after it is made (Type, Shape, Place's
+    /// transform box, Paste, the Gradient tool's live gradient, video layers, Render and Vanishing
+    /// Point drawing, a new frame): never inside a group with a lock of its own (all, pixels,
+    /// transparency or position) that would refuse that edit; the layer goes above the group.
+    AutoEditable,
     /// Directly above the anchor, never inside it: a layer made from another layer, or the second
     /// and later of several new layers.
     Above,
@@ -28,8 +34,12 @@ pub fn insertion_point(doc: &Document, anchor: Option<LayerId>, layer: &Layer, p
     // An artboard stays at the top level: beside the anchor's top-level layer.
     let path = if layer.artboard().is_some() { path.get(..1).map(<[usize]>::to_vec).unwrap_or_default() } else { path };
     let (Some((&k, parent)), Some(target)) = (path.split_last(), doc.layer_at(&path)) else { return root_top };
+    let locks = &target.locks;
+    let editable = !(locks.all || locks.pixels || locks.transparency || locks.position);
     match place {
-        Place::Auto if takes_new_layers(target, path.len(), layer) => (path.clone(), target.children().map_or(0, <[Layer]>::len)),
+        Place::Auto | Place::AutoEditable if takes_new_layers(target, path.len(), layer) && (place == Place::Auto || editable) => {
+            (path.clone(), target.children().map_or(0, <[Layer]>::len))
+        }
         Place::Below if crate::background_cmds::background_id(doc) != Some(target.id) => (parent.to_vec(), k),
         _ => (parent.to_vec(), k + 1),
     }
@@ -65,14 +75,12 @@ pub fn insert_new(doc: &mut Document, anchor: Option<LayerId>, mut layer: Layer,
 }
 
 /// Does the group `target` at depth `depth` (its path length) take a new `layer` as its top
-/// child? An open group or an artboard does, unless it is locked (the layer would be born locked:
-/// no painting, rendering or moving it) or nesting would pass [`MAX_GROUP_DEPTH`]. An artboard
+/// child? An open group or an artboard does, locked or not (Photoshop puts a new layer inside a
+/// group locked with Lock All), unless nesting would pass [`MAX_GROUP_DEPTH`]. An artboard
 /// takes a layer with content only when that content is centred on the board, as callers place
 /// it for the canvas (Place, Paste, a Type or Shape click): elsewhere the board would clip it.
 fn takes_new_layers(target: &Layer, depth: usize, layer: &Layer) -> bool {
     let LayerContent::Group(g) = &target.content else { return false };
-    let k = &target.locks;
-    let locked = k.all || k.pixels || k.transparency || k.position;
     let on_board = |rect: photocraft_geom::Rect| {
         crate::layer_multi_cmds::layer_bounds(layer).is_none_or(|b| {
             let (cx, cy) = (b.x0 / 2 + b.x1 / 2, b.y0 / 2 + b.y1 / 2);
@@ -83,7 +91,7 @@ fn takes_new_layers(target: &Layer, depth: usize, layer: &Layer) -> bool {
         Some(board) => on_board(board.rect),
         None => g.expanded,
     };
-    open && !locked && layer.artboard().is_none() && depth + subtree_depth(layer) <= MAX_GROUP_DEPTH
+    open && layer.artboard().is_none() && depth + subtree_depth(layer) <= MAX_GROUP_DEPTH
 }
 
 /// Group nesting inside `layer` itself: 0 for a layer or an empty group, as

@@ -71,21 +71,22 @@ fn a_new_layer_goes_inside_an_open_active_group_and_above_a_closed_one() {
 }
 
 #[test]
-fn artboards_take_new_layers_and_locked_groups_do_not() {
+fn artboards_and_locked_groups_take_new_layers() {
     let (mut s, _, b) = session();
     let board = id(s.execute("layer.new.artboard", json!({"rect": [0, 0, 16, 16]})).unwrap());
     set_expanded(&mut s, board, false);
     select(&mut s, board);
     let l = id(s.execute("layer.new.layer", json!({})).unwrap());
     assert_eq!(doc(&s).artboard_of(l), Some(board), "an artboard takes the layer even when closed");
-    // A fully locked group would lock the new layer: it goes above instead.
+    // Photoshop puts a new layer inside an open group locked with Lock All too; the layer is
+    // locked through the group.
     select(&mut s, b);
     let g = id(s.execute("layer.new.group", json!({})).unwrap());
     s.execute("layer.setProps", json!({"layer": g.0, "locks": {"all": true}})).unwrap();
     select(&mut s, g);
-    let above = id(s.execute("layer.new.layer", json!({})).unwrap());
-    assert!(children(&s, g).is_empty());
-    assert!(doc(&s).layers.iter().any(|l| l.id == above));
+    let inside = id(s.execute("layer.new.layer", json!({})).unwrap());
+    assert_eq!(children(&s, g), vec![inside]);
+    assert!(doc(&s).effective_locks(inside).all);
 }
 
 #[test]
@@ -218,21 +219,79 @@ fn a_missing_or_stale_anchor_means_the_top_of_the_stack() {
     assert!(matches!(d.layers.last().unwrap().content, LayerContent::Raster(_)));
 }
 
-/// A partly locked group (pixels, transparency or position) would lock a layer created in it, so
-/// Render and Vanishing Point could not draw into their new layer: it goes above the group.
+/// Any lock on an open group still lets New Layer, New Group and new adjustment and fill layers in,
+/// as in Photoshop (checked with Lock All). A layer that is edited right after it is made (Type,
+/// Shape, Paste, Render…) goes above a group whose lock would refuse that edit,
+/// so it never comes out locked.
 #[test]
-fn a_partly_locked_group_keeps_new_layers_out() {
-    for locks in [json!({"pixels": true}), json!({"transparency": true}), json!({"position": true})] {
+fn locked_groups_take_new_layers_but_not_the_ones_edited_at_once() {
+    for locks in [json!({"all": true}), json!({"pixels": true}), json!({"transparency": true}), json!({"position": true})] {
         let (mut s, _, b) = session();
         select(&mut s, b);
+        s.execute("edit.fill", json!({"color": "#00ff00"})).unwrap();
+        s.execute("select.all", json!({})).unwrap();
+        s.execute("edit.copy", json!({})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
         let g = id(s.execute("layer.new.group", json!({})).unwrap());
         s.execute("layer.setProps", json!({"layer": g.0, "locks": locks})).unwrap();
-        select(&mut s, g);
-        s.execute("filter.render.tree", json!({})).unwrap();
-        let l = id(s.execute("layer.new.layer", json!({})).unwrap());
-        assert!(children(&s, g).is_empty(), "{locks}");
-        assert!(top(&s).contains(&l));
+        for (cmd, p) in [
+            ("layer.new.layer", json!({})),
+            ("layer.new.group", json!({})),
+            ("layer.newAdjustmentLayer.invert", json!({})),
+            ("layer.newFillLayer.solidColor", json!({"color": "#ff0000"})),
+        ] {
+            select(&mut s, g);
+            let l = id(s.execute(cmd, p).unwrap());
+            assert_eq!(children(&s, g).last(), Some(&l), "{cmd} goes inside the group locked with {locks}");
+        }
+        for (cmd, p) in [
+            ("type.create", json!({"x": 2, "y": 10, "text": "Hi"})),
+            ("shape.create", json!({"kind": "rect", "rect": [1, 1, 5, 5]})),
+            ("edit.paste", json!({})),
+            ("filter.render.tree", json!({})),
+            ("gradient.fill.create", json!({"from": [0, 0], "to": [16, 16]})),
+        ] {
+            select(&mut s, g);
+            let l = id(s.execute(cmd, p).unwrap_or_else(|e| panic!("{cmd} with {locks}: {e}")));
+            assert!(!children(&s, g).contains(&l), "{cmd} stays out of the group locked with {locks}");
+            assert_eq!(top(&s).iter().position(|x| *x == l), top(&s).iter().position(|x| *x == g).map(|i| i + 1), "{cmd} directly above the group");
+            assert!(!doc(&s).effective_locks(l).any(), "{cmd}: the new layer is not locked");
+            if cmd == "filter.render.tree" {
+                assert!(doc(&s).layer(l).unwrap().surface().unwrap().tile_count() > 0, "Render drew the tree with {locks}");
+            }
+        }
     }
+    // An open group inside a locked one still takes New Layer (the lock reaches it through the outer group).
+    let (mut s, _, b) = session();
+    select(&mut s, b);
+    let outer = id(s.execute("layer.new.group", json!({})).unwrap());
+    let inner = id(s.execute("layer.new.group", json!({})).unwrap());
+    assert_eq!(children(&s, outer), vec![inner]);
+    s.execute("layer.setProps", json!({"layer": outer.0, "locks": {"pixels": true}})).unwrap();
+    select(&mut s, inner);
+    let plain = id(s.execute("layer.new.layer", json!({})).unwrap());
+    assert_eq!(children(&s, inner), vec![plain]);
+}
+
+/// Stamp Visible goes directly above an open active group, never inside it: the stamp is the
+/// composite already, and inside it the group's opacity, mode or mask would apply to it again.
+/// With a layer inside a group active, it still lands above that layer, inside the group.
+#[test]
+fn stamp_visible_goes_above_an_open_group() {
+    let (mut s, a, b) = session();
+    select(&mut s, a);
+    s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    let g = id(s.execute("layer.groupLayers", json!({})).unwrap());
+    set_expanded(&mut s, g, true);
+    s.execute("layer.setProps", json!({"layer": g.0, "opacity": 0.5})).unwrap();
+    select(&mut s, g);
+    let stamp = id(s.execute("layer.stampVisible", json!({})).unwrap());
+    assert_eq!(children(&s, g), vec![a], "the stamp stays out of the group");
+    assert_eq!(top(&s)[1..], [g, stamp, b]);
+    // A layer inside the group active: the stamp goes above it, inside the group.
+    select(&mut s, a);
+    let inside = id(s.execute("layer.stampVisible", json!({})).unwrap());
+    assert_eq!(children(&s, g), vec![a, inside]);
 }
 
 /// An artboard takes a new layer whose content is centred on it, and a new empty layer; content
