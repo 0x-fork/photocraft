@@ -3946,6 +3946,33 @@ curves	Smooth	Εξομάλυνση
 	Sent to {printer}	Στάλθηκε στον {printer}
 	set in Print Settings…	ορίζεται στις ρυθμίσεις εκτύπωσης…
 	ICO is limited to 256 × 256 pixels	Το ICO περιορίζεται σε 256 × 256 εικονοστοιχεία
+	Show Favorite Fonts	Εμφάνιση αγαπημένων γραμματοσειρών
+	No favorite fonts yet: click the star beside a font to add it.	Δεν υπάρχουν ακόμη αγαπημένες γραμματοσειρές: κάντε κλικ στο αστέρι δίπλα σε μια γραμματοσειρά για να την προσθέσετε.
+	Favorite fonts	Αγαπημένες γραμματοσειρές
+	Add to Favorites	Προσθήκη στα αγαπημένα
+	Remove from Favorites	Αφαίρεση από τα αγαπημένα
+	Show All Fonts	Εμφάνιση όλων των γραμματοσειρών
+	All Classes	Όλες οι κατηγορίες
+	Blackletter	Γοτθικές
+	Decorative	Διακοσμητικές
+	Font preview:	Προεπισκόπηση γραμματοσειράς:
+	Handwritten	Χειρόγραφες
+	Hide Font Classes	Απόκρυψη κατηγοριών γραμματοσειρών
+	Hide Styles	Απόκρυψη στυλ
+	Monospace	Σταθερού πλάτους
+	No fonts match these filters.	Καμία γραμματοσειρά δεν ταιριάζει με αυτά τα φίλτρα.
+	No similar fonts: the current font doesn't say what it looks like.	Καμία παρόμοια γραμματοσειρά: η τρέχουσα γραμματοσειρά δεν περιγράφει την εμφάνισή της.
+	OpenType font	Γραμματοσειρά OpenType
+	Sans Serif	Χωρίς πατούρες
+	Script	Καλλιγραφικές
+	Serif	Με πατούρες
+	Show Font Classes	Εμφάνιση κατηγοριών γραμματοσειρών
+	Show Similar Fonts	Εμφάνιση παρόμοιων γραμματοσειρών
+	Show Styles	Εμφάνιση στυλ
+	Show Variable Fonts	Εμφάνιση μεταβλητών γραμματοσειρών
+	Slab Serif	Με πλακοειδείς πατούρες
+	TrueType font	Γραμματοσειρά TrueType
+	Variable font	Μεταβλητή γραμματοσειρά
 	Calibration	Βαθμονόμηση
 	Red Primary	Κόκκινο πρωτεύον
 	Green Primary	Πράσινο πρωτεύον

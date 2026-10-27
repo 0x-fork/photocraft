@@ -869,6 +869,9 @@ pub struct TypePrefs {
     pub font_preview: FontPreview,
     pub fill_new_type_layers_with_placeholder: bool,
     pub recent_fonts: u32,
+    /// Favourite font families, starred in the font menu (`type.font.favorite`), in the order
+    /// they were added.
+    pub favorite_fonts: Vec<String>,
 }
 
 impl Default for TypePrefs {
@@ -882,6 +885,7 @@ impl Default for TypePrefs {
             font_preview: FontPreview::Medium,
             fill_new_type_layers_with_placeholder: true,
             recent_fonts: 10,
+            favorite_fonts: Vec::new(),
         }
     }
 }
@@ -1221,9 +1225,15 @@ impl Preferences {
             self.shortcuts.clear();
             return Ok(());
         }
+        // The favourite fonts are the user's library, not a Type setting: resetting the Type
+        // section keeps them (only `type.favoriteFonts` itself, or Reset All, clears them).
+        let favorites = (path == "type").then(|| self.type_.favorite_fonts.clone());
         let mut root = self.to_json();
         set_path(&mut root, path, def)?;
         *self = serde_json::from_value(root).map_err(|e| e.to_string())?;
+        if let Some(favorites) = favorites {
+            self.type_.favorite_fonts = favorites;
+        }
         Ok(())
     }
 

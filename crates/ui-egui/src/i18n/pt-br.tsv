@@ -4038,6 +4038,33 @@ layerLabel	No Color	Sem cor
 	Sent to {printer}	Enviado para {printer}
 	set in Print Settings…	definido nas configurações de impressão…
 	ICO is limited to 256 × 256 pixels	ICO é limitado a 256 × 256 pixels
+	Show Favorite Fonts	Mostrar fontes favoritas
+	No favorite fonts yet: click the star beside a font to add it.	Ainda não há fontes favoritas: clique na estrela ao lado de uma fonte para adicioná-la.
+	Favorite fonts	Fontes favoritas
+	Add to Favorites	Adicionar aos favoritos
+	Remove from Favorites	Remover dos favoritos
+	Show All Fonts	Mostrar todas as fontes
+	All Classes	Todas as classes
+	Blackletter	Gótica
+	Decorative	Decorativa
+	Font preview:	Visualização da fonte:
+	Handwritten	Manuscrita
+	Hide Font Classes	Ocultar classes de fonte
+	Hide Styles	Ocultar estilos
+	Monospace	Monoespaçada
+	No fonts match these filters.	Nenhuma fonte corresponde a estes filtros.
+	No similar fonts: the current font doesn't say what it looks like.	Nenhuma fonte semelhante: a fonte atual não descreve sua aparência.
+	OpenType font	Fonte OpenType
+	Sans Serif	Sem serifa
+	Script	Cursiva
+	Serif	Com serifa
+	Show Font Classes	Mostrar classes de fonte
+	Show Similar Fonts	Mostrar fontes semelhantes
+	Show Styles	Mostrar estilos
+	Show Variable Fonts	Mostrar fontes variáveis
+	Slab Serif	Serifa egípcia
+	TrueType font	Fonte TrueType
+	Variable font	Fonte variável
 	Calibration	Calibração
 	Red Primary	Primária vermelha
 	Green Primary	Primária verde

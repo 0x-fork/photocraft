@@ -82,6 +82,7 @@ pub mod file_cmds;
 pub mod fill_cmds;
 pub mod fill_key_cmds;
 pub mod float_cmds;
+pub mod font_library_cmds;
 pub(super) mod frame_cmds;
 pub mod fx_view_cmds;
 pub mod fx_visibility_cmds;
@@ -1272,6 +1273,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::distort_cmds::specs());
     v.extend(crate::analysis_cmds::specs());
     v.extend(crate::notes_cmds::specs());
+    v.extend(crate::font_library_cmds::specs());
     v.extend(crate::history_cmds::specs());
     v.extend(crate::history_menu_cmds::specs());
     v.extend(crate::history_source_cmds::specs());

@@ -4154,6 +4154,33 @@ cameraRaw	Yellow	Sárga
 	Kept {name}: written by another application	{name} megtartva: egy másik alkalmazás írta
 	Shadow Tint	Árnyék színezet
 	Redrawing	Újrarajzolás
+	Show Favorite Fonts	Kedvenc betűtípusok megjelenítése
+	No favorite fonts yet: click the star beside a font to add it.	Még nincsenek kedvenc betűtípusok: kattintson a betűtípus melletti csillagra a hozzáadáshoz.
+	Favorite fonts	Kedvenc betűtípusok
+	Add to Favorites	Hozzáadás a kedvencekhez
+	Remove from Favorites	Eltávolítás a kedvencek közül
+	Show All Fonts	Összes betűtípus megjelenítése
+	All Classes	Összes osztály
+	Blackletter	Gót betűs
+	Decorative	Díszítő
+	Font preview:	Betűtípus előnézete:
+	Handwritten	Kézírásos
+	Hide Font Classes	Betűtípus-osztályok elrejtése
+	Hide Styles	Stílusok elrejtése
+	Monospace	Fix szélességű
+	No fonts match these filters.	Egy betűtípus sem felel meg ezeknek a szűrőknek.
+	No similar fonts: the current font doesn't say what it looks like.	Nincsenek hasonló betűtípusok: a jelenlegi betűtípus nem írja le a megjelenését.
+	OpenType font	OpenType betűtípus
+	Sans Serif	Talpatlan
+	Script	Írott
+	Serif	Talpas
+	Show Font Classes	Betűtípus-osztályok megjelenítése
+	Show Similar Fonts	Hasonló betűtípusok megjelenítése
+	Show Styles	Stílusok megjelenítése
+	Show Variable Fonts	Változó betűtípusok megjelenítése
+	Slab Serif	Talpas (szögletes)
+	TrueType font	TrueType betűtípus
+	Variable font	Változó betűtípus
 # Bevel & Emboss shading controls.
 	Highlight Mode	Csúcsfény módja
 	Highlight Color	Csúcsfény színe

@@ -231,10 +231,16 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
         let mut ready = true;
         row(ui, &mut |ui| {
             ready = fonts_ready(ui, full);
-            if ready && font_picker(ui, &mut fam, full, app.session.prefs().type_.font_preview, &app.ui.recent_fonts) {
-                app.note_recent_font(&fam);
+            if ready && let Some(picked) = font_picker(app, ui, &mut fam, full) {
                 app.ui.tool_options.type_font = fam.clone();
-                apply(app, ui.ctx(), json!({"font": fam}));
+                match picked {
+                    Some(style) => {
+                        // New type takes the style too, as from the options bar's menu.
+                        app.ui.tool_options.type_style = style.clone();
+                        apply(app, ui.ctx(), json!({"font": fam, "fontStyle": style}));
+                    }
+                    None => apply(app, ui.ctx(), json!({"font": fam})),
+                }
             }
         });
         row(ui, &mut |ui| {

@@ -2245,6 +2245,29 @@ mod multi_layer_formatting {
         h.run_steps(2);
     }
 
+    /// A style picked under a family's ">" in the Character section's font menu, with type
+    /// layers selected, sets them and is kept for new type, as the options bar's menu does.
+    #[test]
+    fn a_style_picked_in_the_character_sections_font_menu_is_kept_for_new_type() {
+        let (app, ids) = fixture();
+        // The first style row under the family (so it is in view), other than the defaults'.
+        let pick = super::super::styles("Inter").into_iter().find(|s| s != "Regular" && s != "Bold Italic").expect("Inter has several styles");
+        assert_ne!(app.ui.tool_options.type_style, pick);
+        let mut h = controls(app, true);
+        h.get_all_by_role(Role::ComboBox).next().unwrap().click();
+        h.run();
+        h.get_all_by_role(Role::TextInput).find(|n| n.is_focused()).expect("the search field has the focus").type_text("Inter");
+        h.run();
+        h.get_all_by_label("Show Styles").next().unwrap().click();
+        h.run();
+        h.get_by_label(&super::super::style_label(&pick)).click();
+        h.run();
+        assert_eq!(h.state().ui.tool_options.type_style, pick, "new type takes the picked style");
+        for id in &ids[..2] {
+            assert_eq!(style(h.state(), *id, 0).font_style, pick, "the selected layers are set in it");
+        }
+    }
+
     #[test]
     fn hyphenate_is_not_shown_while_layout_does_not_hyphenate() {
         // #6710: layout never hyphenates; the control must stay hidden until it does.

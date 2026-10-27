@@ -236,6 +236,7 @@ pub use text::bidi_text;
 pub use text::cjk_fonts;
 pub use text::direction;
 pub use text::egui_fonts;
+use text::font_filters;
 use text::font_preview;
 pub use text::served_fonts;
 use tools::align_bar;
