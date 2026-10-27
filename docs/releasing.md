@@ -157,7 +157,7 @@ goes in `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`, so host build scripts aren't affected
   it installs per-user by default, without a UAC prompt, into `%LOCALAPPDATA%\Programs\ArtCraft\PhotoCraft`
   (Windows Installer redirects the ProgramFiles folder in a per-user install); the setup
   wizard's "Everyone on this computer" option, or `msiexec ... ALLUSERS=1`, installs per-machine into
-  `Program Files\ArtCraft\PhotoCraft`. It installs an advertised Start Menu shortcut associated with the
+  `Program Files\ArtCraft\PhotoCraft` (`Program Files (x86)` for the 32-bit build). It installs an advertised Start Menu shortcut associated with the
   `PhotocraftExe` file component. PhotoCraft
   becomes the default app for `.pcraft` and is listed under "Open with" for PSD/PSB and image
   files (in a per-user install those registrations and the `InstallDir` record live under
