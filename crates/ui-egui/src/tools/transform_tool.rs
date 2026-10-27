@@ -35,11 +35,12 @@ pub(crate) use begin::begin_content_aware;
 pub use begin::{begin, begin_copy, begin_placed, begin_selection, begin_warp, enter_warp, leave_warp, warps_type};
 pub(crate) use commit::{SAVE_FOR_WEB, committing, nudge};
 pub use commit::{cancel, commit, end_if_left, follow_edits, intercept, is_enabled, on_job_event, track_steps};
+#[cfg(test)]
+use drag_modes::{HandleIndicator, handle_indicator, keep_convex, turns};
 pub(crate) use drag_modes::{apply_drag, corner_distorts, legacy_mods};
 #[cfg(test)]
 pub(crate) use drag_modes::{apply_mode_drag, unlinked_mods};
-#[cfg(test)]
-use drag_modes::{keep_convex, turns};
+pub(crate) use draw::draw_handle_cursor;
 #[cfg(test)]
 use draw::scale_values;
 #[cfg(test)]
