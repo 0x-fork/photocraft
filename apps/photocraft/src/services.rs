@@ -119,6 +119,9 @@ const OTHER_SAVE_FILTERS: &[(&str, &[&str])] = &[("Color Swatches", &["aco"]), (
 /// Lists the save dialog's file types with the `suggested` type first (added if unlisted), so the dialog keeps that extension instead of .psd.
 fn save_filters(suggested: &str) -> Vec<(String, Vec<String>)> {
     let ext = Path::new(suggested).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    // A Netpbm subtype's name (an opened .pgm) starts on the Netpbm type as .pnm: the encoder picks
+    // the subtype from the image, so the old name could describe other data (CodeRabbit on #9775).
+    let ext = if ["pbm", "pgm", "ppm", "pam", "pfm"].contains(&ext.as_str()) { "pnm".to_string() } else { ext };
     if let Some((name, exts)) = OTHER_SAVE_FILTERS.iter().find(|(_, exts)| exts.contains(&ext.as_str())) {
         return vec![(name.to_string(), exts.iter().map(|e| e.to_string()).collect())];
     }

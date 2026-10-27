@@ -301,6 +301,13 @@ fn save_as_offers_only_writable_formats_including_ico() {
     // neutral .pnm (#3609; CodeRabbit on #9775): a .pbm, .pgm or .pfm name would hold other data.
     let netpbm = save_filters("Untitled").into_iter().find(|(name, _)| name == "Netpbm").map(|(_, exts)| exts);
     assert_eq!(netpbm, Some(vec!["pnm".to_string()]));
+    // Also when Save As starts from a subtype's name: no filter offers that subtype again.
+    for name in ["image.pbm", "image.pgm", "image.ppm", "image.pam", "image.pfm"] {
+        let filters = save_filters(name);
+        assert_eq!(filters[0], ("Netpbm".to_string(), vec!["pnm".to_string()]), "{name}");
+        let subtype = name.rsplit('.').next().unwrap_or_default();
+        assert!(!filters.iter().any(|(_, exts)| exts.iter().any(|e| e == subtype)), "{name}: .{subtype} is offered");
+    }
     // File › Open lists every file Save As writes, also in that format's own type (PDF is written
     // but not read yet).
     for (name, exts) in SAVE_FILTERS {
