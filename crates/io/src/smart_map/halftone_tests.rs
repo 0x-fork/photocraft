@@ -1,5 +1,6 @@
 //! Halftone Pattern descriptors with the keys from the reference application's Filter Gallery plug-in terminology (#8940):
 //! `HlSz` size, `Cntr` contrast and a `ScrT` enum (`ScrD` dot, `ScrC` circle, `ScrL` line).
+use super::import::{GALLERY_CLASS, GALLERY_COMMAND, colour_rgbc};
 use super::*;
 
 /// Builds an editable Halftone Pattern filter with explicit foreground/background colours.
