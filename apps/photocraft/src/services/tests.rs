@@ -294,13 +294,13 @@ fn save_as_offers_only_writable_formats_including_ico() {
             assert!(format.caps().write, "{name}: .{ext} can't be written");
         }
     }
-    for ext in ["ico", "gif", "bmp", "dds", "pnm", "pfm", "hdr", "dib", "jpeg", "tiff"] {
+    for ext in ["ico", "gif", "bmp", "dds", "pnm", "hdr", "dib", "jpeg", "tiff"] {
         assert!(save_filters("Untitled-1.psd").iter().any(|(_, exts)| exts.iter().any(|e| e == ext)), ".{ext} is offered");
     }
-    // Picking Netpbm for a bare name takes its first extension; the codec writes P6/P7/PF from the
-    // image, never a 1-bit .pbm, so that one is the neutral .pnm (#3609).
+    // The codec writes P5/P6/P7/PF from the image, never from the name, so Netpbm offers only the
+    // neutral .pnm (#3609; CodeRabbit on #9775): a .pbm, .pgm or .pfm name would hold other data.
     let netpbm = save_filters("Untitled").into_iter().find(|(name, _)| name == "Netpbm").map(|(_, exts)| exts);
-    assert_eq!(netpbm.as_ref().and_then(|exts| exts.first()).map(String::as_str), Some("pnm"));
+    assert_eq!(netpbm, Some(vec!["pnm".to_string()]));
     // File › Open lists every file Save As writes, also in that format's own type (PDF is written
     // but not read yet).
     for (name, exts) in SAVE_FILTERS {

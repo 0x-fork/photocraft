@@ -100,7 +100,9 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("GIF", &["gif"]),
     ("ICO", &["ico"]),
     ("OpenEXR", &["exr"]),
-    ("Netpbm", &["pnm", "pbm", "pgm", "ppm", "pam", "pfm"]),
+    // The encoder picks P5, P6, P7 or PFM from the image, not from the name, so only the neutral
+    // .pnm is offered: a .pbm or .pgm name would hold pixmap data (CodeRabbit on #9775).
+    ("Netpbm", &["pnm"]),
     ("Radiance HDR", &["hdr"]),
     ("FITS", &["fits", "fit"]),
     ("DPX", &["dpx"]),
