@@ -221,11 +221,14 @@ fn relative_path(raw: &str) -> Result<PathBuf, AutomationError> {
     Ok(PathBuf::from(raw))
 }
 
+/// At least every name cap-std refuses to open on Windows (`COM0`–`COM9`, `COM¹`–`COM³`, the same
+/// for `LPT`, spaces before the extension ignored), so nothing written is unreadable (#9424).
 fn is_windows_device_name(component: &str) -> bool {
-    let stem = component.split('.').next().unwrap_or(component).to_ascii_uppercase();
+    let stem = component.split('.').next().unwrap_or(component).trim_end().to_ascii_uppercase();
+    let port = |n: &str| matches!(n, "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³");
     matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$")
-        || stem.strip_prefix("COM").is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
-        || stem.strip_prefix("LPT").is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+        || stem.strip_prefix("COM").is_some_and(port)
+        || stem.strip_prefix("LPT").is_some_and(port)
 }
 
 fn path_error(path: &str, reason: &str) -> AutomationError {

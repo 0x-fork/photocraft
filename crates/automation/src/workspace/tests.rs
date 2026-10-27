@@ -178,6 +178,32 @@ fn rejects_absolute_traversal_mixed_prefix_and_malformed_paths_without_panicking
 }
 
 #[test]
+fn every_device_name_cap_std_refuses_to_open_is_refused_before_any_write() {
+    // cap-std refuses these when it opens a file on Windows, so a file written under one of
+    // them could not be read back (#9424).
+    let (inside, _, workspace) = roots("devices");
+    std::fs::create_dir(inside.join("sub")).unwrap();
+    for path in ["COM0.txt", "LPT0", "COM¹.png", "com².png", "COM³", "LPT¹.txt", "LPT².txt", "lpt³", "NUL .png", "Aux  .txt", "sub/CON .psd", "COM¹/frame.png"]
+    {
+        let error = workspace.write(path, b"x").unwrap_err().to_string();
+        assert!(error.contains("reserved device names"), "write {path:?}: {error}");
+        let error = workspace.read(path).unwrap_err().to_string();
+        assert!(error.contains("reserved device names"), "read {path:?}: {error}");
+    }
+    for dir in ["COM¹", "LPT0", "sub/PRN .x"] {
+        let error = workspace.export_sequence(dir).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(error.contains("reserved device names"), "export {dir:?}: {error}");
+    }
+    assert_eq!(std::fs::read_dir(&inside).unwrap().count(), 1, "only `sub` may exist");
+    assert_eq!(std::fs::read_dir(inside.join("sub")).unwrap().count(), 0);
+    // Look-alikes are ordinary names.
+    for path in ["COM10.txt", "COM¹0.txt", "LPT00", "console.txt", "NULL.txt", "nul_.txt", " NUL.txt"] {
+        workspace.write(path, b"x").unwrap_or_else(|e| panic!("write {path:?}: {e}"));
+        assert_eq!(workspace.read(path).unwrap(), b"x", "{path:?}");
+    }
+}
+
+#[test]
 fn read_and_write_authority_are_separate() {
     let (inside, _, _) = roots("separate");
     std::fs::write(inside.join("read.txt"), b"canary").unwrap();
