@@ -1,4 +1,4 @@
-use super::estimate::{MERGED_RENDERED, MERGED_WEIGHT, block_signature, psd_size_exceeds_limit, psd_version};
+use super::estimate::{MERGED_RENDERED, MERGED_WEIGHT, fit_psd_size, psd_version, sign_global_blocks};
 use super::merged::{cmyk_of, merged_planes, placeholder_planes};
 use super::resources::{global_block, guides_resource, keep_imported_resource, legacy_name, pascal_names_resource, path_resources, unicode_names_resource};
 use super::smart::{SmartOut, link_group_resource};
@@ -25,10 +25,17 @@ pub(crate) fn document_to_psd_interruptible(doc: &Document, opts: &PsdExportOpti
 
 /// [`document_to_psd_with`] for a document embedded `depth` smart objects deep.
 pub(super) fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, ctl: &Interrupt) -> (PsdFile, Vec<String>) {
+    document_to_psd_sized(doc, opts, depth, ctl, PSD_MAX_FILE_SIZE)
+}
+
+/// [`document_to_psd_nested`] with the largest file kept as PSD (lowered by tests).
+pub(super) fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, ctl: &Interrupt, size_limit: u64) -> (PsdFile, Vec<String>) {
+    // Without `size_limit_psb` the encoded size never changes the version, in every mode.
+    let layerless_limit = opts.size_limit_psb.then_some(size_limit);
     if doc.mode == ColorMode::Multichannel {
-        return crate::multichannel_map::document_to_psd(doc, opts.force_psb);
+        return crate::multichannel_map::document_to_psd(doc, opts.force_psb, layerless_limit);
     }
-    if let Some(file) = crate::palette_map::document_to_psd(doc, opts.force_psb) {
+    if let Some(file) = crate::palette_map::document_to_psd(doc, opts.force_psb, layerless_limit) {
         return file;
     }
     let fmt = doc.pixel_format();
@@ -43,8 +50,7 @@ pub(super) fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, de
     let sample = fmt.sample;
     let cc = fmt.mode.color_channels();
     let big = doc.size.width > 30_000 || doc.size.height > 30_000;
-    let size_exceeds_limit = opts.size_limit_psb && !opts.force_psb && !big && psd_size_exceeds_limit(doc);
-    let version = psd_version(doc, opts.force_psb, size_exceeds_limit);
+    let version = psd_version(doc, opts.force_psb);
     let mut ex = Ex {
         fmt,
         dpi: doc.resolution_dpi,
@@ -70,8 +76,6 @@ pub(super) fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, de
     };
     if big && !opts.force_psb {
         ex.warnings.push("document exceeds 30000 px; written as PSB".into());
-    } else if size_exceeds_limit && !opts.force_psb {
-        ex.warnings.push("estimated encoded size exceeds 2 GB; written as PSB".into());
     }
     if fmt.mode != doc.mode && duotone_inks.is_none() {
         ex.warnings.push(format!("{:?} document written as {:?}", doc.mode, fmt.mode));
@@ -281,7 +285,8 @@ pub(super) fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, de
         if !ex.records.is_empty() && matches!(&key, b"Lr16" | b"Lr32" | b"Layr") {
             continue;
         }
-        let block = global_block(block_signature(sig, key, version), key, &data);
+        // The signature follows the final version (see `sign_global_blocks`).
+        let block = global_block(sig, key, &data);
         // A kept merged-transparency marker describes the opened file's composite. Over an opaque
         // one it would make the first alpha channel read back as the transparency, and vanish.
         if !has_alpha && block.is_merged_transparency_marker() {
@@ -362,7 +367,7 @@ pub(super) fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, de
         Some(raw) => raw,
         None => photocraft_psd::hdr::color_mode_data_for_depth(header.depth),
     };
-    let file = PsdFile {
+    let mut file = PsdFile {
         header,
         color_mode_data,
         resources,
@@ -372,7 +377,12 @@ pub(super) fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, de
         global_blocks,
         layer_mask_trailing: Vec::new(),
         image_data,
+        write_as_psb: false,
     };
+    if opts.size_limit_psb {
+        ex.warnings.extend(fit_psd_size(&mut file, size_limit));
+    }
+    sign_global_blocks(&mut file);
     (file, ex.warnings)
 }
 
