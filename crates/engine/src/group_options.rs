@@ -77,6 +77,18 @@ impl GroupOptions {
     }
 }
 
+/// `layer.new.group`'s `position`: `below` (the Layers panel's ⌘/Ctrl-click) or `above` (the default).
+pub(crate) fn below(cmd: &str, p: &Value) -> Result<bool> {
+    match p.get("position").filter(|v| !v.is_null()) {
+        None => Ok(false),
+        Some(v) => match v.as_str() {
+            Some("above") => Ok(false),
+            Some("below") => Ok(true),
+            _ => Err(EngineError::BadParams { cmd: cmd.into(), msg: "`position` must be above or below".into() }),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use photocraft_color::BlendMode;
