@@ -919,16 +919,22 @@ impl PcraftWriter {
     pub fn save_zip(&mut self, doc: &Document, opts: &SaveOptions) -> Result<(Vec<u8>, SaveStats)> {
         let p = self.prepare(doc, opts)?;
         let mut stats = p.stats;
-        let mut z = ZipWriter::new();
-        z.add(MANIFEST, &p.manifest)?;
-        for (name, data) in &p.previews {
-            z.add(name, data)?;
-        }
         let mut next = HashMap::with_capacity(p.objects.len());
         let mut cached_bytes = 0usize;
         // New objects are compressed on all cores first (zstd dominates a full save).
         let todo: Vec<(&String, &Object)> = p.objects.iter().filter(|(path, _)| !self.compressed.contains_key(*path)).collect();
         let mut fresh: HashMap<&String, Arc<Vec<u8>>> = par_compress(&todo)?.into_iter().collect();
+        let entries = std::iter::once((MANIFEST, p.manifest.len())).chain(p.previews.iter().map(|(name, data)| (*name, data.len()))).chain(
+            p.objects.keys().map(|path| {
+                let size = self.compressed.get(path).or_else(|| fresh.get(path)).map_or(0, |data| data.len());
+                (path.as_str(), size)
+            }),
+        );
+        let mut z = ZipWriter::with_entries(entries)?;
+        z.add(MANIFEST, &p.manifest)?;
+        for (name, data) in &p.previews {
+            z.add(name, data)?;
+        }
         for (path, obj) in &p.objects {
             let (key, data) = match self.compressed.remove_entry(path) {
                 Some((key, data)) => {
