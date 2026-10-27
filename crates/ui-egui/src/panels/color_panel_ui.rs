@@ -537,6 +537,7 @@ fn rgb3(c: [f32; 4]) -> [f32; 3] {
 /// other corners; the add-to-swatches button sits under it.
 fn wheel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
+    let top = ui.cursor().top();
     let background = app.ui.color_panel.background;
     let rgb = active(app);
     let v = current_values(ui, Model::Hsb, background, rgb);
@@ -556,9 +557,12 @@ fn wheel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut changed = edited.is_some();
     ui.add_space(6.0);
     let fill = ui.data(|d| d.get_temp::<f32>(color_field_fill_id()));
-    let gaps = 2.0 * ui.spacing().item_spacing.y + 6.0;
     let w = ui.available_width();
-    let side = fill.filter(|f| f.is_finite()).map_or(w.min(220.0), |f| (f - top_h - gaps).min(w)).max(80.0);
+    // The wheel takes what the dock group has left under the sliders as drawn (they stand taller
+    // than `ROW_H`), down to 28 pt as the slider modes' ramp: an estimate and an 80 pt floor ran
+    // it past the bottom of the Color group at its default height.
+    let used = ui.cursor().top() - top;
+    let side = fill.filter(|f| f.is_finite()).map_or(w.min(220.0), |f| (f - used).min(w)).max(28.0);
     let (area, resp) = ui.allocate_exact_size(vec2(w, side), Sense::click_and_drag());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Unknown, ui.is_enabled(), "Color Wheel"));
     let (center, inner, outer) = wheel_geometry(area);
