@@ -294,8 +294,20 @@ fn save_as_offers_only_writable_formats_including_ico() {
             assert!(format.caps().write, "{name}: .{ext} can't be written");
         }
     }
-    for ext in ["ico", "gif", "bmp", "dds"] {
+    for ext in ["ico", "gif", "bmp", "dds", "pnm", "pfm", "hdr", "dib", "jpeg", "tiff"] {
         assert!(save_filters("Untitled-1.psd").iter().any(|(_, exts)| exts.iter().any(|e| e == ext)), ".{ext} is offered");
+    }
+    // Picking Netpbm for a bare name takes its first extension; the codec writes P6/P7/PF from the
+    // image, never a 1-bit .pbm, so that one is the neutral .pnm (#3609).
+    let netpbm = save_filters("Untitled").into_iter().find(|(name, _)| name == "Netpbm").map(|(_, exts)| exts);
+    assert_eq!(netpbm.as_ref().and_then(|exts| exts.first()).map(String::as_str), Some("pnm"));
+    // File › Open lists every file Save As writes, also in that format's own type (PDF is written
+    // but not read yet).
+    for (name, exts) in SAVE_FILTERS {
+        for ext in exts.iter().filter(|e| **e != "pdf") {
+            assert!(OPEN_EXTS.contains(ext), "{name}: Open's All Formats lacks .{ext}");
+            assert!(OPEN_FILTERS.iter().any(|(_, open)| open.contains(ext)), "{name}: no Open type lists .{ext}");
+        }
     }
     assert_eq!(save_filters("icon.ico")[0].0, "ICO", "an .ico name leads with its own type");
     // What Save As writes there: an icon up to 256×256, and a clear error past that.
@@ -307,6 +319,11 @@ fn save_as_offers_only_writable_formats_including_ico() {
     let opts = export_options(&photocraft_ui_egui::ExportSettings::default());
     let icon = photocraft_io::export(&doc(256), "icon.ico", &opts).unwrap();
     assert_eq!(icon.bytes[..4], [0, 0, 1, 0], "an ICO header");
+    // And what the Netpbm and Radiance rows write.
+    let pnm = photocraft_io::export(&doc(4), "x.pnm", &opts).unwrap();
+    assert_eq!(pnm.bytes[..2], *b"P6", "an RGB document saves as a binary pixmap");
+    let hdr = photocraft_io::export(&doc(4), "x.hdr", &opts).unwrap();
+    assert!(hdr.bytes.starts_with(b"#?RADIANCE"), "a Radiance header");
     let err = photocraft_io::export(&doc(300), "icon.ico", &opts).map(|_| ()).unwrap_err().to_string();
     assert!(err.contains("256"), "{err}");
 }
