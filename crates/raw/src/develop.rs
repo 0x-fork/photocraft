@@ -230,7 +230,7 @@ fn develop(s: &Sensor, opts: &DevelopOptions, allow_fused: bool) -> Result<Devel
     // condition under which `Haze::new` and `ToneMap::new` return `None`).
     let fused = allow_fused && opts.tone.is_neutral() && s.black_point <= 0.0;
     let orient_copy = opts.orient && (2..=8).contains(&s.orientation);
-    let ahd_jobs = working_memory(c.width, c.height, s.cfa.is_some(), bayer, Shape { fused, orient_copy }, opts, par::workers())?;
+    let jobs = working_memory(c.width, c.height, s.cfa.is_some(), bayer, Shape { fused, orient_copy }, opts, par::workers())?;
     let mut warnings = s.warnings.clone();
     let sc = Scale::new(s);
 
@@ -374,7 +374,7 @@ fn develop(s: &Sensor, opts: &DevelopOptions, allow_fused: bool) -> Result<Devel
                 let p = cfa.phase(c.x, c.y);
                 pattern = Some(names(&p));
                 let mut o = vec![0u16; w * h * 3];
-                demosaic_fused(w, h, p, opts.demosaic, &to_xyz, ahd_jobs, &fill_row, &mut o, &encode_plain);
+                demosaic_fused(w, h, p, opts.demosaic, &to_xyz, jobs, &fill_row, &mut o, &encode_plain);
                 fused_out = Some(o);
             } else {
                 let mut plane = Padded::new(w, h);
@@ -388,13 +388,13 @@ fn develop(s: &Sensor, opts: &DevelopOptions, allow_fused: bool) -> Result<Devel
                 if bayer {
                     let p = cfa.phase(c.x, c.y);
                     pattern = Some(names(&p));
-                    rgb = demosaic(&plane, p, opts.demosaic, &to_xyz, ahd_jobs);
+                    rgb = demosaic(&plane, p, opts.demosaic, &to_xyz, jobs);
                 } else {
                     let pat = Pattern::of(cfa, c.x, c.y);
                     pattern = Some(pat.colors.chunks(pat.w.max(1)).map(names).collect::<Vec<_>>().join("/"));
                     if fused {
                         let mut o = vec![0u16; w * h * 3];
-                        demosaic_cfa_fused(&plane, &pat, &mut o, &encode_plain);
+                        demosaic_cfa_fused(&plane, &pat, jobs, &mut o, &encode_plain);
                         fused_out = Some(o);
                     } else {
                         rgb = demosaic_cfa(&plane, &pat);
@@ -410,8 +410,8 @@ fn develop(s: &Sensor, opts: &DevelopOptions, allow_fused: bool) -> Result<Devel
                     &mut o,
                     band * w * 3,
                     h.div_ceil(band),
-                    usize::MAX,
-                    || vec![0.0f32; band * w * 3],
+                    jobs,
+                    || vec![0.0f32; band.min(h) * w * 3],
                     |b, chunk, buf| {
                         let buf = &mut buf[..chunk.len()];
                         linear_rows(b * band, buf);
@@ -509,10 +509,10 @@ fn fused_band_bytes(w: usize, h: usize, band_rows: usize, window: bool) -> u64 {
 }
 
 /// Checks the peak of the two development phases. The CFA and non-Bayer green
-/// planes are freed before the u16 output is allocated; AHD scratch is bounded
-/// by reducing simultaneous bands when needed. The fused path never holds the f32 RGB frame:
-/// it has the u16 output (6 bytes a pixel) next to the CFA plane, plus a band buffer and the
-/// scratch per worker, and an orientation copy of the output afterwards. Sensor storage belongs
+/// planes are freed before the u16 output is allocated; the AHD scratch and the fused band
+/// buffers are bounded by reducing simultaneous bands when needed. The fused path never holds
+/// the f32 RGB frame: it has the u16 output (6 bytes a pixel) next to the CFA plane, plus a band
+/// buffer and the scratch per simultaneous band, and an orientation copy of the output afterwards. Sensor storage belongs
 /// to the caller and is checked separately by the decoder.
 fn working_memory(w: usize, h: usize, cfa: bool, bayer: bool, shape: Shape, opts: &DevelopOptions, workers: usize) -> Result<usize> {
     let limits = &opts.limits;
@@ -530,7 +530,12 @@ fn working_memory(w: usize, h: usize, cfa: bool, bayer: bool, shape: Shape, opts
     let mut jobs = workers.max(1);
     // Fused: the u16 output and, per worker running a band, one band of f32 RGB.
     let band_of = |rows: usize, window: bool| if fused { fused_band_bytes(w, h, rows, window) } else { 0 };
-    let band_jobs = |rows: usize| workers.max(1).min(h.div_ceil(rows.max(1))) as u64;
+    // Fewer bands at once when the bands of every worker don't fit next to `base` (at least one).
+    let with_bands = |jobs: &mut usize, base: u64, rows: usize, band: u64| {
+        let available = limits.max_alloc.saturating_sub(base) / band.max(1);
+        *jobs = (*jobs).min(h.div_ceil(rows.max(1))).min(usize::try_from(available).unwrap_or(usize::MAX)).max(1);
+        base.saturating_add(band.saturating_mul(*jobs as u64))
+    };
     if cfa {
         let plane = (w as u64).saturating_add(2 * PAD as u64).saturating_mul((h as u64).saturating_add(2 * PAD as u64)).saturating_mul(4);
         // Bytes a pixel next to the plane: the f32 RGB frame (and the non-Bayer green plane), or
@@ -547,19 +552,17 @@ fn working_memory(w: usize, h: usize, cfa: bool, bayer: bool, shape: Shape, opts
         if bayer && opts.demosaic == Demosaic::Ahd {
             mosaic = mosaic.saturating_add(crate::demosaic::AHD_TABLE_BYTES);
             let scratch = crate::demosaic::ahd_scratch(w as u64, h as u64).saturating_add(band_of(crate::demosaic::AHD_BAND, true));
-            let available = limits.max_alloc.saturating_sub(mosaic) / scratch.max(1);
-            jobs = jobs.min(crate::demosaic::ahd_bands(h)).min(usize::try_from(available).unwrap_or(usize::MAX));
             // At least one band must fit, even when no parallelism is available.
-            mosaic = mosaic.saturating_add(scratch.saturating_mul(jobs.max(1) as u64));
+            mosaic = with_bands(&mut jobs, mosaic, crate::demosaic::AHD_BAND, scratch);
         } else {
             let rows = if bayer { crate::demosaic::FUSED_ROWS } else { par::band_rows(w) };
-            mosaic = mosaic.saturating_add(band_of(rows, bayer).saturating_mul(band_jobs(rows)));
+            mosaic = with_bands(&mut jobs, mosaic, rows, band_of(rows, bayer));
         }
         peak = peak.max(mosaic);
     } else if fused {
         // LinearRaw: the output and the bands.
         let rows = par::band_rows(w);
-        peak = peak.max(pixels.saturating_mul(6).saturating_add(band_of(rows, false).saturating_mul(band_jobs(rows))));
+        peak = peak.max(with_bands(&mut jobs, pixels.saturating_mul(6), rows, band_of(rows, false)));
     }
     if peak > limits.max_alloc || usize::try_from(peak).is_err() {
         return Err(RawError::LimitExceeded(format!("{peak} bytes of RAW working memory exceed {}", limits.max_alloc)));
@@ -836,13 +839,15 @@ mod tests {
                 })
             })
             .collect();
-        for (w, h) in [(6, 6), (37, 41), (80, 150)] {
+        // 600 samples wide: bands of 109 rows, so 350 rows are four (the last short) and 50 rows
+        // are less than one.
+        for (w, h) in [(6, 6), (37, 41), (80, 150), (600, 350), (600, 50)] {
             let mut s = test_sensor(w, h, Some(Cfa { width: 6, height: 6, colors: colors.clone(), origin_x: 0, origin_y: 0 }), 1);
             s.orientation = 8;
             assert_fused_matches_full(&s, &DevelopOptions::default(), &format!("xtrans {w}x{h}"));
         }
         for samples in [1, 3] {
-            for (w, h) in [(1, 1), (7, 5), (90, 111)] {
+            for (w, h) in [(1, 1), (7, 5), (90, 111), (600, 350), (600, 50)] {
                 let mut s = test_sensor(w, h, None, samples);
                 s.orientation = 3;
                 assert_fused_matches_full(&s, &DevelopOptions::default(), &format!("linear {samples} {w}x{h}"));
@@ -900,6 +905,35 @@ mod tests {
         // Fused: the u16 output and the CFA plane (+ one band) is about 10 bytes a pixel.
         opts.demosaic = Demosaic::Bilinear;
         assert!(working_memory(11648, 8736, true, true, FUSED, &opts, 1).is_ok());
+    }
+
+    /// The fused bilinear / MHC, X-Trans and LinearRaw paths run fewer bands at once when the bands
+    /// of every worker don't fit next to the output, as AHD does. A very wide, short Bayer frame
+    /// (262144 x 455: 15 bands of 32 rows, about 147 MB a band with its window) needs 2.92 GB
+    /// with all 15 at once against the default 2 GiB, and develops with 9.
+    #[test]
+    fn fused_bands_at_once_are_capped_by_the_memory_limit() {
+        let opts = DevelopOptions { demosaic: Demosaic::Bilinear, ..Default::default() };
+        let table = (GAMMA_STEPS as u64 + 2) * 4;
+        let (w, h) = (262144usize, 455usize);
+        let band = 32 * 262144 * 12 + (32 + 2 * PAD as u64) * (262144 + 2 * PAD as u64) * 4;
+        for (workers, want) in [(1, 1), (8, 8), (9, 9), (10, 9), (16, 9), (32, 9)] {
+            assert_eq!(working_memory(w, h, true, true, FUSED, &opts, workers).unwrap(), want, "{workers} workers");
+        }
+        // Never more jobs than bands, and one when only one band fits.
+        assert_eq!(working_memory(1000, 40, true, true, FUSED, &opts, 32).unwrap(), 2);
+        let mut tight = opts.clone();
+        tight.limits.max_alloc = 262144 * 455 * 6 + table + band;
+        assert_eq!(working_memory(w, h, true, true, FUSED, &tight, 32).unwrap(), 1);
+        tight.limits.max_alloc -= 1;
+        assert!(working_memory(w, h, true, true, FUSED, &tight, 32).is_err());
+        // X-Trans (bands of `band_rows(1000)` = 65 rows next to its planes) and LinearRaw likewise.
+        let plane = (1000 + 2 * PAD as u64) * (2000 + 2 * PAD as u64) * 4;
+        let mut x = opts.clone();
+        x.limits.max_alloc = 1000 * 2000 * 10 + plane + table + 3 * 65 * 1000 * 12;
+        assert_eq!(working_memory(1000, 2000, true, false, FUSED, &x, 32).unwrap(), 3);
+        x.limits.max_alloc = 1000 * 2000 * 6 + 5 * 65 * 1000 * 12;
+        assert_eq!(working_memory(1000, 2000, false, true, FUSED, &x, 32).unwrap(), 5);
     }
 
     #[test]
