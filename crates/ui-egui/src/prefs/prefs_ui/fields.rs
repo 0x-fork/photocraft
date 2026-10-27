@@ -63,6 +63,10 @@ pub(super) fn humanize(key: &str) -> String {
     if key == "doNotAppendCopy" {
         return "Do not append \"copy\" to filename when saving a copy".into();
     }
+    // Plug-ins: Photoshop's wording (#9392).
+    if key == "generatorEnabled" {
+        return "Enable Generator".into();
+    }
     if key == "lowLatencyDrawing" {
         return "Low-Latency Drawing (vsync off, applies at next launch)".into();
     }

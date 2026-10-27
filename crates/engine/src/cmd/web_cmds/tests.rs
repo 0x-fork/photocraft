@@ -637,7 +637,7 @@ fn image_assets_needs_the_generator_preference() {
 fn image_assets_are_generated_now_and_on_save() {
     let dir = tmp("assets");
     let mut s = session(8);
-    // Preferences ▸ Plug-ins ▸ Generator enabled: the feature is opt-in.
+    // Preferences ▸ Plug-ins ▸ Enable Generator: the feature is opt-in.
     s.execute("prefs.set", json!({"path": "plugIns.generatorEnabled", "value": true})).unwrap();
     let id = s.active().unwrap().active_layer.unwrap();
     s.execute("layer.renameLayer", json!({"layer": id.0, "name": "logo.png, 50% small/logo.gif, logo.jpg80%"})).unwrap();
