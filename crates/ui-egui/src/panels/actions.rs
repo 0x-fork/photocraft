@@ -956,22 +956,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if rows.is_empty() {
             ui.label(egui::RichText::new(tl!("Record ● a sequence of edits, then play ▶ it on any document.")).color(t.text_faint).size(11.5));
         }
-        if egui::DragAndDrop::has_payload_of_type::<DragRow>(ui.ctx()) {
-            let clip = ui.clip_rect();
-            if let Some(p) = ui.input(|i| i.pointer.hover_pos()).filter(|p| clip.contains(*p)) {
-                let delta = if p.y < clip.top() + 22.0 {
-                    8.0
-                } else if p.y > clip.bottom() - 22.0 {
-                    -8.0
-                } else {
-                    0.0
-                };
-                if delta != 0.0 {
-                    ui.scroll_with_delta(vec2(0.0, delta));
-                    ui.ctx().request_repaint();
-                }
-            }
-        }
+        scroll_actions_during_drag(ui);
         let mut shown_set: Option<&str> = None;
         for i in display_order(&rows) {
             let Row { name, steps, disabled, dialogs, set, color: swatch } = &rows[i];
@@ -1162,6 +1147,26 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+fn scroll_actions_during_drag(ui: &mut egui::Ui) {
+    if !egui::DragAndDrop::has_payload_of_type::<DragRow>(ui.ctx()) {
+        return;
+    }
+    let clip = ui.clip_rect();
+    let Some(pointer) = ui.input(|input| input.pointer.hover_pos()).filter(|p| clip.contains(*p)) else { return };
+    let delta = if pointer.y < clip.top() + 22.0 {
+        8.0
+    } else if pointer.y > clip.bottom() - 22.0 {
+        -8.0
+    } else {
+        0.0
+    };
+    if delta == 0.0 {
+        return;
+    }
+    ui.scroll_with_delta(vec2(0.0, delta));
+    ui.ctx().request_repaint();
 }
 
 struct StepRowsContext<'a> {
