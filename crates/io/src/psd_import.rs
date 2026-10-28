@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{
-    AlphaChannel, Document, Effects, FillCache, Group, Layer, LayerContent, LayerMask, ShapeLayer, SmartContentsId, SmartObject, SmartSource, TextLayer,
+    AlphaChannel, Document, Effects, FillCache, Group, Layer, LayerContent, LayerMask, PsdGlobalBlock, ShapeLayer, SmartContentsId, SmartObject, SmartSource,
+    TextLayer,
 };
 use photocraft_geom::{Rect, Size, TILE_SIZE};
 use photocraft_psd::layer::{CHANNEL_REAL_USER_MASK, CHANNEL_TRANSPARENCY, CHANNEL_USER_MASK};
@@ -46,6 +47,8 @@ pub(crate) const REGENERATED: [&[u8; 4]; 9] = [b"luni", b"lyid", b"lsct", b"lsdk
 
 pub(crate) struct Ctx<'a> {
     pub file: &'a PsdFile,
+    /// The file's global blocks, as the document keeps them.
+    pub global: Vec<PsdGlobalBlock>,
     pub fmt: PixelFormat,
     pub mask_fmt: PixelFormat,
     pub cc: usize,
@@ -53,6 +56,9 @@ pub(crate) struct Ctx<'a> {
     pub warnings: Vec<String>,
     /// Decoding encountered damaged PSD data; interactive opens ask whether to continue.
     pub damaged: bool,
+    /// Reading the file's channel data failed (it is read as it is decoded: see
+    /// `PsdFile::from_source`): the open fails with it, rather than leaving layers empty.
+    pub read_error: Option<String>,
     /// Document resolution (type sizes are converted to points with it).
     pub dpi: f32,
     /// The parsed `Txt2` block (type settings EngineData lacks, e.g. optical kerning).
@@ -74,7 +80,33 @@ pub(crate) struct Ctx<'a> {
     pub ctl: photocraft_raster::Interrupt<'a>,
     /// Layer records decoded so far, out of `total` (progress).
     pub done: usize,
+    /// Tiles of one pixel value, shared by every surface the import decodes.
+    pub uniform: photocraft_raster::TileInterner,
     pub total: usize,
+}
+
+/// Bytes of interleaved pixels a band decoded into tiles at once aims at: whole layers up to this
+/// size decode in one band, larger ones in bands of whole tile rows.
+const BAND_BYTES: usize = 32 << 20;
+
+/// Row ranges (`0..h`, relative to a layer whose first row is at document row `top`) to decode a
+/// layer in: each ends on a tile row boundary, so no tile is written by two bands, and holds
+/// about [`BAND_BYTES`] of `row_bytes`-byte rows.
+fn band_rows(top: i32, h: usize, row_bytes: usize) -> Vec<(usize, usize)> {
+    let tile = TILE_SIZE as usize;
+    let rows = (BAND_BYTES / row_bytes.max(1)).max(tile) / tile * tile;
+    // The first band ends at the first tile boundary at least `rows` rows in.
+    let into_tile = usize::try_from(top.rem_euclid(TILE_SIZE)).unwrap_or(0);
+    let mut out = Vec::new();
+    let mut r0 = 0;
+    let mut r1 = rows - into_tile;
+    while r0 < h {
+        let end = r1.min(h);
+        out.push((r0, end));
+        r0 = end;
+        r1 = end + rows;
+    }
+    out
 }
 
 fn doc_mode(m: PsdMode) -> Option<ColorMode> {
@@ -148,6 +180,17 @@ impl Ctx<'_> {
         self.warn(s);
     }
 
+    /// A channel that failed to decode: a failed read of the file is kept to fail the open
+    /// (`true`); damaged data is warned about, its layer left empty (`false`).
+    fn channel_failed(&mut self, name: &str, id: i16, e: &photocraft_psd::PsdError) -> bool {
+        if let photocraft_psd::PsdError::Read(msg) = e {
+            self.read_error.get_or_insert_with(|| format!("layer \"{name}\": {msg}"));
+            return true;
+        }
+        self.warn_unreadable_data(format!("layer \"{name}\": channel {id} could not be decoded ({e}); treated as empty"));
+        false
+    }
+
     /// Source id, transform, (Distort/Perspective) projective placement and warp of a placed
     /// layer that has only a `PlLd` block, as Photoshop CS2 and older write it (#2465). `PlLd`
     /// stores the placed corners but not the source size, which comes from the embedded file.
@@ -168,11 +211,11 @@ impl Ctx<'_> {
                 return Placement::default();
             }
         };
-        let (file, ctl) = (self.file, self.ctl);
+        let (global, ctl) = (&self.global, self.ctl);
         let size = *self
             .plld_sizes
             .entry(id.clone())
-            .or_insert_with(|| crate::linked::source_size_in_blocks(file.global_blocks.iter().map(|b| (&b.key, b.data.as_slice())), &id, &ctl));
+            .or_insert_with(|| crate::linked::source_size_in_blocks(global.iter().map(|(_, k, d)| (k, d.as_slice())), &id, &ctl));
         // Without the source (missing or unreadable), it is taken as placed at 100 %.
         let (transform, perspective) = blocks::plld_transform(&p, size, warp.as_ref());
         Placement { id, transform, perspective, warp }
@@ -181,72 +224,83 @@ impl Ctx<'_> {
     /// Decodes a PSD layer channel, marking the document damaged if its data is unreadable.
     fn channel_plane(&mut self, rec: &LayerRecord, id: i16, name: &str) -> Option<Vec<u8>> {
         rec.channel(id)?;
+        if self.read_error.is_some() {
+            return None;
+        }
         match rec.decode_channel(id, self.file.header.depth, self.file.header.version) {
             Ok(p) => Some(p),
             Err(e) => {
-                self.warn_unreadable_data(format!("layer \"{name}\": channel {id} could not be decoded ({e}); treated as empty"));
+                self.channel_failed(name, id, &e);
                 None
             }
         }
-    }
-
-    /// [`Self::channel_plane`] without the warnings sink, so a layer's channels decode
-    /// concurrently (their RLE rows are the bulk of the open time on full-canvas layers).
-    fn channel_plane_decoded(&self, rec: &LayerRecord, id: i16) -> Option<Vec<u8>> {
-        rec.channel(id)?;
-        rec.decode_channel(id, self.file.header.depth, self.file.header.version).ok()
     }
 
     /// Builds a raster surface from the layer channels, leaving the surface empty if
     /// any present channel fails to decode rather than inventing replacement pixels.
     fn record_surface(&mut self, rec: &LayerRecord, name: &str) -> Surface {
         let r = rec.rect;
-        if r.is_empty() || r.size().is_err() {
+        // Once the file couldn't be read the open fails: nothing more is decoded.
+        if r.is_empty() || r.size().is_err() || self.read_error.is_some() {
             return Surface::new(self.fmt);
         }
         let (w, h) = r.size().unwrap_or((0, 0));
         let s = self.fmt.sample;
+        let (depth, version) = (self.file.header.depth, self.file.header.version);
         let ids: Vec<i16> = (0..self.cc as i16).chain([CHANNEL_TRANSPARENCY]).collect();
-        let planes: Vec<Option<Vec<u8>>> = if cfg!(target_arch = "wasm32") {
-            ids.iter().map(|&id| self.channel_plane(rec, id, name)).collect()
-        } else {
-            // The channels decode independently; their RLE rows are the bulk of the open
-            // time for full-canvas layers, so they run side by side and the warnings land
-            // in the same order afterwards.
-            // par_map reuses the crate's worker pool (one OS thread per channel per layer
-            // would spawn thousands on a file with many layers).
-            let decoded: Vec<Option<Vec<u8>>> = crate::pixels::par_map(ids.to_vec(), |id| self.channel_plane_decoded(rec, id));
-            let mut planes: Vec<Option<Vec<u8>>> = Vec::with_capacity(decoded.len());
-            for (&id, p) in ids.iter().zip(decoded) {
-                if p.is_none() && rec.channel(id).is_some() {
-                    self.warn_unreadable_data(format!("layer \"{name}\": channel {id} could not be decoded; treated as empty"));
-                }
-                planes.push(p);
+        // A decoder per channel present (a ZIP channel is inflated here, the channels side by
+        // side); the rows are then decoded and interleaved a band at a time straight into the
+        // tiles, so no buffer of the whole layer (planes or interleaved) is ever held.
+        // par_map reuses the crate's worker pool (one OS thread per channel per layer would
+        // spawn thousands on a file with many layers).
+        let decoders: Vec<Option<photocraft_psd::Result<photocraft_psd::RowDecoder<'_>>>> =
+            crate::pixels::par_map(ids.to_vec(), |id| rec.channel(id).map(|ch| ch.row_decoder(w, h, depth, version)));
+        let mut failed = false;
+        for (&id, d) in ids.iter().zip(&decoders) {
+            if let Some(Err(e)) = d {
+                self.channel_failed(name, id, e);
+                failed = true;
             }
-            planes
-        };
+        }
         // A channel that is in the file but could not be decoded leaves the layer empty, as the
         // warning says. Filling in for it would paint an opaque black layer over the document.
-        if ids.iter().zip(planes.iter()).any(|(&id, p)| p.is_none() && rec.channel(id).is_some()) {
+        if failed {
             return Surface::new(self.fmt);
         }
         // Only decoded channel data justifies a buffer: the decoders bound their output by the
         // bytes in the file, but a bare rectangle can declare 300000² pixels in a few bytes (#755).
-        if planes.iter().all(Option::is_none) {
+        if decoders.iter().all(Option::is_none) {
             self.warn_unreadable_data(format!("layer \"{name}\": no channel data for its {w}x{h} bounds; treated as empty"));
             return Surface::new(self.fmt);
         }
-        let refs: Vec<Option<&[u8]>> = planes.iter().map(|p| p.as_deref()).collect();
         let mut fill: Vec<Vec<u8>> = vec![zero_sample(s); self.cc];
         fill.push(max_sample(s));
         let mut invert = vec![self.cmyk; self.cc];
         invert.push(false);
-        let mut bytes = interleave(&refs, &fill, w * h, s, &invert);
-        if self.fmt.mode == ColorMode::Lab && s == SampleType::U16 {
-            crate::pixels::lab16_chroma(&mut bytes, self.cc + 1, true);
+        let mut surf = Surface::new(self.fmt);
+        for (b0, b1) in band_rows(r.top, h, w * (self.cc + 1) * s.bytes()) {
+            let planes: Vec<Option<photocraft_psd::Result<Vec<u8>>>> =
+                crate::pixels::par_map(decoders.iter().collect(), |d| d.as_ref().and_then(|d| d.as_ref().ok()).map(|d| d.rows(b0, b1)));
+            let mut refs: Vec<Option<&[u8]>> = Vec::with_capacity(planes.len());
+            for (&id, p) in ids.iter().zip(&planes) {
+                match p {
+                    Some(Err(e)) => {
+                        self.channel_failed(name, id, e);
+                        return Surface::new(self.fmt);
+                    }
+                    Some(Ok(p)) => refs.push(Some(p)),
+                    None => refs.push(None),
+                }
+            }
+            let mut bytes = interleave(&refs, &fill, w * (b1 - b0), s, &invert);
+            if self.fmt.mode == ColorMode::Lab && s == SampleType::U16 {
+                crate::pixels::lab16_chroma(&mut bytes, self.cc + 1, true);
+            }
+            surf.write_interleaved(Rect::new(r.left, r.top + b0 as i32, r.right, r.top + b1 as i32), &bytes);
         }
-        let mut surf = Surface::from_interleaved(self.fmt, Rect::new(r.left, r.top, r.right, r.bottom), &bytes);
         surf.prune();
+        // A white background, a solid fill's cache: one tile per value, shared across layers.
+        surf.share_uniform_tiles(&mut self.uniform);
         surf
     }
 
@@ -270,6 +324,7 @@ impl Ctx<'_> {
             let bytes = interleave(&[Some(&plane)], &[zero_sample(s)], w * h, s, &[false]);
             surface.write_interleaved(Rect::new(rect.left, rect.top, rect.right, rect.bottom), &bytes);
             surface.prune();
+            surface.share_uniform_tiles(&mut self.uniform);
         }
         let params = m.parameters;
         Some(LayerMask {
@@ -430,9 +485,16 @@ impl Ctx<'_> {
                 })
                 .flatten();
             if let Some(mut t) = parsed {
+                let mut path_error = None;
                 if let Some(txt2) = &self.txt2 {
                     photocraft_text::psd::apply_txt2(&mut t, &block.data, txt2);
+                    // Type on a path keeps its path only in its `Txt2` frame (#7962).
+                    path_error = photocraft_text::psd::apply_txt2_path(&mut t, &block.data, txt2).err();
                     photocraft_text::psd::apply_txt2_frame(&mut t, &block.data, txt2);
+                }
+                if let Some(e) = path_error {
+                    let shape = if matches!(t.shape, photocraft_doc::text::TextShape::Box { .. }) { "paragraph" } else { "point" };
+                    self.warn(format!("layer \"{name}\": its type path could not be read ({e}); it opens as {shape} text"));
                 }
                 // Photoshop's pixels stay until edited. Writers without type pixels are
                 // rendered by text_import::prepare instead of retaining an empty cache.
@@ -626,7 +688,9 @@ impl Ctx<'_> {
                     let sd = rec.section_divider();
                     let expanded = sd.is_none_or(|s| s.kind != photocraft_psd::SectionType::ClosedFolder);
                     let artboard = crate::comps_map::ARTBOARD_KEYS.iter().find_map(|k| rec.block(k)).and_then(|b| crate::comps_map::parse_artboard(&b.data));
-                    let mut l = Layer::new(rec.name(), LayerContent::Group(Group { children, expanded, artboard }));
+                    // A Photoshop Frame's stroke: `vstk` on the frame group, in a shape's layout.
+                    let frame_stroke = rec.block(b"vstk").and_then(|b| crate::vector_map::parse_vstk(&b.data, self.dpi)).and_then(|v| v.stroke);
+                    let mut l = Layer::new(rec.name(), LayerContent::Group(Group { children, expanded, artboard, frame_stroke }));
                     l.psd_blocks = preserved_blocks(rec);
                     self.apply_common(&mut l, rec, sd.and_then(|s| s.blend_mode));
                     self.apply_vector_mask(&mut l, rec);
@@ -724,7 +788,7 @@ fn be_to_ne_plane(plane: &[u8], s: SampleType, n: usize) -> Vec<u8> {
     interleave(&[Some(plane)], &[zero_sample(s)], n, s, &[false])
 }
 
-fn unicode_names(data: &[u8]) -> Vec<String> {
+pub(crate) fn unicode_names(data: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     let mut at = 0;
     while at + 4 <= data.len() {
@@ -876,6 +940,69 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
     psd_to_document_decoded(file, ctl, None)
 }
 
+/// Whether `file` stores spot planes the way earlier PhotoCraft versions (releases 0.1.0 to
+/// 0.16.0) wrote them: straight (the maximum = solid ink), the opposite of Photoshop, which
+/// stores 0 = solid ink in every PSD and TIFF it saves. Their files are recognised by three
+/// things together:
+///
+/// - DisplayInfo (1077) marks at least one spot channel;
+/// - there is no Alpha Identifiers resource (1053), or one that lists fewer channels than the
+///   file has ([`photoshop_identified_channels`]). Photoshop has written it, one identifier per
+///   extra channel, in every file with an extra channel since version 6, and PhotoCraft writes it
+///   now. No earlier PhotoCraft wrote one of its own, but each kept the 1053 of a Photoshop file
+///   it opened (a transparent document's `[0]`, for one) and wrote it back unchanged, after the
+///   channels added in it, which it stored straight;
+/// - the version info (1057) is byte for byte what those versions wrote: writer "Adobe Photoshop"
+///   with reader "Adobe Photoshop CS6", both NUL-terminated (0.1.0 to 0.7.0), or reader "Adobe
+///   Photoshop 2026" without a NUL (0.8.2 on), with either merged-data flag.
+///
+/// Any other file is read in Photoshop's polarity. psd-tools' `cmyk-spot.psd`, for one, also has
+/// spots and no 1053, but names psd-tools in 1057 and stores Photoshop's polarity. A Photoshop
+/// file that an earlier PhotoCraft opened and saved again kept Photoshop's 1053 and its planes as
+/// Photoshop stored them, so it is read in Photoshop's polarity too; when channels were added
+/// there, only the planes after the ones the kept 1053 lists are read straight.
+///
+/// Keeping these files' ink is the only reason this exists: deleting it (and its one caller)
+/// reads every file in Photoshop's polarity, at the cost of inverting the spot ink of PSDs saved
+/// by those versions.
+pub(crate) fn earlier_photocraft_spot_planes(file: &PsdFile) -> bool {
+    use photocraft_psd::descriptor::UnicodeString;
+    use photocraft_psd::resources::VersionInfo;
+
+    let marks_spot = file.resource(crate::channel_map::DISPLAY_INFO).is_some_and(|r| crate::channel_map::display_info_marks_spot(&r.data));
+    let identifies_every_channel = match file.header.color_mode.color_channels() {
+        Some(color) => {
+            let channels = file.header.channels.saturating_sub(color).saturating_sub(u16::from(file.merged_has_alpha()));
+            photoshop_identified_channels(file) >= usize::from(channels)
+        }
+        // Multichannel has no fixed number of colour channels to count from.
+        None => file.resource(crate::channel_map::ALPHA_IDENTIFIERS).is_some(),
+    };
+    if !marks_spot || identifies_every_channel {
+        return false;
+    }
+    let Some(r) = file.resource(ids::VERSION_INFO) else { return false };
+    // Byte for byte: a resource with anything after the fields is someone else's.
+    let Ok(v) = VersionInfo::from_bytes(&r.data) else { return false };
+    if v.to_bytes() != r.data {
+        return false;
+    }
+    let writers = [
+        (UnicodeString::new_nul("Adobe Photoshop"), UnicodeString::new_nul("Adobe Photoshop CS6")),
+        (UnicodeString::new("Adobe Photoshop"), UnicodeString::new("Adobe Photoshop 2026")),
+    ];
+    v.version == 1 && v.file_version == 1 && writers.iter().any(|(writer, reader)| v.writer == *writer && v.reader == *reader)
+}
+
+/// How many extra channels, after the merged transparency, the Alpha Identifiers resource (1053)
+/// lists: its identifiers other than 0, which Photoshop gives the merged transparency (first, and
+/// in some files with no transparency plane at all). 0 without a 1053. In a file from an earlier
+/// PhotoCraft ([`earlier_photocraft_spot_planes`]) these are the channels of the Photoshop file
+/// it opened, stored as Photoshop stored them; the channels after them were added there.
+pub(crate) fn photoshop_identified_channels(file: &PsdFile) -> usize {
+    file.resource(crate::channel_map::ALPHA_IDENTIFIERS).map_or(0, |r| r.data.as_chunks::<4>().0.iter().filter(|id| **id != [0; 4]).count())
+}
+
 /// Whether the import reads the merged composite: for a flattened or multichannel file (it *is*
 /// the image), a file without layers, or extra alpha/spot channels behind the colour ones.
 pub(crate) fn merged_needed(file: &PsdFile) -> bool {
@@ -910,6 +1037,38 @@ pub(crate) fn psd_to_document_decoded_integrity(
     ctl: &photocraft_raster::Interrupt,
     decoded: Option<photocraft_psd::Result<Vec<u8>>>,
 ) -> Option<(Document, Vec<String>, bool)> {
+    let global = file.global_blocks.iter().map(|b| (b.signature, b.key, Arc::new(b.data.clone()))).collect();
+    psd_to_document_global(file, ctl, decoded, global).map(|(document, warnings, damaged, _)| (document, warnings, damaged))
+}
+
+/// [`psd_to_document_decoded_integrity`] taking the file: its global blocks move into the
+/// document rather than being copied (an embedded smart object's `lnk2` block can be most of a
+/// file). The file's channel data may still be in its source ([`PsdFile::from_source`]): the
+/// fourth value is a failure to read it, which fails the open (a layer is never left empty
+/// because its file became unreadable while it opened).
+pub(crate) fn psd_to_document_owned(
+    mut file: PsdFile,
+    ctl: &photocraft_raster::Interrupt,
+    decoded: Option<photocraft_psd::Result<Vec<u8>>>,
+) -> Option<(Document, Vec<String>, bool, Option<String>)> {
+    let global = file
+        .global_blocks
+        .iter_mut()
+        .map(|b| {
+            // A layer block is still read by `unreadable_layer_block` (to say why it failed).
+            let data = if matches!(&b.key, b"Lr16" | b"Lr32" | b"Layr") { b.data.clone() } else { std::mem::take(&mut b.data) };
+            (b.signature, b.key, Arc::new(data))
+        })
+        .collect();
+    psd_to_document_global(&file, ctl, decoded, global)
+}
+
+fn psd_to_document_global(
+    file: &PsdFile,
+    ctl: &photocraft_raster::Interrupt,
+    decoded: Option<photocraft_psd::Result<Vec<u8>>>,
+    global: Vec<PsdGlobalBlock>,
+) -> Option<(Document, Vec<String>, bool, Option<String>)> {
     let h = &file.header;
     let mut warnings = Vec::new();
     let mode = doc_mode(h.color_mode).unwrap_or_else(|| {
@@ -965,14 +1124,16 @@ pub(crate) fn psd_to_document_decoded_integrity(
                 doc.clipping_path = Some(photocraft_doc::ClippingPath { name, flatness: 0.0 });
                 doc.metadata.psd_resources.push((r.id, String::from_utf8_lossy(&r.name).into_owned(), Arc::new(r.data.clone())));
             }
+            // Resource 1053 is written afresh with the extra channels on every save, so a kept copy
+            // would be new metadata after each round trip. Multichannel has no such rewrite: the
+            // imported bytes are the channel ids, copied back while they still match.
+            crate::channel_map::ALPHA_IDENTIFIERS if !multichannel => {}
             id if MAPPED_RESOURCES.contains(&id) => {}
             id => doc.metadata.psd_resources.push((id, String::from_utf8_lossy(&r.name).into_owned(), Arc::new(r.data.clone()))),
         }
     }
     crate::guides_map::apply_colors(&mut doc);
-    for b in &file.global_blocks {
-        doc.metadata.psd_global_blocks.push((b.signature, b.key, Arc::new(b.data.clone())));
-    }
+    doc.metadata.psd_global_blocks.extend(global.iter().cloned());
     // A 16/32-bit file whose layer block can't be parsed would otherwise open as a flattened
     // file without a word (#2700). The raw block is kept, but a PSD save writes the document's
     // own layers in its place (see `psd_export`).
@@ -998,14 +1159,16 @@ pub(crate) fn psd_to_document_decoded_integrity(
     let cc = fmt.mode.color_channels();
     let mut cx = Ctx {
         file,
+        global: global.clone(),
         fmt,
         mask_fmt: PixelFormat::new(ColorMode::Grayscale, depth, false),
         cc,
         cmyk: fmt.mode == ColorMode::Cmyk,
         warnings,
         damaged,
+        read_error: None,
         dpi: doc.resolution_dpi,
-        txt2: file.global_blocks.iter().find(|b| &b.key == b"Txt2").and_then(|b| photocraft_text::psd::parse_txt2(&b.data)),
+        txt2: global.iter().find(|(_, k, _)| k == b"Txt2").and_then(|(_, _, d)| photocraft_text::psd::parse_txt2(d)),
         filter_effects: Vec::new(),
         filter_masks: Default::default(),
         unfiltered: Default::default(),
@@ -1014,16 +1177,17 @@ pub(crate) fn psd_to_document_decoded_integrity(
         plld_sizes: Default::default(),
         ctl: *ctl,
         done: 0,
+        uniform: Default::default(),
         total: file.layers().len(),
     };
-    for b in file.global_blocks.iter().filter(|b| matches!(&b.key, b"FEid" | b"FXid")) {
+    for (_, key, data) in cx.global.clone().iter().filter(|(_, k, _)| matches!(k, b"FEid" | b"FXid")) {
         // Smart-filter caches can be large: a cancelled open stops between blocks.
         if ctl.cancelled() {
             return None;
         }
-        match photocraft_psd::filter_effects::FilterEffects::parse(&b.data) {
+        match photocraft_psd::filter_effects::FilterEffects::parse(data) {
             Ok(fx) => cx.filter_effects.extend(fx.items),
-            Err(e) => cx.warn(format!("smart filter masks ({}) could not be read: {e}", b.key_str())),
+            Err(e) => cx.warn(format!("smart filter masks ({}) could not be read: {e}", String::from_utf8_lossy(key))),
         }
     }
     if ctl.cancelled() {
@@ -1197,13 +1361,29 @@ pub(crate) fn psd_to_document_decoded_integrity(
         // Photoshop lists every extra channel, the merged transparency first when there is one.
         let skip = usize::from(file.merged_has_alpha() && names.len() == usize::from(h.channels).saturating_sub(cc));
         let names = names.get(skip..).unwrap_or_default();
+        // Which planes hold spot ink in Photoshop's polarity (0 = solid): the DisplayInfo records
+        // the channel options are read from below, the transparency's first when `skip` is 1.
+        // A file from an earlier PhotoCraft stores them straight and is read as it was written,
+        // past the channels of the Photoshop file it opened, if any.
+        let straight_from = if earlier_photocraft_spot_planes(file) { photoshop_identified_channels(file) } else { usize::MAX };
+        let photoshop_spots = if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO) {
+            crate::channel_map::spot_flags(&r.data, true, skip)
+        } else if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO_OLD) {
+            crate::channel_map::spot_flags(&r.data, false, skip)
+        } else {
+            Vec::new()
+        };
         for (k, idx) in (first..usize::from(h.channels)).enumerate() {
             let Some(p) = merged_plane(all, idx, plane) else {
                 cx.warn_unreadable_data(format!("merged extra channel {idx} is incomplete and was not imported"));
                 break;
             };
+            let mut raw = be_to_ne_plane(p, depth, n);
+            if k < straight_from && photoshop_spots.get(k).copied().unwrap_or(false) {
+                crate::channel_map::photoshop_spot_plane(&mut raw, depth);
+            }
             let mut s = Surface::new(cx.mask_fmt);
-            s.write_interleaved(canvas, &be_to_ne_plane(p, depth, n));
+            s.write_interleaved(canvas, &raw);
             s.prune();
             let name = names.get(k).cloned().unwrap_or_else(|| format!("Alpha {}", k + 1));
             doc.channels.push(AlphaChannel::new(name, s));
@@ -1239,114 +1419,8 @@ pub(crate) fn psd_to_document_decoded_integrity(
         return None;
     }
     ctl.progress(1.0);
-    Some((doc, cx.warnings, cx.damaged))
+    Some((doc, cx.warnings, cx.damaged, cx.read_error))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use photocraft_psd::{Compression, PsdError, Version, testgen};
-
-    /// #5200: the Multichannel fallback checks its RGBA output against the budget before
-    /// allocating it (here a 2x2 image, 16 bytes, against caps of 15 and 16 bytes).
-    #[test]
-    fn flat_fallback_refuses_an_output_over_the_cap() {
-        let file = testgen::merged_only(Version::Psd, PsdMode::Multichannel, 8, Compression::Raw, 2, 2);
-        assert!(file.composite_rgba8().is_err(), "Multichannel goes through the fallback");
-        let merged = file.decode_merged();
-        assert!(matches!(flat_composite(&file, Some(&merged), 15), Err(PsdError::LimitExceeded(_))));
-        let img = flat_composite(&file, Some(&merged), 16).unwrap();
-        assert_eq!(img.data.len(), 16);
-    }
-
-    /// #5200: a composite over the budget is not retried by the fallback (which allocated the
-    /// refused buffer: 14.4 GB for this 60000x60000 Bitmap header).
-    #[test]
-    fn flat_fallback_does_not_retry_an_over_budget_composite() {
-        let mut file = testgen::small(Version::Psb, Compression::Raw);
-        file.header.color_mode = PsdMode::Bitmap;
-        file.header.depth = 1;
-        file.header.channels = 1;
-        file.header.width = 60_000;
-        file.header.height = 60_000;
-        let merged = Ok(vec![0u8; 16]);
-        let cap = photocraft_psd::compression::MAX_DECODED_BYTES;
-        assert!(matches!(flat_composite(&file, Some(&merged), cap), Err(PsdError::LimitExceeded(_))));
-    }
-
-    /// #5202: a hostile name length ends the list instead of overflowing.
-    #[test]
-    fn unicode_names_stop_at_a_hostile_length() {
-        let mut data = 1u32.to_be_bytes().to_vec();
-        data.extend([0, b'A']);
-        data.extend(u32::MAX.to_be_bytes());
-        data.extend([0, b'B']);
-        assert_eq!(unicode_names(&data), ["A"]);
-    }
-
-    /// Verifies an unreadable layer channel sets the structured damage indicator.
-    #[test]
-    fn unreadable_layer_channel_marks_conversion_damaged() {
-        let mut file = testgen::small(Version::Psd, Compression::Raw);
-        let channel = file.layers_mut()[0].channels.iter_mut().find(|c| c.id == 0).unwrap();
-        channel.data.clear();
-        assert!(file.layers()[0].decode_channel(0, file.header.depth, file.header.version).is_err());
-
-        let (_, warnings, damaged) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
-        assert!(damaged);
-        assert!(warnings.iter().any(|w| w.contains("could not be decoded")));
-    }
-
-    /// Verifies an unreadable user-mask channel sets the structured damage indicator.
-    #[test]
-    fn unreadable_mask_channel_marks_conversion_damaged() {
-        let mut file = testgen::small(Version::Psd, Compression::Raw);
-        let channel = file.layers_mut()[0].channels.iter_mut().find(|c| c.id == CHANNEL_USER_MASK).unwrap();
-        channel.data.clear();
-
-        let (_, warnings, damaged) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
-        assert!(damaged);
-        assert!(warnings.iter().any(|w| w.contains("could not be decoded")));
-    }
-
-    /// A layer whose bounds hold pixels but whose colour and transparency channels are missing
-    /// lost its pixel data: the open asks before continuing.
-    #[test]
-    fn layer_bounds_without_channel_data_mark_conversion_damaged() {
-        let mut file = testgen::small(Version::Psd, Compression::Raw);
-        file.layers_mut()[0].channels.retain(|c| c.id == CHANNEL_USER_MASK);
-
-        let (_, warnings, damaged) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
-        assert!(damaged);
-        assert!(warnings.iter().any(|w| w.contains("no channel data")));
-    }
-
-    /// A layer without pixels (an empty layer, or a text or shape layer written without a
-    /// pixel cache) has empty bounds: nothing is missing, so the file is not damaged even when
-    /// it lists no colour or transparency channel.
-    #[test]
-    fn empty_layer_without_channel_data_is_not_damaged() {
-        let mut file = testgen::small(Version::Psd, Compression::Raw);
-        file.layers_mut()[0].channels.retain(|c| c.id == CHANNEL_USER_MASK);
-        file.layers_mut()[0].rect = Default::default();
-
-        let (_, warnings, damaged) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
-        assert!(!damaged, "an empty layer marked the PSD damaged: {warnings:?}");
-    }
-
-    /// Verifies healthy layer channels do not mark the PSD as damaged.
-    #[test]
-    fn valid_layer_channels_keep_conversion_editable() {
-        let file = testgen::small(Version::Psd, Compression::Raw);
-        let (_, warnings, damaged) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
-        assert!(!damaged, "unexpectedly marked good PSD damaged: {warnings:?}");
-    }
-
-    #[test]
-    fn merged_plane_checks_offsets() {
-        let all = [1u8, 2, 3, 4];
-        assert_eq!(merged_plane(&all, 1, 2), Some(&[3u8, 4][..]));
-        assert_eq!(merged_plane(&all, 2, 2), None);
-        assert_eq!(merged_plane(&all, usize::MAX, 2), None);
-    }
-}
+mod tests;
