@@ -731,8 +731,9 @@ pub fn baseline_from_runs(old: Option<&Value>, runs: &[Value], rules: &BaselineR
     }
     let mut scenarios = serde_json::Map::new();
     for (k, st) in &per {
-        // A row that crashed in any run stays failed: no partial aggregate.
-        if failed.contains_key(k) {
+        // A row that crashed in any run stays failed, and one missing from some runs is left
+        // out: no partial aggregate under a full run count.
+        if failed.contains_key(k) || st.len() != runs.len() {
             continue;
         }
         let mut p50: Vec<f64> = st.iter().filter_map(|s| s.p50).collect();
@@ -1390,6 +1391,17 @@ not_measurable = "needs a frame harness"
         assert_eq!(m["failed"]["P1"], json!("bench crashed"));
         assert_eq!(m["scenarios"]["P2"]["p50_ms"], json!(5.0));
         assert!(m["failed"].get("P2").is_none());
+    }
+
+    #[test]
+    fn baseline_from_runs_leaves_out_a_row_missing_from_some_runs() {
+        let mut runs: Vec<Value> = (1..=3).map(|d| run_of(&format!("2026-10-2{d}"), 1.0, &[("P1", 3.0), ("P2", 5.0)])).collect();
+        runs[0]["scenarios"].as_object_mut().unwrap().remove("P1");
+        let b = baseline_from_runs(None, &runs, &rules(3, false)).unwrap();
+        let m = &b["modes"]["full"];
+        assert!(m["scenarios"].get("P1").is_none(), "2 of 3 runs is no baseline: {m}");
+        assert_eq!(m["scenarios"]["P2"]["p50_ms"], json!(5.0));
+        assert_eq!(m["runs"], json!(3));
     }
 
     #[test]
