@@ -1,7 +1,7 @@
-use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel, ToneSpace, curve_map_outputs};
+use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel, LutFormat, LutSource, ToneSpace, curve_map_outputs};
 use photocraft_psd::descriptor::{Descriptor, Id, UnicodeString, Value, VersionedDescriptor};
 
-use super::{BW_KEYS, BW_TINT, clamp_i16, levels_write, put16, q255, rgb_desc};
+use super::{BW_KEYS, BW_TINT, clamp_i16, cube_file_name, levels_write, lut_source_for, psd_lut_format, put16, q255, rgb_desc};
 
 /// The values as big-endian 16-bit words.
 pub(super) fn words(xs: &[u16]) -> Vec<u8> {
@@ -122,28 +122,38 @@ pub(super) fn selective_color(relative: bool, adjustments: &[[f32; 4]; 9]) -> Ve
 }
 
 /// Color Lookup payload, written as an identity cube when there is no usable table.
-pub(super) fn color_lookup(name: &str, lut: Option<&[f32]>, size: u32, dither: bool) -> Vec<u8> {
-    // A lookup without a usable table renders as identity, so it is written as a 2³ identity cube.
+pub(super) fn color_lookup(name: &str, lut: Option<&[f32]>, size: u32, dither: bool, source: Option<&LutSource>) -> Vec<u8> {
+    // A lookup without a usable table (none chosen yet, or a bad size) renders as the
+    // identity, so it is written as a 2³ identity cube rather than dropped.
     let n = size as usize;
     let cube = lut.zip(photocraft_doc::adjust::lut3d_len(size)).and_then(|(table, len)| table.get(..len)).filter(|_| n <= 256);
-    let (file, dither) = match cube {
-        Some(cube) => {
-            (photocraft_cms::lutfile::LutFile { title: String::new(), size: n, data: cube.to_vec(), domain_min: [0.0; 3], domain_max: [1.0; 3] }, dither)
+    // Like Photoshop, embed the LUT file as loaded, in its own format; a table made or
+    // changed in PhotoCraft is written as `.cube`, named to match.
+    let (format, data, name, dither) = match cube {
+        Some(cube) => match lut_source_for(source, cube, n) {
+            Some(src) => (src.format, src.bytes.to_vec(), name.to_string(), dither),
+            None => {
+                let file = photocraft_cms::lutfile::LutFile { title: String::new(), size: n, data: cube.to_vec(), domain_min: [0.0; 3], domain_max: [1.0; 3] };
+                (LutFormat::Cube, photocraft_cms::lutfile::write_cube(&file).into_bytes(), cube_file_name(name), dither)
+            }
+        },
+        _ => {
+            let file = photocraft_cms::lutfile::LutFile { title: String::new(), ..photocraft_cms::lutfile::LutFile::identity(2) };
+            (LutFormat::Cube, photocraft_cms::lutfile::write_cube(&file).into_bytes(), cube_file_name(name), false)
         }
-        _ => (photocraft_cms::lutfile::LutFile { title: String::new(), ..photocraft_cms::lutfile::LutFile::identity(2) }, false),
     };
     let en = |t: &str, val: &str| Value::Enumerated { type_id: Id::new(t), value: Id::new(val) };
     let text = |t: &str| Value::Text(UnicodeString::new_nul(t));
     let d = Descriptor::new("null")
         .with("lookupType", en("colorLookupType", "3DLUT"))
-        .with("NM  ", text(name))
+        .with("NM  ", text(&name))
         .with("Dthr", Value::Boolean(dither))
         .with("profile", Value::RawData(Vec::new()))
-        .with("LUTFormat", en("LUTFormatType", "LUTFormatCUBE"))
+        .with("LUTFormat", en("LUTFormatType", psd_lut_format(format)))
         .with("dataOrder", en("colorLookupOrder", "rgbOrder"))
         .with("tableOrder", en("colorLookupOrder", "bgrOrder"))
-        .with("LUT3DFileData", Value::RawData(photocraft_cms::lutfile::write_cube(&file).into_bytes()))
-        .with("LUT3DFileName", text(name));
+        .with("LUT3DFileData", Value::RawData(data))
+        .with("LUT3DFileName", text(&name));
     let mut v = words(&[1]);
     v.extend_from_slice(&VersionedDescriptor::new(d).to_bytes());
     v

@@ -158,7 +158,8 @@ impl B {
         // Stroke bands: map 0 outside, map 1 inside.
         let (in_w, out_w) = stroke_widths(st);
         if out_w > 0.0 {
-            // Narrow strokes use the chamfer field and wide ones the exact field, as on the CPU (#3646).
+            // Narrow strokes keep the fitted chamfer, wide ones the exact transform (#3646);
+            // the CPU picks the same field by the same width (`stroke_outside_exact`).
             let kind = match (vector_shape, fx::stroke_outside_exact(out_w)) {
                 (true, true) => FieldKind::StrokeOutsideVector,
                 (true, false) => FieldKind::StrokeOutsideVectorChamfer,
