@@ -146,7 +146,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 }
 
 /// The per-tool options of the bar: the brush, mixer, marquee, pencil and view controls.
-fn tool_specific_options(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: Tokens, tool: Tool, b: &mut BrushSettings) {
+/// Brush family options share the same per-tool settings model.
+fn brush_specific_options(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: Tokens, b: &mut BrushSettings) {
     match app.ui.tool {
         Tool::Brush | Tool::Eraser if t.pro => {
             // A Block-mode Eraser has a fixed size, opacity and flow (Photoshop, #2770).
@@ -257,103 +258,119 @@ fn tool_specific_options(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: Tokens, 
             widgets::vline(ui, 22.0);
             widgets::checkbox(ui, &mut b.mixer.sample_all_layers, tl!("Sample All Layers"));
         }
+        _ => {}
+    }
+}
+
+/// Marquee tools: selection mode, feather, anti-alias, style and fixed size.
+fn marquee_options(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    ui.spacing_mut().item_spacing.x = 2.0;
+    for (i, (icon, tip)) in [
+        ("square", tl!("New selection").to_string()),
+        ("plus", crate::i18n::fmt(tl!("Add to selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift"))])),
+        ("minus", crate::i18n::fmt(tl!("Subtract from selection  ({key})"), &[("key", &crate::shortcuts::pretty("Alt"))])),
+        ("squares-subtract", crate::i18n::fmt(tl!("Intersect with selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift+Alt"))])),
+    ]
+    .iter()
+    .enumerate()
+    {
+        if icons::button(ui, icon, 24.0, app.ui.selection_mode == i as u8, tip).clicked() {
+            app.ui.selection_mode = i as u8;
+        }
+    }
+    ui.spacing_mut().item_spacing.x = 8.0;
+    widgets::vline(ui, 22.0);
+    let (units, size) = fixed_size_units(app);
+    let o = &mut app.ui.tool_options;
+    opt_label(ui, tl!("Feather"));
+    widgets::value_field(ui, &mut o.feather, 0.0..=1000.0, "px", 62.0);
+    // Photoshop greys Anti-alias for the Rectangular Marquee (its edges are always hard).
+    ui.add_enabled_ui(app.ui.tool == Tool::EllipseMarquee, |ui| widgets::checkbox(ui, &mut o.anti_alias, tl!("Anti-alias")));
+    widgets::vline(ui, 22.0);
+    // A single row or column has no style or size: Photoshop greys them.
+    let sized = matches!(app.ui.tool, Tool::RectMarquee | Tool::EllipseMarquee);
+    ui.add_enabled_ui(sized, |ui| opt_label(ui, tl!("Style")));
+    let styles = [("normal".to_string(), tl!("Normal")), ("fixedRatio".to_string(), tl!("Fixed Ratio")), ("fixedSize".to_string(), tl!("Fixed Size"))];
+    if ui.add_enabled_ui(sized, |ui| widgets::dropdown(ui, "marquee-style", tl!("Style"), &mut o.marquee_style, &styles, 96.0)).inner {
+        (o.marquee_width, o.marquee_height) = if o.marquee_style == "fixedSize" { (64.0, 64.0) } else { (1.0, 1.0) };
+    }
+    let fixed = sized && o.marquee_style != "normal";
+    let fixed_size = o.marquee_style == "fixedSize";
+    // Fixed Size shows its pixels in the unit picked by right-clicking Width or Height (#7910).
+    let units = widgets::FieldUnits { unit: photocraft_engine::prefs::Unit::parse(&o.marquee_unit).unwrap_or_default(), ..units };
+    ui.add_enabled_ui(fixed, |ui| {
+        let mut picked = None;
+        opt_label(ui, tl!("Width"));
+        if fixed_size {
+            picked = fixed_size_field(ui, &mut o.marquee_width, units, size[0]);
+        } else {
+            widgets::value_field(ui, &mut o.marquee_width, crate::tool_memory::style_range(&o.marquee_style), "", 62.0);
+        }
+        if icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked() {
+            std::mem::swap(&mut o.marquee_width, &mut o.marquee_height);
+        }
+        opt_label(ui, tl!("Height"));
+        if fixed_size {
+            picked = fixed_size_field(ui, &mut o.marquee_height, units, size[1]).or(picked);
+        } else {
+            widgets::value_field(ui, &mut o.marquee_height, crate::tool_memory::style_range(&o.marquee_style), "", 62.0);
+        }
+        if let Some(name) = picked {
+            o.marquee_unit = name.into();
+        }
+    });
+    widgets::vline(ui, 22.0);
+    select_and_mask_button(app, ui);
+}
+
+/// Lasso family: selection mode, feather, anti-alias, magnetic settings and the drawing hints.
+fn lasso_options(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    selection_mode_buttons(app, ui);
+    widgets::vline(ui, 22.0);
+    opt_label(ui, tl!("Feather"));
+    widgets::value_field(ui, &mut app.ui.tool_options.feather, 0.0..=1000.0, "px", 62.0);
+    widgets::checkbox(ui, &mut app.ui.tool_options.anti_alias, tl!("Anti-alias"));
+    widgets::vline(ui, 22.0);
+    if app.ui.tool == Tool::MagneticLasso {
+        let o = &mut app.ui.tool_options;
+        opt_label(ui, tl!("Width"));
+        widgets::value_field(ui, &mut o.magnetic_width, 1.0..=256.0, "px", 58.0)
+            .on_hover_text(tl!("Follows only edges this close to the pointer ([ and ] change it)"));
+        opt_label(ui, tl!("Contrast"));
+        widgets::value_field(ui, &mut o.magnetic_contrast, 1.0..=100.0, "%", 58.0)
+            .on_hover_text(tl!("Higher values follow only edges that contrast sharply with their surroundings"));
+        opt_label(ui, tl!("Frequency"));
+        widgets::value_field(ui, &mut o.magnetic_frequency, 0.0..=100.0, "", 50.0).on_hover_text(tl!("How often fastening points are placed by themselves"));
+        if icons::button(ui, "circle-dot", 24.0, o.magnetic_pressure, tl!("Use tablet pressure to change pen width")).clicked() {
+            o.magnetic_pressure = !o.magnetic_pressure;
+        }
+        widgets::vline(ui, 22.0);
+    }
+    select_and_mask_button(app, ui);
+    if crate::lasso_ui::active(app) || (app.ui.tool == Tool::PolygonLasso && !app.ui.polygon.is_empty()) {
+        hint(ui, &crate::i18n::fmt(tl!("Click the first point or press {key} to close · Esc cancels"), &[("key", &crate::shortcuts::pretty("Enter"))]));
+    } else if app.ui.tool == Tool::Lasso {
+        hint(ui, tl!("Hold Alt while drawing for straight segments"));
+    }
+    if app.ui.tool == Tool::MagneticLasso && app.ui.magnetic.active() {
+        hint(
+            ui,
+            &crate::i18n::fmt(
+                tl!("Click the first point or press {key} to close · {del} removes a point · Esc cancels"),
+                &[("key", &crate::shortcuts::pretty("Enter")), ("del", &crate::shortcuts::pretty("Backspace"))],
+            ),
+        );
+    }
+}
+
+/// Selection and paint tools expose their controls as a family of options rows.
+fn selection_specific_options(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) {
+    match app.ui.tool {
         Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee => {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            for (i, (icon, tip)) in [
-                ("square", tl!("New selection").to_string()),
-                ("plus", crate::i18n::fmt(tl!("Add to selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift"))])),
-                ("minus", crate::i18n::fmt(tl!("Subtract from selection  ({key})"), &[("key", &crate::shortcuts::pretty("Alt"))])),
-                ("squares-subtract", crate::i18n::fmt(tl!("Intersect with selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift+Alt"))])),
-            ]
-            .iter()
-            .enumerate()
-            {
-                if icons::button(ui, icon, 24.0, app.ui.selection_mode == i as u8, tip).clicked() {
-                    app.ui.selection_mode = i as u8;
-                }
-            }
-            ui.spacing_mut().item_spacing.x = 8.0;
-            widgets::vline(ui, 22.0);
-            let (units, size) = fixed_size_units(app);
-            let o = &mut app.ui.tool_options;
-            opt_label(ui, tl!("Feather"));
-            widgets::value_field(ui, &mut o.feather, 0.0..=1000.0, "px", 62.0);
-            // Photoshop greys Anti-alias for the Rectangular Marquee (its edges are always hard).
-            ui.add_enabled_ui(app.ui.tool == Tool::EllipseMarquee, |ui| widgets::checkbox(ui, &mut o.anti_alias, tl!("Anti-alias")));
-            widgets::vline(ui, 22.0);
-            // A single row or column has no style or size: Photoshop greys them.
-            let sized = matches!(app.ui.tool, Tool::RectMarquee | Tool::EllipseMarquee);
-            ui.add_enabled_ui(sized, |ui| opt_label(ui, tl!("Style")));
-            let styles = [("normal".to_string(), tl!("Normal")), ("fixedRatio".to_string(), tl!("Fixed Ratio")), ("fixedSize".to_string(), tl!("Fixed Size"))];
-            if ui.add_enabled_ui(sized, |ui| widgets::dropdown(ui, "marquee-style", tl!("Style"), &mut o.marquee_style, &styles, 96.0)).inner {
-                (o.marquee_width, o.marquee_height) = if o.marquee_style == "fixedSize" { (64.0, 64.0) } else { (1.0, 1.0) };
-            }
-            let fixed = sized && o.marquee_style != "normal";
-            let fixed_size = o.marquee_style == "fixedSize";
-            // Fixed Size shows its pixels in the unit picked by right-clicking Width or Height (#7910).
-            let units = widgets::FieldUnits { unit: photocraft_engine::prefs::Unit::parse(&o.marquee_unit).unwrap_or_default(), ..units };
-            ui.add_enabled_ui(fixed, |ui| {
-                let mut picked = None;
-                opt_label(ui, tl!("Width"));
-                if fixed_size {
-                    picked = fixed_size_field(ui, &mut o.marquee_width, units, size[0]);
-                } else {
-                    widgets::value_field(ui, &mut o.marquee_width, crate::tool_memory::style_range(&o.marquee_style), "", 62.0);
-                }
-                if icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked() {
-                    std::mem::swap(&mut o.marquee_width, &mut o.marquee_height);
-                }
-                opt_label(ui, tl!("Height"));
-                if fixed_size {
-                    picked = fixed_size_field(ui, &mut o.marquee_height, units, size[1]).or(picked);
-                } else {
-                    widgets::value_field(ui, &mut o.marquee_height, crate::tool_memory::style_range(&o.marquee_style), "", 62.0);
-                }
-                if let Some(name) = picked {
-                    o.marquee_unit = name.into();
-                }
-            });
-            widgets::vline(ui, 22.0);
-            select_and_mask_button(app, ui);
+            marquee_options(app, ui);
         }
         Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso => {
-            selection_mode_buttons(app, ui);
-            widgets::vline(ui, 22.0);
-            opt_label(ui, tl!("Feather"));
-            widgets::value_field(ui, &mut app.ui.tool_options.feather, 0.0..=1000.0, "px", 62.0);
-            widgets::checkbox(ui, &mut app.ui.tool_options.anti_alias, tl!("Anti-alias"));
-            widgets::vline(ui, 22.0);
-            if app.ui.tool == Tool::MagneticLasso {
-                let o = &mut app.ui.tool_options;
-                opt_label(ui, tl!("Width"));
-                widgets::value_field(ui, &mut o.magnetic_width, 1.0..=256.0, "px", 58.0)
-                    .on_hover_text(tl!("Follows only edges this close to the pointer ([ and ] change it)"));
-                opt_label(ui, tl!("Contrast"));
-                widgets::value_field(ui, &mut o.magnetic_contrast, 1.0..=100.0, "%", 58.0)
-                    .on_hover_text(tl!("Higher values follow only edges that contrast sharply with their surroundings"));
-                opt_label(ui, tl!("Frequency"));
-                widgets::value_field(ui, &mut o.magnetic_frequency, 0.0..=100.0, "", 50.0)
-                    .on_hover_text(tl!("How often fastening points are placed by themselves"));
-                if icons::button(ui, "circle-dot", 24.0, o.magnetic_pressure, tl!("Use tablet pressure to change pen width")).clicked() {
-                    o.magnetic_pressure = !o.magnetic_pressure;
-                }
-                widgets::vline(ui, 22.0);
-            }
-            select_and_mask_button(app, ui);
-            if crate::lasso_ui::active(app) || (app.ui.tool == Tool::PolygonLasso && !app.ui.polygon.is_empty()) {
-                hint(ui, &crate::i18n::fmt(tl!("Click the first point or press {key} to close · Esc cancels"), &[("key", &crate::shortcuts::pretty("Enter"))]));
-            } else if app.ui.tool == Tool::Lasso {
-                hint(ui, tl!("Hold Alt while drawing for straight segments"));
-            }
-            if app.ui.tool == Tool::MagneticLasso && app.ui.magnetic.active() {
-                hint(
-                    ui,
-                    &crate::i18n::fmt(
-                        tl!("Click the first point or press {key} to close · {del} removes a point · Esc cancels"),
-                        &[("key", &crate::shortcuts::pretty("Enter")), ("del", &crate::shortcuts::pretty("Backspace"))],
-                    ),
-                );
-            }
+            lasso_options(app, ui);
         }
         Tool::MagicWand => {
             selection_mode_buttons(app, ui);
@@ -528,6 +545,42 @@ fn tool_specific_options(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: Tokens, 
         }
         // Every theme gets the font, style and size controls (#1387), as with Auto-Select (#1275).
         Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask => crate::type_tool::options_bar(app, ui),
+        _ => {}
+    }
+}
+
+fn is_selection_options_tool(tool: Tool) -> bool {
+    matches!(
+        tool,
+        Tool::RectMarquee
+            | Tool::EllipseMarquee
+            | Tool::SingleRowMarquee
+            | Tool::SingleColumnMarquee
+            | Tool::Lasso
+            | Tool::PolygonLasso
+            | Tool::MagneticLasso
+            | Tool::MagicWand
+            | Tool::PaintBucket
+            | Tool::Gradient
+            | Tool::PerspectiveCrop
+            | Tool::Crop
+            | Tool::Type
+            | Tool::VerticalType
+            | Tool::HorizontalTypeMask
+            | Tool::VerticalTypeMask
+    )
+}
+
+fn tool_specific_options(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: Tokens, tool: Tool, b: &mut BrushSettings) {
+    if matches!(app.ui.tool, Tool::Brush | Tool::Eraser | Tool::Pencil | Tool::MixerBrush) {
+        brush_specific_options(app, ui, t, b);
+        return;
+    }
+    if is_selection_options_tool(app.ui.tool) {
+        selection_specific_options(app, ui, tool);
+        return;
+    }
+    match app.ui.tool {
         Tool::Move => {
             let o = &mut app.ui.tool_options;
             widgets::checkbox(ui, &mut o.move_auto_select, tl!("Auto-Select:"));
