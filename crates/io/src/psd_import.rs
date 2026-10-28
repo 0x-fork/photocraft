@@ -1110,6 +1110,9 @@ fn read_initial_metadata(file: &PsdFile, global: &[PsdGlobalBlock], doc: &mut Do
     }
     crate::guides_map::apply_colors(doc);
     doc.metadata.psd_global_blocks.extend(global.iter().cloned());
+    // A 16/32-bit file whose layer block can't be parsed would otherwise open as a flattened
+    // file without a word (#2700). The raw block is kept, but a PSD save writes the document's
+    // own layers in its place (see `psd_export`).
     let mut damaged = false;
     if let Some((block, error)) = file.unreadable_layer_block() {
         damaged = true;

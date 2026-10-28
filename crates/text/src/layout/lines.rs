@@ -380,6 +380,9 @@ impl Para<'_> {
         // its descenders hang below the bottom edge (#1317: three 35 pt lines in a
         // 91.3 pt box, the last baseline at 88). Requiring the descent to fit dropped
         // that line.
+        // Photoshop keeps a horizontal line whose baseline is inside the box and lets its
+        // descenders hang below the bottom edge (#1317: three 35 pt lines in a 91.3 pt box, the
+        // last baseline at 88). Requiring the descent to fit dropped that line.
         let overflow = if env.vertical { baseline + descent > -box_x + 0.5 } else { baseline > box_y + box_h + 0.5 };
         if env.is_box && overflow {
             return None;

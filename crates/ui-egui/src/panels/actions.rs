@@ -865,6 +865,7 @@ fn action_context_menu(app: &mut PhotocraftApp, response: &egui::Response, index
     egui::Popup::context_menu(response).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         ui.label(tl!("Keyboard Shortcuts"));
         let current = app.session.prefs().shortcuts.get(&shortcut_id(name)).cloned().unwrap_or_default();
+        // Photoshop's Action Options: a function key, with Shift and Command (#7646).
         let (key, mut shift, mut command) = photocraft_engine::atn_cmds::parse_function_key(&current).unwrap_or((0, false, false));
         for number in std::iter::once(0).chain(1..=12) {
             let label = if number == 0 { tl!("None").to_string() } else { format!("F{number}") };

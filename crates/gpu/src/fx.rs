@@ -363,6 +363,8 @@ fn satin_program(b: &mut B, s: &photocraft_doc::Satin) -> usize {
 fn stroke_program(b: &mut B, st: &photocraft_doc::StrokeFx, vector_shape: bool) -> usize {
     let (in_w, out_w) = stroke_widths(st);
     if out_w > 0.0 {
+        // Narrow strokes keep the fitted chamfer, wide ones the exact transform (#3646);
+        // the CPU picks the same field by the same width (`stroke_outside_exact`).
         let kind = match (vector_shape, photocraft_compose::effects::stroke_outside_exact(out_w)) {
             (true, true) => FieldKind::StrokeOutsideVector,
             (true, false) => FieldKind::StrokeOutsideVectorChamfer,

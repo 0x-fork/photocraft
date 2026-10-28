@@ -184,6 +184,8 @@ fn invoke_shell_commands(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str,
 
 fn invoke_file_commands(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Result<Option<Value>, String> {
     let result = match id {
+        // ⌘↩ / Ctrl+Enter (#306): load the path selected in the Paths panel (or the one being
+        // drawn) as a selection.
         "path.toSelection" if params.get("name").is_none() => crate::vector_ui::path_to_selection(app, params.clone()),
         // Layer › Rename Layer from a menu starts in-place renaming in the Layers panel.
         "layer.renameLayer" if params.get("name").is_none() => {
@@ -468,6 +470,7 @@ fn invoke_export_command(app: &mut PhotocraftApp, id: &str, params: &Value) -> R
         layer if matches!(layer, "layer.exportAs" | "layer.quickExportAsPng") && params.as_object().is_none_or(|object| object.is_empty()) => {
             let selected = app.session.active().and_then(|document| document.active_layer).ok_or("no active layer")?;
             if layer == "layer.exportAs" {
+                // Several layers (artboards, say) selected: one file each (#3629).
                 let layers = app.session.active().map(|document| document.selected_layers()).unwrap_or_default();
                 if layers.len() > 1 {
                     Some(Ok(json!({"dialog": crate::export_dialog::open_layers(app, &layers)?})))
@@ -519,6 +522,7 @@ fn invoke_type_command(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p
             }
             Ok(Value::Null)
         })()),
+        // While editing type, the clipboard rows and Select > All work on the text (#1355, #2893).
         "edit.cut" if app.ui.text_edit.is_some() => {
             crate::type_tool::cut_selection(app, ctx);
             Some(Ok(Value::Null))
@@ -690,6 +694,8 @@ fn invoke_window_command(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str)
 
 fn toggle_panels(app: &mut PhotocraftApp) -> Result<Value, String> {
     if app.ui.view.hides_chrome() {
+        // Full Screen Mode: Tab only shows or hides the chrome for now (#6760); the panels'
+        // own state, `hidden_by_tab` included, stays as it was before entering.
         app.ui.panels.full_screen_chrome = !app.ui.panels.full_screen_chrome;
         return Ok(Value::Null);
     }
@@ -709,6 +715,7 @@ fn toggle_panels(app: &mut PhotocraftApp) -> Result<Value, String> {
 
 fn toggle_panel(app: &mut PhotocraftApp, id: &str) -> Result<Value, String> {
     let key = &id["window.toggle.".len()..];
+    // A shown but collapsed dock group is expanded rather than hidden (#129).
     if let Some(group) = crate::dock::Group::from_key(key).filter(|group| group.shown(&app.ui.panels) && app.ui.dock.is_collapsed(*group)) {
         crate::dock::reveal(app, group);
         return Ok(Value::Null);

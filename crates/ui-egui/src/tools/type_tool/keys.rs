@@ -248,6 +248,8 @@ fn handle_pressed_key(
         Key::Enter if modifiers.command => commit_with(app, *modifiers),
         Key::Enter => insert(app, "\n"),
         Key::Tab if !modifiers.command && !modifiers.alt && !modifiers.shift => {
+            // egui queues focus navigation before this handler runs; consuming the
+            // key alone would let the menu bar take focus after the first tab (#8889).
             ctx.memory_mut(|memory| memory.move_focus(egui::FocusDirection::None));
             insert(app, "\t");
         }

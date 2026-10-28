@@ -3,8 +3,10 @@ use photocraft_psd::{PsdFile, Version, file::LayerInfoPlacement};
 
 /// The signature a kept tagged block is written with. `8B64` exists only in PSB files: a PSD
 /// with an `8B64` block (kept from a PSB source, e.g. its global `FMsk` or `cinf`) is refused by
-/// Photoshop as "not compatible with this version". The other way round, a PSB block with an
-/// 8-byte length is `8B64`, as Photoshop writes it.
+/// Photoshop as "not compatible with this version" (measured in Photoshop 27.11). The other way
+/// round, a PSB block with an 8-byte length is `8B64`, as Photoshop writes it: an `8BIM` `lnk2`,
+/// `pths` or `cinf` (kept from a PSD source, whose lengths the PSB widens) makes Photoshop read
+/// the length as 4 bytes and refuse the whole file (#7937).
 pub(crate) fn block_signature(sig: [u8; 4], key: [u8; 4], version: Version) -> [u8; 4] {
     match version {
         Version::Psd if sig == *b"8B64" => *b"8BIM",
@@ -26,7 +28,9 @@ pub(crate) fn psd_version(doc: &Document, force_psb: bool) -> Version {
     if force_psb || exceeds_dimensions { Version::Psb } else { Version::Psd }
 }
 
-/// Promote files that exceed the PSD limit, accounting for the preview appended by the save.
+/// Promote files that exceed the PSD limit, accounting for the preview appended by the save
+/// (#212, #5285). The decision is made on the exact length of the file as it will be written,
+/// not on the raw pixel size: RLE usually packs the channels far below it.
 pub(crate) fn fit_psd_size(file: &mut PsdFile, limit: u64) -> Option<String> {
     if file.written_version() == Version::Psb {
         return None;

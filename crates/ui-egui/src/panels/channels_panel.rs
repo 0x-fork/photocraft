@@ -118,6 +118,8 @@ fn handle_channel_row_click(ui: &egui::Ui, row: &mut RowInteractions<'_>) {
 }
 
 fn handle_channel_row_double_click(ui: &mut egui::Ui, row: &mut RowInteractions<'_>, rename_id: egui::Id) {
+    // Like Photoshop: double-clicking the thumbnail opens Channel Options (where an alpha
+    // channel becomes a spot channel, #3761), double-clicking the name renames it.
     let on_thumb = row.response.interact_pointer_pos().is_some_and(|p| p.x < row.cell.right() + 4.0);
     match row.row {
         Row::QuickMask if row.response.double_clicked() => row.actions.push(("ui.channelOptions".into(), json!("quickMask"))),
