@@ -519,7 +519,7 @@ pub(super) fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     if present && app.perf.gpu_layer_fit.is_none_or(|f| f.doc != id.0) {
         gpu_budget(app, &gpu, idx, false, visible);
         let fit = gpu.measure_fit(&doc).unwrap_or(crate::gpu_canvas::LayerFit { doc: id.0, needed: 0, budget: 0 });
-        app.perf.gpu_layer_fit = Some(fit);
+        crate::render_path::layer_fit(app, fit);
     }
     if present && current {
         // An adjustment preview composited where the view was: catch up where it moved to.
@@ -614,7 +614,7 @@ fn gpu_budget(app: &mut PhotocraftApp, gpu: &crate::gpu_canvas::GpuCanvas, idx: 
     app.perf.gpu_budget_mb = budget >> 20;
     app.perf.gpu_budget_allowance = allowance;
     if changed && let Some(fit) = gpu.measure_fit(&st.doc) {
-        app.perf.gpu_layer_fit = Some(fit);
+        crate::render_path::layer_fit(app, fit);
     }
 }
 

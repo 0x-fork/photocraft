@@ -336,7 +336,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             if gpu_ok {
                 crate::render_path::view_ok(app, doc.id.0);
             } else {
-                crate::render_path::note(app, doc.id.0, crate::render_path::Path::Cpu(crate::render_path::CpuReason::ViewTransform));
+                crate::render_path::view_cpu(app, doc.id.0);
             }
         }
         if app.gpu.is_some()

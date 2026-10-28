@@ -396,6 +396,33 @@ mod tests {
         assert!(tip.contains("Advanced Blending"), "{tip}");
     }
 
+    /// GPU Memory raised in Preferences: once the layers are measured to fit, GPU Memory Full
+    /// clears at once, not at the next full refresh.
+    #[test]
+    fn gpu_memory_full_clears_when_the_budget_is_raised() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut h = Harness::builder().with_size(vec2(1200.0, 700.0)).with_max_steps(64).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, crate::theme::ThemeKind::Pro);
+            PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
+        });
+        h.state_mut().run("file.new", json!({"width": 800, "height": 600})).unwrap();
+        h.state_mut().sync_views();
+        h.run_steps(4);
+        let doc = h.state().session.active().unwrap().doc.id.0;
+        let over = crate::gpu_canvas::LayerFit { doc, needed: 3 << 30, budget: 2 << 30 };
+        h.state_mut().perf.gpu_layer_fit = Some(over);
+        let reason = CpuReason::OverBudget { needed: over.needed, budget: over.budget };
+        crate::render_path::note(h.state_mut(), doc, crate::render_path::Path::Cpu(reason));
+        h.run_steps(2);
+        assert!(h.query_by_label("GPU Memory Full").is_some());
+        // What `gpu_budget` measures after the change of GPU Memory.
+        crate::render_path::layer_fit(h.state_mut(), crate::gpu_canvas::LayerFit { budget: 4 << 30, ..over });
+        h.run_steps(2);
+        assert!(h.query_by_label("GPU Memory Full").is_none());
+        assert!(h.query_by_label("CPU Rendering").is_none());
+        assert!(h.state().perf.gpu_fallback.is_none());
+    }
+
     #[test]
     fn status_bar_updates_dimensions_after_a_ruler_preference_change() {
         use egui_kittest::{Harness, kittest::Queryable};

@@ -4,13 +4,14 @@
 //! channel (`perf.renderPath`). `perf.gpuFallback` mirrors the active document's reason as text
 //! ([`sync_perf`]).
 //!
-//! Three slots, each written only by its own events: the canvas's reason per document ([`note`]),
-//! a reason for the whole window ([`note_app`]) and an adjustment dialog's CPU proxy preview
-//! ([`adjust_preview_cpu`] / [`adjust_preview_ok`]). [`RenderPath::current`] reads them in that
-//! order of precedence: the window, then the canvas, then the preview. A software adapter is the
-//! exception: it still runs the GPU canvas, so the canvas's and the preview's reasons come first.
+//! Four slots, each written only by its own events: the canvas's reason per document ([`note`]),
+//! a flipped or pixel-aspect-corrected view per document ([`view_cpu`] / [`view_ok`]), a reason
+//! for the whole window ([`note_app`]) and an adjustment dialog's CPU proxy preview
+//! ([`adjust_preview_cpu`] / [`adjust_preview_ok`]). [`RenderPath::current`] reads them in order
+//! of precedence: the window, then the view, then the canvas, then the preview. A software adapter
+//! is the exception: it still runs the GPU canvas, so the document's own reasons come first.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 
 use serde_json::{Value, json};
@@ -19,6 +20,8 @@ use crate::PhotocraftApp;
 
 /// Changes the history keeps.
 pub const HISTORY: usize = 32;
+
+static VIEW_TRANSFORM: CpuReason = CpuReason::ViewTransform;
 
 /// Why a view is drawn by the CPU compositor or on the CPU canvas.
 #[derive(Clone, Debug, PartialEq)]
@@ -119,6 +122,8 @@ pub struct Change {
 #[derive(Clone, Debug, Default)]
 pub struct RenderPath {
     docs: HashMap<u64, CpuReason>,
+    /// Documents in a flipped or pixel-aspect-corrected view ([`CpuReason::ViewTransform`]).
+    views: HashSet<u64>,
     /// A reason for every document: the GPU canvas was dropped, or never started.
     app_wide: Option<CpuReason>,
     /// The open adjustment dialog's CPU proxy preview: (doc, [`CpuReason::AdjustPreview`]). Only
@@ -133,10 +138,13 @@ pub struct RenderPath {
 
 impl RenderPath {
     /// Why document `doc` is drawn on the CPU now, or None on the GPU: the window's reason, else
-    /// the canvas's, else the adjustment preview's. A software adapter still runs the GPU canvas,
-    /// so a document that left even that names its own reason first.
+    /// the view's, else the canvas's, else the adjustment preview's. A software adapter still runs
+    /// the GPU canvas, so a document that left even that names its own reason first.
     pub fn current(&self, doc: u64) -> Option<&CpuReason> {
-        let own = || self.docs.get(&doc).or_else(|| self.preview.as_ref().filter(|(d, _)| *d == doc).map(|(_, r)| r));
+        let own = || {
+            let view = self.views.contains(&doc).then_some(&VIEW_TRANSFORM);
+            view.or_else(|| self.docs.get(&doc)).or_else(|| self.preview.as_ref().filter(|(d, _)| *d == doc).map(|(_, r)| r))
+        };
         match &self.app_wide {
             Some(CpuReason::SoftwareAdapter) => own().or(self.app_wide.as_ref()),
             Some(r) => Some(r),
@@ -207,10 +215,38 @@ pub fn note_app(app: &mut PhotocraftApp, reason: Option<CpuReason>) {
     }
 }
 
-/// A view that may draw on the GPU again: end a [`CpuReason::ViewTransform`] reason.
+/// A flipped or pixel-aspect-corrected view of document `doc` draws through the CPU path. It
+/// has its own slot, so the canvas's reason (Advanced Blending…) is still there once the view
+/// draws on the GPU again.
+pub fn view_cpu(app: &mut PhotocraftApp, doc: u64) {
+    if app.render_path.views.insert(doc) {
+        view_changed(app, doc, Some(CpuReason::ViewTransform));
+    }
+}
+
+/// A view that may draw on the GPU again: end its [`CpuReason::ViewTransform`] reason.
 pub fn view_ok(app: &mut PhotocraftApp, doc: u64) {
-    if app.render_path.docs.get(&doc) == Some(&CpuReason::ViewTransform) {
-        note(app, doc, Path::Gpu { full: true });
+    if app.render_path.views.remove(&doc) {
+        let reason = app.render_path.docs.get(&doc).cloned();
+        view_changed(app, doc, reason);
+    }
+}
+
+/// Log and keep the document's reason after a change of its view slot: the canvas's own reason
+/// when the view ended, so the log doesn't say "back on the GPU" while that one still applies.
+fn view_changed(app: &mut PhotocraftApp, doc: u64, reason: Option<CpuReason>) {
+    sync_perf(app);
+    log_change(&doc_name(app, doc), reason.as_ref());
+    app.render_path.push(doc, reason, false);
+}
+
+/// GPU Memory, Memory Usage or a switch of document measured whether `fit`'s layers fit the GPU
+/// memory budget. When they fit, its [`CpuReason::OverBudget`] reason ends at once: the next full
+/// refresh is on the GPU, and GPU Memory Full mustn't keep showing the old numbers until then.
+pub fn layer_fit(app: &mut PhotocraftApp, fit: crate::gpu_canvas::LayerFit) {
+    app.perf.gpu_layer_fit = Some(fit);
+    if fit.fits() && matches!(app.render_path.docs.get(&fit.doc), Some(CpuReason::OverBudget { .. })) {
+        note(app, fit.doc, Path::Gpu { full: true });
     }
 }
 
@@ -383,6 +419,24 @@ mod tests {
         frame(&mut app);
         assert_eq!(app.perf.gpu_fallback, Some(CpuReason::ViewTransform.to_string()), "after the switch");
         assert_eq!(app.perf.gpu_fallback, current_detail(&app));
+    }
+
+    /// A flipped view has its own slot: unflipped, the document's reason (Advanced Blending) is
+    /// back, and the history doesn't say it returned to the GPU.
+    #[test]
+    fn unflipping_a_view_restores_the_documents_reason() {
+        let (mut app, d) = app_with_doc();
+        let blending = CpuReason::Unsupported("Advanced Blending on `A`".into());
+        note(&mut app, d, Path::Cpu(blending.clone()));
+        view_cpu(&mut app, d);
+        view_cpu(&mut app, d);
+        assert_eq!(app.render_path.current(d), Some(&CpuReason::ViewTransform));
+        view_ok(&mut app, d);
+        view_ok(&mut app, d);
+        assert_eq!(app.render_path.current(d), Some(&blending));
+        assert_eq!(app.perf.gpu_fallback, Some(blending.to_string()));
+        let reasons: Vec<_> = app.render_path.history().map(|c| c.reason.clone()).collect();
+        assert_eq!(reasons, [Some(blending.clone()), Some(CpuReason::ViewTransform), Some(blending)]);
     }
 
     #[test]
