@@ -303,9 +303,6 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     if let Some(result) = invoke_view_command(app, ctx, id, &params) {
         return result;
     }
-    if let Some(result) = invoke_view_command(app, ctx, id, &params) {
-        return result;
-    }
     match id {
         "edit.search" => {
             app.ui.palette_open = !app.ui.palette_open;
