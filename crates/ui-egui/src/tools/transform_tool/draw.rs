@@ -3,7 +3,10 @@ use super::drag_modes::{HandleIndicator, handle_indicator};
 use super::options_bar::{quad_scale, readout};
 use super::pointer::{Hit, handle_at, rotate_dir, rotation_degrees};
 use super::warp::{on_section_edge, quick_split_kind, single_patch};
-use super::*;
+use super::{
+    BezierMesh, Color32, DocId, HANDLE_PX, Homography, LayerId, PhotocraftApp, Pos2, SplitTool, Stroke, TransformPreview, TransformSession, ViewXform, Warp,
+    WarpDrag, WarpStyle, corners, pos2, vec2,
+};
 
 /// The distort or skew pointer at screen point `at`, where [`super::cursor`] hid the system
 /// pointer over a handle. The canvas calls it from its cursor branch, so nothing is drawn where a

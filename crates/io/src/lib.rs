@@ -404,7 +404,7 @@ fn import_psd(
     // The file became unreadable while its layers were read from it (`import_file_for_open_with`):
     // the open fails, rather than opening with those layers empty.
     if let Some(e) = read_error {
-        return Err(IoError::Read(e));
+        return Err(IoError::Read(e.to_string()));
     }
     *damaged = psd_damaged;
     document.name = name.to_string();

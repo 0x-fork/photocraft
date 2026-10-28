@@ -1,5 +1,5 @@
 use super::pointer::{Gesture, Hit, carry_pivot};
-use super::*;
+use super::{Homography, LayerContent, LayerId, PhotocraftApp, TransformMode, TransformSession};
 
 /// The same effective modifiers drive the geometry and decide whether Ctrl is a distortion
 /// gesture rather than the ordinary snap override. Keep type and Content-Aware Scale refusals.

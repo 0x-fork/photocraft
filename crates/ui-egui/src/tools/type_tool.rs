@@ -34,7 +34,7 @@ mod pointer;
 #[cfg(test)]
 use defaults::{apply, default_style_params, default_styles, shown_scale};
 pub use defaults::{foreground_changed, open_color_picker};
-pub(crate) use defaults::{formatting_params, target, target_text, type_unit, with_target};
+pub(crate) use defaults::{formatting_params, target, target_text, type_unit};
 #[cfg(test)]
 pub(crate) use editing::{CharToggle, step_char_metric, toggle_char_style, toggle_hyphenate};
 pub use editing::{cancel, commit, commit_with, edit_active, edit_at, end_if_left};

@@ -1,5 +1,8 @@
-use super::history::fix_selection;
-use super::*;
+use super::history::{fix_selection, visibility_changes};
+use super::{
+    Arc, Document, EngineError, LayerId, Result, Session, Value, brush_cmds, channel_cmds, commands, hidden_target, jobs, layer_multi_cmds, retouch_cmds,
+    smart_cmds,
+};
 
 impl Session {
     /// Run a command by id with JSON params. Returns a JSON result.

@@ -1,5 +1,5 @@
 use super::defaults::apply;
-use super::*;
+use super::{Arc, HashMap, PhotocraftApp, PoisonError, json};
 
 /// Font families: bundled, system, and those the host serves (`photocraft_text::served`, fetched
 /// when picked). Cached until the shared engine registers fonts or the served catalog changes.
@@ -283,8 +283,10 @@ pub(crate) struct FontLibrary {
 /// target's whole text, on one line and at most 60 characters. `None` without a type target or
 /// with blank text (the preview then shows its sample).
 pub(super) fn preview_text(app: &PhotocraftApp) -> Option<String> {
-    let (layer, range) = target(app)?;
-    let text = &text_layer(&app.session.active()?.doc, LayerId(layer))?.text;
+    let (layer, range) = defaults::target(app)?;
+    let text = &crate::type_tool::text_layer(&app.session.active()?.doc, crate::type_tool::LayerId(layer))?.text;
+    use crate::type_tool::defaults;
+
     let chosen: String = match range {
         Some([a, b]) => text.chars().skip(a).take(b.saturating_sub(a)).collect(),
         None => text.clone(),
