@@ -898,7 +898,7 @@ fn handle_canvas_tool_menus(app: &mut PhotocraftApp, input: &CanvasToolInput<'_>
 
 fn handle_canvas_tool_navigation(
     app: &mut PhotocraftApp,
-    _ui: &mut egui::Ui,
+    ui: &mut egui::Ui,
     view: &mut View,
     input: &CanvasToolInput<'_>,
     buttons: &mut crate::paint_mouse::Buttons,
@@ -927,8 +927,8 @@ fn handle_canvas_tool_navigation(
     // Animated Zoom: a Zoom press held still zooms continuously (zoom_hold.rs); while it does,
     // it owns the press: no scrub, and its release is no click step.
     if tool == Tool::Zoom && !transform_owns_pointer {
-        let out = zoom_out(_ui.input(|i| i.modifiers.alt));
-        let on_canvas = false;
+        let out = zoom_out(ui.input(|i| i.modifiers.alt));
+        let on_canvas = !input.under_dialog && !over_compass && response.is_pointer_button_down_on();
         let hold = crate::zoom_hold::hold_id(idx, primary, ctx.viewport_id());
         if crate::zoom_hold::update(ctx, view, xf, app.session.prefs().general.animated_zoom, out, ppp, on_canvas, hold) {
             (buttons.started, buttons.dragged, buttons.stopped, buttons.clicked) = (false, false, false, false);
