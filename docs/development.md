@@ -406,7 +406,8 @@ cargo xtask scorecard            # regenerate docs/scorecard.md
 cargo xtask scorecard --check    # what CI runs: fails if the committed file is stale
 cargo xtask perf                 # full benchmark run (tens of minutes, release build)
 cargo xtask perf --quick         # small synthetic documents (about a minute once built)
-cargo xtask perf --update-baseline   # also write perf/baseline.json from this run
+cargo xtask perf --update-baseline   # also write perf/baseline.json from this run (refused when contended)
+cargo xtask perf --update-baseline --from a/results.json --from b/results.json ...   # baseline from saved runs
 ```
 
 **Sources.** The scorecard reads only committed files, so it is deterministic:
@@ -422,7 +423,9 @@ cargo xtask perf --update-baseline   # also write perf/baseline.json from this r
   a number.
 - `perf/baseline.json`: the numbers the scorecard shows, written only by
   `cargo xtask perf --update-baseline`, with the machine (CPU, RAM, GPU adapter, OS), its machine
-  class, commit, date and load average.
+  class, commit, date, load average, core count and how many runs it was built from. A baseline
+  recorded with `--allow-contended` carries `"contended": true`, and the scorecard labels any
+  contended baseline (one whose 1-minute load at the start was above `max_load_per_core` per core).
 - `crates/io/tests/it/corpus.rs`: the corpus floors (every `Source { .. }` constant).
 - `xtask/*-corpus.sha256`: file counts for pinned corpora, so stale counts in doc comments cannot
   change the reported denominators. No downloaded corpus is needed to generate the scorecard.
@@ -439,11 +442,27 @@ breaks, when a scenario's p50 regresses more than 15 % (`--threshold`, or `regre
 against a baseline from the same machine class and mode, or when a bench fails. Runs from
 different machine classes are never compared, and `--quick` numbers are only compared with a
 quick baseline. Machines that run other work give noisy numbers: check the load average in the
-summary before trusting a regression, and record it next to any number you quote.
+summary before trusting a regression, and record it next to any number you quote. A run whose
+1-minute load at the start (sampled before the release build, so the harness's own compile doesn't
+count) is above `settings.max_load_per_core` per core is marked **contended**
+in the summary, and `--update-baseline` refuses to record it unless `--allow-contended` is given.
+
+**Recording a baseline.** One run is noisy, especially on the shared nightly runner, so build the
+baseline from several: download the last five or more nightly `perf-results` artifacts
+(`gh run download <run id> -n perf-results -D runs/<run id>`), then run
+`cargo xtask perf --update-baseline --from runs/<id1>/results.json --from runs/<id2>/results.json ...`
+(add `--allow-contended` for the GitHub runner, which is never idle). It needs at least
+`settings.baseline_min_runs` runs of one machine class and mode, all from a clean tree. Each
+scenario gets the median p50 and the highest p50 of the runs; a regression is judged against that
+highest p50 (the runs' own noise), so only changes bigger than the runner's spread flag. It also
+prints which budgets could be enforced (within `settings.enforce_margin` of the budget in every
+run) and which enforced budgets went over in some run. Commit `perf/baseline.json` and the
+regenerated `docs/scorecard.md` in a PR.
 
 **Measuring one scenario.** A full run is tens of minutes; one row is seconds once its bench is
-built. `xtask perf`'s own flags are `--quick`, `--update-baseline`, `--threshold`, `--bench`
-(repeatable, one bench per name), `--skip-build` and `--reuse`; it has no way to pick a single
+built. `xtask perf`'s own flags are `--quick`, `--update-baseline` (with `--from` and
+`--allow-contended`), `--threshold`, `--bench` (repeatable, one bench per name), `--skip-build`
+and `--reuse`; it has no way to pick a single
 *row*. The bench binary takes those filters itself — `--only <substring>` (row names are matched
 with `contains`), `--group <name>` and `--reps N` — so to time one row run the bench directly:
 
