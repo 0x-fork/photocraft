@@ -2,7 +2,9 @@
 //! Direct Selection (A) lives in `direct_select`.
 //! All edits go through the engine's `shape.*` / `path.*` commands.
 
-use egui::{Color32, Pos2, Rect, Sense, Stroke, pos2, vec2};
+#[cfg(test)]
+use egui::Pos2;
+use egui::{Color32, Rect, Sense, Stroke, pos2, vec2};
 use photocraft_doc::vector::Path;
 use photocraft_doc::{Document, LayerContent};
 use photocraft_geom::Affine;
@@ -41,7 +43,6 @@ use path_ops::target_path;
 pub use path_ops::{active_path_name, path_selection_finish, path_to_selection, pick_shape_at, selected_document_path, takes_path_mask, with_active_path};
 pub(crate) use path_ops::{
     active_shape_path, active_type_path, delete_key_deletes_work_path, deselect_loaded_path, free_transform_path, targeted_vector_mask, work_path_shown,
-    work_path_shown_in,
 };
 #[cfg(test)]
 use paths_panel::path_context_actions;

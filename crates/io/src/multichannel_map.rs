@@ -196,8 +196,10 @@ pub(crate) fn layerless_file(
         image_data,
         write_as_psb: false,
     };
-    if let Some(limit) = size_limit {
-        warnings.extend(crate::psd_export::fit_psd_size(&mut file, limit));
+    if let Some(limit) = size_limit
+        && let Some(warning) = crate::psd_export::fit_psd_size(&mut file, limit)
+    {
+        warnings.push(warning);
     }
     crate::psd_export::sign_global_blocks(&mut file);
     file

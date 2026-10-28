@@ -3,7 +3,7 @@ use super::fonts::{axis_sliders, font_picker, fonts_ready, selected_style, style
 use super::options_bar::{
     align_glyph, apply_kerning, direction_glyph, direction_items, icon_label, kerning_at, kerning_field, kerning_label, num_field, styles_at, toggle_cell,
 };
-use super::*;
+use super::{Color32, LayerId, PhotocraftApp, Stroke, json, text_layer};
 
 /// The Character panel's OpenType buttons, in Photoshop's order: (feature tag, command id,
 /// tooltip). The tooltips are the Type › OpenType menu labels.

@@ -1,4 +1,4 @@
-use super::*;
+use super::{Color32, PhotocraftApp, Rect, RichText, Sense, Stroke, StrokeKind, Tokens, c32, pos2, theme, vec2, widgets};
 
 /// The Color panel's foreground and background chips. A click picks the colour the field edits,
 /// framed; a double-click opens the Color Picker on it.

@@ -2,7 +2,10 @@ use super::params::{
     f64p, fill_json, layer_id, live_from_params, live_json, nums, op_from, parse_fill, parse_path, parse_stroke, path_json, radii, stroke_json,
 };
 use super::vector_mask::with;
-use super::*;
+use super::{
+    Affine, Color, Document, EngineError, Fill, FillRule, Layer, LayerContent, LayerId, LiveShape, Path, PathOp, Point, Result, SHAPE_BLOCKS, Session,
+    ShapeLayer, Value, bad, json, sel, vector,
+};
 
 fn active_shape(s: &Session) -> std::result::Result<&ShapeLayer, String> {
     let d = s.active().ok_or("no document open")?;
