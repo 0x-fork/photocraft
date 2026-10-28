@@ -1,5 +1,7 @@
+#[cfg(not(target_arch = "wasm32"))]
+use super::PARALLEL_MIN_PIXELS;
 use super::open::raw_stage;
-use super::{CameraRaw, CameraRawDialog, PARALLEL_MIN_PIXELS, RgbHistogram};
+use super::{CameraRaw, CameraRawDialog, RgbHistogram};
 
 /// Everything one develop of the proxy reads, owned, so it can run off the UI thread.
 pub(super) struct ProxyJob {

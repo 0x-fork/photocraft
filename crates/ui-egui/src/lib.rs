@@ -127,7 +127,6 @@ pub use dialogs::export_dialog;
 pub use dialogs::file_ui;
 pub use dialogs::fill_ui;
 pub use dialogs::filter_dialog;
-#[cfg(not(target_arch = "wasm32"))]
 use dialogs::filter_preview_ui;
 pub use dialogs::gallery_ui;
 pub use dialogs::guide_layout_ui;
